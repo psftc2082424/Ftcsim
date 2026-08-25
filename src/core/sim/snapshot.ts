@@ -56,11 +56,36 @@ export interface RobotSnapshot {
   readonly drive: DriveSnapshot;
 }
 
+/**
+ * A game piece in the world.
+ *
+ * Carries both identities on purpose: `id` is the numeric entity id the physics
+ * layer keys bodies by, while `pieceId` and `pieceType` are the string
+ * identifiers the game layer's events use. Keeping both here is what lets a
+ * caller map a snapshot onto region-membership observations without either layer
+ * importing the other.
+ */
+export interface PieceSnapshot {
+  readonly id: EntityId;
+  readonly pieceId: string;
+  readonly pieceType: string;
+
+  readonly pose: Pose;
+  /** Pose at the end of the previous tick, for render interpolation. */
+  readonly previousPose: Pose;
+  readonly vel: Velocity;
+
+  readonly radiusM: number;
+  /** Height of the piece's centre above the floor. */
+  readonly heightM: number;
+}
+
 export interface WorldSnapshot {
   readonly tick: number;
   /** Simulated time, derived from the tick counter — never wall clock. */
   readonly timeSec: number;
   readonly robots: readonly RobotSnapshot[];
+  readonly pieces: readonly PieceSnapshot[];
   readonly batteryVolts: number;
   readonly batteryCurrentA: number;
 }

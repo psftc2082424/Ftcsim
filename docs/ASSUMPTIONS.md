@@ -374,6 +374,54 @@ vertical-span overlap test, and nothing in Phase 1 can drive over a wall, so it
 has no observable effect until traversable field elements exist. It is recorded
 now so the number is not mistaken for a measurement later.
 
+### 5.5 Game pieces have no damping
+
+| | |
+|---|---|
+| **Value** | None — a piece keeps whatever velocity a collision gave it |
+| **Confidence** | **ASSUMED** (idealisation) |
+| **Location** | `src/core/sim/simWorld.ts` |
+
+Pieces integrate as free bodies with no applied force. Contacts are frictionless
+(§5.1) and there is no rolling resistance (§2.4), so a knocked piece slides at
+constant speed until it meets a wall.
+
+**Why nothing was added.** Any damping figure would be an invented coefficient
+with no measurement behind it, which `CLAUDE.md` forbids. The robot avoids this
+problem because back-EMF braking supplies a real, derived decelerating torque;
+a game piece has no motor, so there is no honest equivalent to derive.
+
+**Known bias.** Pieces travel further than real ones after being struck.
+Calibration target alongside §2.1 and §5.1.
+
+### 5.6 A piece pinned against a wall escapes the field
+
+| | |
+|---|---|
+| **Status** | **Known defect**, asserted by test rather than hidden |
+| **Location** | `src/core/physics/resolve.ts`, surfaced in `src/core/sim/pieces.test.ts` |
+
+A robot that keeps driving into a piece already resting against the perimeter
+pins it in a gap narrower than its own diameter. The situation is geometrically
+unsatisfiable: no position exists that separates the piece from both bodies.
+
+**Why it escapes rather than jamming.** Both contact normals point along the same
+axis, so single-pass positional correction alternates pushing the piece out of
+the wall and out of the robot, and eventually displaces its centre past the
+wall's far face. Real physics would squirt a round piece sideways; the resolver
+has no lateral impulse to give it because neither contact has a lateral
+component.
+
+**Scope of the effect.** Robots remain correctly contained — this is specific to
+a small, light body pinned between a heavy one and static geometry. Verified by
+test: in the same scenario the robot stops at the wall while the piece leaves.
+
+**Fix path, deliberately not taken here.** Iterating contact resolution several
+times per tick, or adding a tangential escape for circle-versus-face contacts.
+Either changes robot-versus-wall resolution too and would rebaseline the Phase 1
+golden determinism digest, so it belongs in its own change with its own
+verification rather than riding along with entity plumbing.
+
 ---
 
 ## 6. Input handling
@@ -681,9 +729,11 @@ detection of when a piece enters a region is not yet implemented.
 
 **Largely addressed.** `regions.ts` gives regions and zones placed geometry;
 `membershipDetector.ts` turns changes in that membership into the existing
-`PieceEnteredRegion` / `RobotEnteredZone` events. What remains is that game
-pieces have no bodies in `SimWorld`, so nothing yet supplies the detector with
-real positions during a match — its input is synthetic in tests.
+`PieceEnteredRegion` / `RobotEnteredZone` events; and `SimWorld` now carries game
+pieces as circle bodies that appear in the world snapshot. What remains is the
+join: nothing yet maps a snapshot onto detector observations each tick, so the
+detector's input is still synthetic in tests. That mapping belongs above both
+layers, since `sim` may not import `game`.
 
 ### 10.6 Robot zone occupancy by corner sampling
 
@@ -768,4 +818,5 @@ resolution is not stuck with a representative number invented to fit.
 | 2026-08-25 | Added §10 (game layer and DECODE fixture): what is transcribed vs assumed, DECODE cycle-time estimates, logical world-state bookkeeping, and what was deliberately not transcribed from the manual. |
 | 2026-08-25 | Added §10.6 (corner-sampled zone occupancy) as region geometry landed; §10.5 updated to record that regions now have placed shapes but nothing emits events from them yet. |
 | 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
+| 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |

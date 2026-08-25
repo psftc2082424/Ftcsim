@@ -41,7 +41,7 @@ import { StateHasher } from '../math/hash.js';
 import { solveDrivetrain, type DrivetrainSolution } from '../drive/drivetrain.js';
 import { IdealTraction, type TractionModel } from '../drive/traction.js';
 import type { ChassisVelocity } from '../drive/mecanumKinematics.js';
-import { rotate, vec2 } from '../math/vec2.js';
+import { rotate, vec2, type Vec2 } from '../math/vec2.js';
 import { deriveRobot, type DerivedRobot } from '../robot/derive.js';
 import type { RobotConfig } from '../robot/robotConfig.js';
 import {
@@ -53,14 +53,18 @@ import {
   type RigidBody,
 } from '../physics/body.js';
 import { amps } from '../units/si.js';
-import { createObb } from '../physics/shapes.js';
+import { createCircle, createObb } from '../physics/shapes.js';
+import { inchesToMeters, poundsToKilograms } from '../units/convert.js';
 import { SpatialHash } from '../physics/broadphase.js';
 import { collide } from '../physics/sat.js';
 import { resolveContact } from '../physics/resolve.js';
 import { integrateBody } from '../physics/integrate.js';
 import { createStandardField, type FieldTemplate } from '../field/fieldTemplate.js';
 import type { Controller } from '../control/controller.js';
-import type { Alliance, RobotSnapshot, WorldSnapshot } from './snapshot.js';
+import type { Alliance, PieceSnapshot, RobotSnapshot, WorldSnapshot } from './snapshot.js';
+
+/** Reused so the free-body integration allocates nothing per tick. */
+const ZERO_WRENCH = Object.freeze({ fx: 0, fy: 0, mz: 0 });
 
 /** Fixed simulation rate. ASSUMPTIONS.md §4.1. */
 export const TICK_RATE_HZ = 200;
@@ -69,11 +73,39 @@ export const DT_SECONDS = 1 / TICK_RATE_HZ;
 /** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
 export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
 
+/**
+ * Entity ids for game pieces start here.
+ *
+ * Robots take 0 upward and the standard field takes 1000 upward, so pieces sit
+ * in the gap between them. Any collision with an existing id is caught in the
+ * constructor rather than silently overwriting a body.
+ */
+export const PIECE_ENTITY_ID_BASE = 100;
+
 export interface RobotSpec {
   readonly config: RobotConfig;
   readonly controller: Controller;
   readonly alliance?: Alliance;
   readonly startPose?: Pose;
+}
+
+/**
+ * A game piece placed on the field.
+ *
+ * Authored in FTC units like `RobotConfig`, and converted once here. Pieces are
+ * modelled as circles: FTC game pieces are usually balls or discs, and a circle
+ * needs no orientation to be meaningful.
+ */
+export interface GamePieceSpec {
+  /** String id carried on the game layer's events. */
+  readonly pieceId: string;
+  /** Piece class, e.g. a colour. Also carried on events. */
+  readonly pieceType: string;
+  readonly diameterIn: number;
+  readonly massLb: number;
+  readonly startPositionM?: Vec2;
+  /** Centre height above the floor. Defaults to resting on its own radius. */
+  readonly heightM?: number;
 }
 
 export interface SimWorldOptions {
@@ -82,6 +114,8 @@ export interface SimWorldOptions {
    * Nothing here special-cases the count (ARCHITECTURE.md §9).
    */
   readonly robots: readonly RobotSpec[];
+  /** Game pieces on the field. Optional: a bare drivetrain world has none. */
+  readonly pieces?: readonly GamePieceSpec[];
   readonly field?: FieldTemplate;
   readonly battery?: BatteryConfig;
   readonly traction?: TractionModel;
@@ -98,6 +132,14 @@ interface SimRobot {
   solution: DrivetrainSolution;
 }
 
+interface SimPiece {
+  readonly spec: GamePieceSpec;
+  readonly body: RigidBody;
+  readonly radiusM: number;
+  readonly heightM: number;
+  previousPose: Pose;
+}
+
 export class SimWorld {
   readonly dt = DT_SECONDS;
   readonly field: FieldTemplate;
@@ -105,6 +147,7 @@ export class SimWorld {
 
   private tickCount = 0;
   private readonly robots: SimRobot[] = [];
+  private readonly pieces: SimPiece[] = [];
   private readonly bodies = new Map<EntityId, RigidBody>();
   private readonly battery: Battery;
   private readonly broadphase = new SpatialHash();
@@ -147,6 +190,50 @@ export class SimWorld {
         solution: this.solveFor(derived, { vx: 0, vy: 0, omega: 0 }, { x: 0, y: 0, turn: 0 }),
       });
     });
+
+    (options.pieces ?? []).forEach((spec, index) => this.addPiece(spec, index));
+  }
+
+  private addPiece(spec: GamePieceSpec, index: number): void {
+    if (spec.pieceId === '') throw new Error('Game piece needs a non-empty pieceId.');
+    if (!(spec.diameterIn > 0)) {
+      throw new Error(`Piece "${spec.pieceId}" needs a positive diameter, got ${spec.diameterIn}.`);
+    }
+    if (!(spec.massLb > 0)) {
+      throw new Error(`Piece "${spec.pieceId}" needs a positive mass, got ${spec.massLb}.`);
+    }
+    if (this.pieces.some((existing) => existing.spec.pieceId === spec.pieceId)) {
+      throw new Error(`Duplicate game piece id "${spec.pieceId}".`);
+    }
+
+    const id = PIECE_ENTITY_ID_BASE + index;
+    if (this.bodies.has(id)) {
+      throw new Error(
+        `Entity id ${id} for piece "${spec.pieceId}" is already taken. ` +
+          'Piece ids start at PIECE_ENTITY_ID_BASE; the field or robots have overrun it.',
+      );
+    }
+
+    const radiusM = inchesToMeters(spec.diameterIn) / 2;
+    const massKg = poundsToKilograms(spec.massLb);
+    // Solid disc about its centre: I = ½ m r².
+    const inertiaZ = 0.5 * massKg * radiusM * radiusM;
+    // A piece rests on the floor, so its centre sits one radius up unless the
+    // caller says otherwise.
+    const heightM = spec.heightM ?? radiusM;
+
+    const body = createDynamicBody({
+      id,
+      kind: 'piece',
+      shape: createCircle(radiusM),
+      mass: massKg,
+      inertiaZ,
+      span: { bottom: Math.max(0, heightM - radiusM), top: heightM + radiusM },
+      pose: { p: spec.startPositionM ?? vec2(0, 0), theta: 0 },
+    });
+
+    this.bodies.set(id, body);
+    this.pieces.push({ spec, body, radiusM, heightM, previousPose: body.pose });
   }
 
   get tick(): number {
@@ -203,6 +290,14 @@ export class SimWorld {
       robot.accelerationMps2 = (speedAfter - speedBefore) / DT_SECONDS;
     }
 
+    // 6b. Pieces integrate freely: nothing drives them, so they carry whatever
+    // velocity a collision last gave them. Note there is no damping — see
+    // ASSUMPTIONS.md §5.5.
+    for (const piece of this.pieces) {
+      piece.previousPose = piece.body.pose;
+      integrateBody(piece.body, ZERO_WRENCH, DT_SECONDS);
+    }
+
     // 7. Collision.
     this.resolveCollisions();
 
@@ -255,10 +350,22 @@ export class SimWorld {
       },
     }));
 
+    const pieces: PieceSnapshot[] = this.pieces.map((piece) => ({
+      id: piece.body.id,
+      pieceId: piece.spec.pieceId,
+      pieceType: piece.spec.pieceType,
+      pose: piece.body.pose,
+      previousPose: piece.previousPose,
+      vel: piece.body.vel,
+      radiusM: piece.radiusM,
+      heightM: piece.heightM,
+    }));
+
     const snapshot: WorldSnapshot = {
       tick: this.tickCount,
       timeSec: this.timeSec,
       robots,
+      pieces,
       batteryVolts: this.battery.voltage,
       batteryCurrentA: this.battery.current,
     };
@@ -292,7 +399,21 @@ export class SimWorld {
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
     }
 
+    // Pieces contribute in creation order. A world with none hashes exactly as
+    // it did before pieces existed, so the Phase 1 golden digest still holds.
+    for (const piece of this.pieces) {
+      const { pose, vel } = piece.body;
+      hasher.pushInt32(piece.body.id);
+      hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
+      hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
+    }
+
     return hasher.digestHex();
+  }
+
+  /** Game pieces in creation order, for callers that need more than a snapshot. */
+  get pieceCount(): number {
+    return this.pieces.length;
   }
 
   private solveFor(
