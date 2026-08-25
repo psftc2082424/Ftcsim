@@ -364,25 +364,70 @@ Semi-implicit (symplectic) Euler at fixed `dt = 1/200 s`.
 
 ## 6. Game-definition architecture *(Phase 3–4)*
 
+**Implementation status.** The *type layer* is built and tested; the runtime is
+not. Shipped today:
+
+| Module | Contents |
+|---|---|
+| `core/game/sourced.ts` | `Sourced<T>` and its constructors |
+| `core/game/matchStructure.ts` | Match timing types and pure derivation |
+| `core/game/scoring.ts` | `Objective` and `ScoringRule` types, capability helpers |
+| `schema/gameDefinition.schema.ts` | Zod validation and `safeParse*` |
+
+Not built: the rules engine, the predicate registry, game pieces, field
+geometry, metrics, the `GameDefinition` container itself, and PDF ingestion.
+Sections below mark which is which, so this document can be trusted about what
+exists.
+
 ### 6.1 Provenance wrapper
 
 ```ts
 type Confidence = 'explicit' | 'inferred' | 'assumed' | 'unknown';
 
 interface Sourced<T> {
-  value: T;
-  confidence: Confidence;
-  sourcePage?: number;
-  sourceQuote?: string;
-  note?: string;
+  readonly value: T;
+  readonly confidence: Confidence;
+  readonly sourcePage?: number | undefined;
+  readonly sourceQuote?: string | undefined;
+  readonly note?: string | undefined;
 }
 ```
 
-Applied to every extracted field, making `PRODUCT_SPEC.md` §3 structural rather
-than advisory — the assumption ledger is a projection over the definition and
-cannot drift out of date.
+Constructed through named helpers rather than object literals, so the confidence
+level is always a deliberate choice:
 
-### 6.2 Shape
+```ts
+explicit(value, sourcePage?, sourceQuote?)   // stated outright by the manual
+inferred(value, note, sourcePage?)           // deduced from a diagram or context
+assumed(value, note)                         // engineering estimate; note required
+unresolved(placeholder, note)                // undeterminable; a human must replace it
+```
+
+Note the asymmetry in naming: the *confidence value* is `'unknown'`, but the
+constructor is `unresolved()` — it carries a working placeholder so the
+simulation can still run, which is strictly weaker than `assumed`.
+
+Reading helpers: `isTrustworthy()` (explicit or inferred), `needsReview()` (its
+negation), `valueOf()` to unwrap, and `describeSource()` for display.
+
+Wrapping every extracted field makes `PRODUCT_SPEC.md` §3 structural rather than
+advisory: a field cannot hold a bare number, so "where did this come from?"
+always has an answer.
+
+> **Planned, not shipped:** a `collectAssumptions()` walk that projects a whole
+> definition into a review list. The wrapper makes it possible; nothing
+> implements it yet. Until then the review surface is per-field.
+
+### 6.2 Container shape *(planned — not implemented)*
+
+There is deliberately **no `GameDefinition` interface in the codebase yet.**
+Declaring the container would mean inventing shapes for `FieldElement`, `Zone`,
+`GamePieceType`, `StrategicFunction` and `MetricSpec` — five types whose real
+requirements are not yet known. Writing them now would be speculation frozen
+into a type, and the migration cost of getting them wrong is paid by every saved
+definition.
+
+The intended shape, once those parts exist:
 
 ```ts
 interface GameDefinition {
@@ -394,14 +439,14 @@ interface GameDefinition {
     elements: FieldElement[]; zones: Zone[]; startPositions: Pose2[];
   };
   pieces: GamePieceType[];
-  match: MatchStructure;
+  match: MatchStructure;              // built (§6.3)
   robotConstraints: {
     maxLengthIn: Sourced<number>; maxWidthIn: Sourced<number>;
     maxHeightIn: Sourced<number>; expansionRules: Sourced<string>[];
   };
-  objectives: Objective[];
+  objectives: Objective[];            // built (§6.4)
   strategicFunctions: StrategicFunction[];
-  scoringRules: ScoringRule[];
+  scoringRules: ScoringRule[];        // built (§6.4)
   metrics: MetricSpec[];
   assumptions: AssumptionEntry[];
 }
@@ -410,42 +455,173 @@ interface GameDefinition {
 `field.template` keeps the season-stable 12 ft × 12 ft perimeter out of the
 extractor entirely.
 
-### 6.3 Match structure
+The pieces that exist today are consumed and validated individually — see
+`safeParseMatchStructure`, `safeParseScoringRule` and `safeParseObjective` in
+§6.5 — so the container can be assembled last, when its remaining members are
+actually understood.
+
+### 6.3 Match structure *(built)*
 
 ```ts
+type PeriodId  = 'AUTO' | 'TELEOP';
+type SubPhaseId = 'ENDGAME';
+type PhaseId   = PeriodId | SubPhaseId;          // what a rule can scope to
+type MatchState = 'PRE' | PhaseId | 'POST';      // what the clock can report
+
 interface MatchStructure {
-  periods: [
-    { id: 'AUTO';   durationSec: Sourced<number> },
-    { id: 'TELEOP'; durationSec: Sourced<number>;
-      subPhases: [ { id: 'ENDGAME'; startsAtRemainingSec: Sourced<number> } ] }
-  ];
+  readonly periods: readonly [AutoPeriod, TeleopPeriod];
+  /** Dead time between autonomous and teleop, if the game defines any. */
+  readonly transitionSec?: Sourced<number> | undefined;
+}
+
+interface AutoPeriod   { id: 'AUTO';   durationSec: Sourced<number> }
+interface TeleopPeriod {
+  id: 'TELEOP';
+  durationSec: Sourced<number>;
+  subPhases: readonly [EndgameSubPhase];
+}
+interface EndgameSubPhase { id: 'ENDGAME'; startsAtRemainingSec: Sourced<number> }
+```
+
+Endgame is positioned by **time remaining in teleop**, never by a duration. That
+is what makes it structurally incapable of lengthening the match, whatever value
+it holds — the locked decision from §0.1 enforced by the type rather than by
+convention.
+
+**Derivation API**, all pure:
+
+| Function | Returns |
+|---|---|
+| `totalMatchDurationSec(m)` | auto + transition + teleop. Endgame contributes nothing. |
+| `teleopStartSec(m)` | absolute time teleop begins |
+| `endgameStartSec(m)` | absolute time endgame begins, clamped into teleop |
+| `matchTimeline(m)` | non-overlapping `PhaseWindow[]` tiling the match exactly once |
+| `matchStateAt(m, t)` | `MatchState` at an absolute time |
+| `isWithinPhase(state, scope)` | whether a rule scoped to `scope` applies |
+
+**There is no `TRANSITION` state.** The transition gap is reported as `'PRE'` —
+the match has started but no scoring period is active, and `PRE` already means
+exactly that. Adding a distinct state would give rules a fourth scope to handle
+for no behavioural gain.
+
+**The asymmetry that makes the sub-phase model correct**, and the single most
+important semantic in this module:
+
+```
+isWithinPhase('ENDGAME', 'TELEOP') === true    // endgame IS teleop
+isWithinPhase('TELEOP', 'ENDGAME') === false   // but teleop is not endgame
+```
+
+A rule scoped to `TELEOP` keeps scoring during endgame, because endgame is part
+of teleop. A rule scoped to `ENDGAME` does not fire earlier. Getting this
+backwards would award hang points for the entire driver-controlled period.
+
+`endgameStartSec` **clamps** a threshold longer than teleop rather than
+producing an endgame that starts before teleop does. The schema rejects such a
+definition (§6.5), but the derivation must not emit nonsense if one reaches it.
+
+`FTC_CONVENTIONAL_MATCH` ships as a convenience: 30 s auto, 2:00 teleop, endgame
+in the final 30 s. **Every field is marked `assumed`, not `explicit.`** These
+values have held for many seasons but they are *rules*, and a real definition
+must read them from that season's manual. Shipping them as `explicit` would be
+precisely the silent invention `PRODUCT_SPEC.md` §3 forbids.
+
+### 6.4 Objectives and scoring rules *(types built, engine not)*
+
+Two ideas kept deliberately separate, because one objective may be served by
+several rules:
+
+- **`Objective`** is strategic — what is worth points, and which capabilities a
+  robot needs to pursue it. This is what the Phase 5 archetype generator reasons
+  over.
+- **`ScoringRule`** is mechanical — which simulated event awards which points
+  under which conditions. This is what the rules engine will evaluate.
+
+```ts
+type PhaseScope = PhaseId | 'ANY';
+type AllianceTarget = 'owner' | 'red' | 'blue';
+type FilterValue = string | number | boolean;
+
+interface RuleFilter   { field: string; equals: FilterValue }
+interface ScoringTrigger { event: SimEventKind; filters: readonly RuleFilter[] }
+interface PredicateRef { predicateId: string; params?: Record<string, FilterValue> }
+interface ScoringAward { points: Sourced<number>; alliance: AllianceTarget }
+
+interface ScoringRule {
+  id: string; label: string;
+  phase: PhaseScope;
+  trigger: ScoringTrigger;
+  condition?: PredicateRef | undefined;   // optional extra condition
+  oncePerPiece?: boolean | undefined;     // a piece scores once, however often it re-enters
+  maxAwards?: number | undefined;         // absent means unbounded
+}
+
+interface Objective {
+  id: string; label: string;
+  phase: PhaseScope;
+  pointValue: Sourced<number>;
+  requiredCapabilities: readonly CapabilityKind[];
+  repeatable: boolean;
+  estimatedCycleSec?: Sourced<number> | undefined;
+  notes?: string | undefined;
 }
 ```
 
-State machine: `PRE → AUTO → TRANSITION → TELEOP → (ENDGAME within TELEOP) → POST`.
-Endgame is entered when teleop remaining crosses the threshold; it does not
-extend match length.
+Objectives reference **capability kinds, never mechanism type names**, which is
+the link to §7 and the reason an objective stays season-agnostic.
 
-### 6.4 Rules engine
+Helpers, all pure: `objectivesReachableBy(objectives, capabilities)`,
+`missingCapabilitiesFor(objective, capabilities)`, and `maxContributionOf(rule)`
+— which returns `null` for an uncapped rule rather than a sentinel number.
 
-Pure function:
+`SimEventKind` is the vocabulary rules may subscribe to:
+`PieceEnteredRegion`, `PieceReleasedBy`, `PieceCameToRest`, `RobotOverlapsZone`,
+`RobotHeightExceeded`, `MechanismStateChanged`. Physics emits these facts; it
+never computes score.
 
+**No `eval`, ever.** A condition is a `PredicateRef` — an *identifier* into a
+reviewed TypeScript registry, not an expression. A definition may be produced by
+a language model from a PDF in Phase 4; there must be no path by which generated
+text becomes executed code. The schema enforces this with a conservative
+identifier pattern (§6.5).
+
+> **Planned, not shipped:** the rules engine itself —
+> `(GameDefinition, WorldSnapshot, SimEvent[], MatchClock, ScoreState) →
+> { deltas: ScoreDelta[], effects: Effect[] }` — together with the predicate
+> registry and the closed `Effect` union
+> (`consumePiece | attachPiece | detachPiece | teleportPiece | setPieceLayer`)
+> through which rules are the only thing allowed to mutate world state. Rules
+> will never touch bodies directly.
+
+### 6.5 Validation layer *(built)*
+
+`schema/gameDefinition.schema.ts` is the boundary where model output stops being
+text and becomes something the simulator will act on. It enforces two properties
+the TypeScript types cannot:
+
+1. **Endgame cannot escape teleop.** `matchStructureSchema` refines the endgame
+   threshold against teleop's own duration, so a definition claiming a 200 s
+   endgame inside a 120 s teleop is *rejected*, not silently clamped.
+2. **No executable content.** Identifiers — predicate ids and filter fields —
+   must match `/^[a-zA-Z][a-zA-Z0-9_-]*$/`. Strings like `() => true`,
+   `require("fs")` or `eval(1)` cannot pass. Unknown keys are stripped rather
+   than forwarded.
+
+```ts
+safeParseMatchStructure(raw) → GameParseResult<MatchStructure>
+safeParseScoringRule(raw)    → GameParseResult<ScoringRule>
+safeParseObjective(raw)      → GameParseResult<Objective>
 ```
-(GameDefinition, WorldSnapshot, SimEvent[], MatchClock, ScoreState)
-    → { deltas: ScoreDelta[], effects: Effect[] }
-```
 
-Physics emits facts only — `PieceEnteredRegion`, `PieceReleasedBy`,
-`PieceCameToRest`, `RobotOverlapsZone`, `RobotHeightExceeded`,
-`MechanismStateChanged`. Rules return a **closed `Effect` union**
-(`consumePiece | attachPiece | detachPiece | teleportPiece | setPieceLayer`)
-which `sim` applies. Rules cannot touch bodies directly.
+`GameParseResult<T>` is a discriminated union carrying either the value or
+pathed `GameParseFailure[]`, so a failure names the field that caused it.
+`sourcedSchema(inner)` wraps any value schema in the provenance envelope, and
+`isReviewRequired(confidence)` gates which parsed values still need a human.
 
-**No `eval`, ever.** Predicates too complex to encode declaratively resolve
-through a TypeScript registry keyed by id — auditable, deterministic, and not
-executable from data.
+Validation is per-structure rather than whole-document because the container
+does not exist yet (§6.2).
 
-### 6.5 Manual pipeline *(Phase 4)*
+### 6.6 Manual pipeline *(Phase 4 — not implemented)*
 
 ```
 PDF → pdf.js (per-page text + layout boxes + page raster)
