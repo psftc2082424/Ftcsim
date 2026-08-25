@@ -606,7 +606,82 @@ is entirely through mass and motor ports. Its throughput number is derived
 
 ---
 
-## 10. Revision log
+## 10. Game layer and the DECODE fixture
+
+### 10.1 What is *not* assumed
+
+Every DECODE point value, duration, artifact count and dimension in
+`core/game/fixtures/decode.ts` is transcribed from the official *DECODE
+Competition Manual* (Team Update 32) and carries a `Sourced` citation with the
+page and a verbatim quote. A test asserts every entry in `DECODE_POINTS` has
+confidence `explicit`. None of it is recalled.
+
+Two findings worth recording because they contradict reasonable expectations:
+
+| Finding | Evidence |
+|---|---|
+| **DECODE has no endgame.** The word appears zero times in the manual. BASE is assessed "at the end of the TELEOP". | §10.5 F; full-text search |
+| **The AUTO→TELEOP gap is 8 s and is not a scoring period.** Total match length is 158 s, not 150 s. | §10.4 |
+
+The second matters: achievements during the gap are explicitly "subject to
+penalties" rather than points (§10.5), so the simulator scores nothing then.
+
+### 10.2 DECODE cycle-time estimates
+
+| | |
+|---|---|
+| **Values** | 2–6 s per objective, in `DECODE_OBJECTIVES` |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/game/fixtures/decode.ts` |
+
+The manual states what actions are *worth*; it never states how long one takes.
+Cycle times are required by the Phase 5 archetype generator to rank objectives,
+so they are estimated and flagged. A test asserts every one is marked `assumed`.
+
+**Known bias.** These are guesses about robot performance, not game facts. They
+should be replaced with measured probe results (ARCHITECTURE.md §8.1) once
+mechanisms can actually execute a cycle.
+
+### 10.3 `PIECES_PER_OUTPUT_REVOLUTION` interaction
+
+Nothing in the DECODE fixture depends on §9.1's throughput constant yet, because
+mechanisms do not act on artifacts in Phase 3. When they do, artifact throughput
+will inherit that assumption.
+
+### 10.4 Logical world state is bookkeeping, not physics
+
+| | |
+|---|---|
+| **Model** | `MatchRunner` tracks region membership, ordered slots and zone occupancy |
+| **Confidence** | **ASSUMED** (a modelling choice, not a measurement) |
+| **Location** | `src/core/game/matchRunner.ts` |
+
+Games score things rigid-body physics does not express — "third artifact from
+the gate on the ramp", "all support inside the base tile". The runner maintains
+that as logical state fed by events, rather than trying to derive it from
+geometry.
+
+**Consequence.** Region and slot occupancy are only as accurate as the events a
+simulation emits. In Phase 3 those events are scripted by tests; when the
+physics layer emits them for real, the mapping from geometry to region
+membership becomes a new source of error and will need its own entry here.
+
+### 10.5 Not transcribed from the manual
+
+| Item | Status | Why |
+|---|---|---|
+| RP thresholds (Table 10-3) | **unresolved** | Vary by event tier; affect ranking, not match score |
+| Field element geometry (GOAL, RAMP, CLASSIFIER, OBELISK positions) | Not modelled | The manual gives the CAD model as authoritative and states illustration dimensions are nominal ±1 in |
+| Penalties and violations (§10.6, §11) | Not modelled | Refereeing judgement; out of Phase 3 scope |
+| AprilTag positions | Recorded only as ids | Navigation aid, not scoring |
+
+Field geometry is the significant gap: DECODE regions currently exist as *ids*
+that events reference, not as placed shapes. Scoring is correct; spatial
+detection of when a piece enters a region is not yet implemented.
+
+---
+
+## 11. Revision log
 
 | Date | Change |
 |---|---|
@@ -614,4 +689,5 @@ is entirely through mass and motor ports. Its throughput number is derived
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |
 | 2026-08-24 | Motor catalogue extended from 5 to 10 verified entries, including the 1:1 base motor. Base free speed and base stall torque are now datasheet-read rather than inferred; added the implied-gearbox-efficiency integrity check (§7.1). |
 | 2026-08-24 | Added §9 (mechanisms): throughput constant, centre-of-mass model with mechanisms, motor port budget. Centre-of-mass entry supersedes §1.4 for robots carrying mechanisms. |
+| 2026-08-25 | Added §10 (game layer and DECODE fixture): what is transcribed vs assumed, DECODE cycle-time estimates, logical world-state bookkeeping, and what was deliberately not transcribed from the manual. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
