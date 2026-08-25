@@ -679,11 +679,11 @@ Field geometry is the significant gap: DECODE regions currently exist as *ids*
 that events reference, not as placed shapes. Scoring is correct; spatial
 detection of when a piece enters a region is not yet implemented.
 
-**Partially addressed.** `src/core/game/regions.ts` now gives regions and zones
-placed geometry and answers membership from position. What remains is the other
-half: emitting events from that geometry as a simulation runs, and giving game
-pieces bodies to be detected. Until then nothing calls these queries during a
-match.
+**Largely addressed.** `regions.ts` gives regions and zones placed geometry;
+`membershipDetector.ts` turns changes in that membership into the existing
+`PieceEnteredRegion` / `RobotEnteredZone` events. What remains is that game
+pieces have no bodies in `SimWorld`, so nothing yet supplies the detector with
+real positions during a match — its input is synthetic in tests.
 
 ### 10.6 Robot zone occupancy by corner sampling
 
@@ -712,6 +712,49 @@ the limitation stays visible rather than becoming folklore.
 polygon clipping. Every caller asks only for the fraction, so nothing else
 changes.
 
+### 10.7 The detector's snapshot contract
+
+| | |
+|---|---|
+| **Model** | `update()` receives the **complete** set of observed objects for a tick |
+| **Confidence** | **ASSUMED** (an interface contract, not a measurement) |
+| **Location** | `src/core/game/membershipDetector.ts` |
+
+An object previously seen and absent from a later snapshot is treated as having
+left the field, and its exits are emitted for every region it occupied.
+
+**Why this way round.** The alternative — treating absence as "unchanged" —
+makes a piece that is consumed or removed silently remain in a goal forever,
+which quietly inflates score. The chosen direction fails loudly instead: a caller
+that reports only the objects that moved gets obviously wrong exit events rather
+than a subtly wrong score.
+
+**Consequence for callers.** Whatever eventually drives this from the simulation
+must enumerate every piece and robot each tick, not just the ones that changed.
+
+### 10.8 Zone occupancy buckets are duplicated, deliberately
+
+| | |
+|---|---|
+| **Coupling** | `occupancyFor()` mirrors `MatchRunner.setZoneOccupancy` thresholds |
+| **Confidence** | **ASSUMED** (a known duplication) |
+| **Location** | `src/core/game/membershipDetector.ts`, `src/core/game/matchRunner.ts` |
+
+Both classify a support fraction as *full* at `>= 1`, *partial* at `> 0` and
+*outside* otherwise. The detector diffs on that bucket — so drifting from 0.25 to
+0.5 support emits nothing, while 0.5 to 1.0 emits `RobotOverlapsZone` — because
+the bucket is the entire zone state a predicate can observe.
+
+**The hazard.** If the two thresholds ever diverge, the detector could report a
+robot entering a zone the runner does not record it in, and a rule would silently
+never fire. They are duplicated rather than shared because the runner takes a
+fraction off an event while the detector computes one from geometry; extracting
+a shared constant is the obvious fix if a third caller appears.
+
+**Not lossy in the event.** The bucket decides *whether* to emit; the emitted
+`supportFraction` is the real measured value, so a future consumer wanting finer
+resolution is not stuck with a representative number invented to fit.
+
 ---
 
 ## 11. Revision log
@@ -724,4 +767,5 @@ changes.
 | 2026-08-24 | Added §9 (mechanisms): throughput constant, centre-of-mass model with mechanisms, motor port budget. Centre-of-mass entry supersedes §1.4 for robots carrying mechanisms. |
 | 2026-08-25 | Added §10 (game layer and DECODE fixture): what is transcribed vs assumed, DECODE cycle-time estimates, logical world-state bookkeeping, and what was deliberately not transcribed from the manual. |
 | 2026-08-25 | Added §10.6 (corner-sampled zone occupancy) as region geometry landed; §10.5 updated to record that regions now have placed shapes but nothing emits events from them yet. |
+| 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
