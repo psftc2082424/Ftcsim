@@ -679,6 +679,39 @@ Field geometry is the significant gap: DECODE regions currently exist as *ids*
 that events reference, not as placed shapes. Scoring is correct; spatial
 detection of when a piece enters a region is not yet implemented.
 
+**Partially addressed.** `src/core/game/regions.ts` now gives regions and zones
+placed geometry and answers membership from position. What remains is the other
+half: emitting events from that geometry as a simulation runs, and giving game
+pieces bodies to be detected. Until then nothing calls these queries during a
+match.
+
+### 10.6 Robot zone occupancy by corner sampling
+
+| | |
+|---|---|
+| **Model** | Fraction of the robot's four footprint corners inside the zone |
+| **Confidence** | **ASSUMED** (deliberate approximation) |
+| **Location** | `src/core/game/regions.ts` (`robotSupportFraction`) |
+
+The support fraction is quantised to 0, 0.25, 0.5, 0.75 or 1 rather than
+computed by polygon clipping.
+
+**Why this is enough.** Games do not ask for a continuous overlap fraction; they
+ask "fully inside" or "partially inside" — DECODE's BASE is assessed exactly
+that way (§10.5.3). Both endpoints are **exact** under corner sampling: for a
+convex zone, all four corners inside means the whole footprint is inside, and
+the robot's rotation is accounted for because the corners are taken in world
+space.
+
+**Known failure mode.** A zone small enough to sit entirely within the robot's
+footprint touches none of its corners and reports zero overlap. No FTC zone is
+smaller than a robot, so this does not arise today; it is asserted as a test so
+the limitation stays visible rather than becoming folklore.
+
+**Extension path.** Replace the body of `robotSupportFraction` with convex
+polygon clipping. Every caller asks only for the fraction, so nothing else
+changes.
+
 ---
 
 ## 11. Revision log
@@ -690,4 +723,5 @@ detection of when a piece enters a region is not yet implemented.
 | 2026-08-24 | Motor catalogue extended from 5 to 10 verified entries, including the 1:1 base motor. Base free speed and base stall torque are now datasheet-read rather than inferred; added the implied-gearbox-efficiency integrity check (§7.1). |
 | 2026-08-24 | Added §9 (mechanisms): throughput constant, centre-of-mass model with mechanisms, motor port budget. Centre-of-mass entry supersedes §1.4 for robots carrying mechanisms. |
 | 2026-08-25 | Added §10 (game layer and DECODE fixture): what is transcribed vs assumed, DECODE cycle-time estimates, logical world-state bookkeeping, and what was deliberately not transcribed from the manual. |
+| 2026-08-25 | Added §10.6 (corner-sampled zone occupancy) as region geometry landed; §10.5 updated to record that regions now have placed shapes but nothing emits events from them yet. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
