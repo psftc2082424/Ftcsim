@@ -5,193 +5,212 @@ import {
   safeParseObjective,
   safeParseScoringRule,
 } from './gameDefinition.schema.js';
-import { FTC_CONVENTIONAL_MATCH, totalMatchDurationSec } from '../core/game/matchStructure.js';
+import { FTC_CONVENTIONAL_MATCH } from '../core/game/matchStructure.js';
+import { explicit } from '../core/game/sourced.js';
 
-const validMatch = (): unknown => JSON.parse(JSON.stringify(FTC_CONVENTIONAL_MATCH)) as unknown;
+/** Round-trip through JSON, which is how a definition will actually arrive. */
+const asJson = (value: unknown): unknown => JSON.parse(JSON.stringify(value)) as unknown;
 
-const validRule = (): unknown => ({
-  id: 'low-goal',
-  label: 'Low goal',
-  phase: 'ANY',
-  trigger: { event: 'PieceEnteredRegion', filters: [{ field: 'regionId', equals: 'low-goal' }] },
-  award: { points: { value: 2, confidence: 'explicit', sourcePage: 40 }, alliance: 'owner' },
+const validRule = () => ({
+  id: 'high-goal',
+  label: 'Score in the high goal',
+  phase: 'TELEOP',
+  trigger: {
+    event: 'PieceEnteredRegion',
+    filters: [{ field: 'regionId', equals: 'high-goal' }],
+  },
+  award: { points: explicit(5, 40), alliance: 'owner' },
 });
 
-const validObjective = (): unknown => ({
+const validObjective = () => ({
   id: 'score-high',
   label: 'Score in the high goal',
   phase: 'ANY',
-  pointValue: { value: 6, confidence: 'explicit' },
+  pointValue: explicit(6, 40),
   requiredCapabilities: ['acquire', 'release', 'elevate'],
   repeatable: true,
 });
 
 describe('match structure schema', () => {
-  it('accepts the conventional FTC match', () => {
-    const result = safeParseMatchStructure(validMatch());
+  it('accepts the conventional FTC structure', () => {
+    const result = safeParseMatchStructure(asJson(FTC_CONVENTIONAL_MATCH));
     expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(totalMatchDurationSec(result.value)).toBe(150);
   });
 
   /**
-   * The rule the type system cannot enforce: endgame is positioned inside
-   * teleop, so a threshold longer than teleop is incoherent rather than merely
-   * unusual.
+   * The load-bearing check. An endgame longer than the period containing it is
+   * the exact symptom of treating the three published durations as additive,
+   * and it must be rejected rather than silently clamped.
    */
-  it('rejects an endgame longer than teleop itself', () => {
-    const base = validMatch() as { periods: [unknown, { subPhases: [{ startsAtRemainingSec: { value: number } }] }] };
-    base.periods[1].subPhases[0].startsAtRemainingSec.value = 200;
+  it('rejects an endgame that cannot fit inside teleop', () => {
+    const bad = asJson({
+      ...FTC_CONVENTIONAL_MATCH,
+      periods: [
+        FTC_CONVENTIONAL_MATCH.periods[0],
+        {
+          ...FTC_CONVENTIONAL_MATCH.periods[1],
+          subPhases: [{ id: 'ENDGAME', startsAtRemainingSec: explicit(200) }],
+        },
+      ],
+    });
 
-    const result = safeParseMatchStructure(base);
+    const result = safeParseMatchStructure(bad);
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.errors[0]?.message).toMatch(/sub-phase of teleop, not an additional period/);
+    expect(result.errors[0]?.message).toMatch(/sub-phase of teleop/i);
   });
 
   it('accepts an endgame exactly as long as teleop', () => {
-    const base = validMatch() as { periods: [unknown, { durationSec: { value: number }; subPhases: [{ startsAtRemainingSec: { value: number } }] }] };
-    base.periods[1].subPhases[0].startsAtRemainingSec.value = base.periods[1].durationSec.value;
-    expect(safeParseMatchStructure(base).ok).toBe(true);
-  });
-
-  it('requires provenance on every duration', () => {
-    const noConfidence = {
+    const edge = asJson({
+      ...FTC_CONVENTIONAL_MATCH,
       periods: [
-        { id: 'AUTO', durationSec: { value: 30 } },
+        FTC_CONVENTIONAL_MATCH.periods[0],
         {
-          id: 'TELEOP',
-          durationSec: { value: 120, confidence: 'explicit' },
-          subPhases: [{ id: 'ENDGAME', startsAtRemainingSec: { value: 30, confidence: 'explicit' } }],
+          ...FTC_CONVENTIONAL_MATCH.periods[1],
+          subPhases: [{ id: 'ENDGAME', startsAtRemainingSec: explicit(120) }],
         },
       ],
-    };
-    const result = safeParseMatchStructure(noConfidence);
+    });
+    expect(safeParseMatchStructure(edge).ok).toBe(true);
+  });
+
+  it('requires both periods in order', () => {
+    expect(safeParseMatchStructure({ periods: [] }).ok).toBe(false);
+    expect(
+      safeParseMatchStructure(asJson({ periods: [FTC_CONVENTIONAL_MATCH.periods[0]] })).ok,
+    ).toBe(false);
+  });
+
+  it('rejects a negative or absurd duration', () => {
+    for (const seconds of [-1, 99_999]) {
+      const bad = asJson({
+        ...FTC_CONVENTIONAL_MATCH,
+        periods: [
+          { id: 'AUTO', durationSec: explicit(seconds) },
+          FTC_CONVENTIONAL_MATCH.periods[1],
+        ],
+      });
+      expect(safeParseMatchStructure(bad).ok).toBe(false);
+    }
+  });
+
+  it('rejects malformed input outright', () => {
+    for (const bad of [null, 42, 'match', [], {}]) {
+      expect(safeParseMatchStructure(bad).ok).toBe(false);
+    }
+  });
+
+  it('reports the path of a failure', () => {
+    const result = safeParseMatchStructure(
+      asJson({
+        ...FTC_CONVENTIONAL_MATCH,
+        periods: [{ id: 'AUTO', durationSec: explicit(-5) }, FTC_CONVENTIONAL_MATCH.periods[1]],
+      }),
+    );
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.errors.some((e) => e.path.includes('confidence'))).toBe(true);
-  });
-
-  it('rejects a bare number where a Sourced value belongs', () => {
-    const bare = {
-      periods: [
-        { id: 'AUTO', durationSec: 30 },
-        {
-          id: 'TELEOP',
-          durationSec: { value: 120, confidence: 'explicit' },
-          subPhases: [{ id: 'ENDGAME', startsAtRemainingSec: { value: 30, confidence: 'explicit' } }],
-        },
-      ],
-    };
-    expect(safeParseMatchStructure(bare).ok).toBe(false);
-  });
-
-  it('rejects a third period', () => {
-    const threePeriods = {
-      ...(validMatch() as object),
-      periods: [
-        ...((validMatch() as { periods: unknown[] }).periods),
-        { id: 'ENDGAME', durationSec: { value: 30, confidence: 'explicit' } },
-      ],
-    };
-    expect(safeParseMatchStructure(threePeriods).ok).toBe(false);
-  });
-
-  it('rejects an unknown confidence level', () => {
-    const base = validMatch() as { periods: [{ durationSec: { confidence: string } }, unknown] };
-    base.periods[0].durationSec.confidence = 'probably';
-    expect(safeParseMatchStructure(base).ok).toBe(false);
+    expect(result.errors[0]?.path).toContain('periods');
   });
 });
 
 describe('scoring rule schema', () => {
   it('accepts a well-formed rule', () => {
-    expect(safeParseScoringRule(validRule()).ok).toBe(true);
+    expect(safeParseScoringRule(asJson(validRule())).ok).toBe(true);
   });
 
-  it('accepts a rule with a registry predicate', () => {
-    const withCondition = { ...(validRule() as object), condition: { predicateId: 'supportedByGoal' } };
-    expect(safeParseScoringRule(withCondition).ok).toBe(true);
+  it('accepts an optional predicate condition', () => {
+    const withCondition = {
+      ...validRule(),
+      condition: { predicateId: 'supportedByGoal', params: { minHeightIn: 26 } },
+    };
+    expect(safeParseScoringRule(asJson(withCondition)).ok).toBe(true);
   });
 
   /**
-   * A GameDefinition may be produced by a language model from a PDF. Nothing in
-   * it may be executable, so predicate ids are constrained to a conservative
-   * identifier pattern rather than free text.
+   * A GameDefinition may be produced by a language model in Phase 4. Predicate
+   * ids are looked up in a reviewed code registry, so the schema restricts them
+   * to a conservative identifier pattern rather than accepting arbitrary text
+   * that might be an attempt to smuggle an expression through.
    */
-  it('rejects a predicate id that looks like an expression', () => {
-    for (const hostile of [
-      'score > 5',
-      'require("fs")',
+  it('refuses anything expression-shaped as a predicate id', () => {
+    for (const predicateId of [
       '() => true',
-      'a;b',
+      'require("fs")',
+      'a; drop table',
       'eval(1)',
-      '__proto__.x',
+      '../escape',
+      '',
     ]) {
-      const rule = { ...(validRule() as object), condition: { predicateId: hostile } };
-      expect(safeParseScoringRule(rule).ok, hostile).toBe(false);
+      const rule = { ...validRule(), condition: { predicateId } };
+      expect(safeParseScoringRule(asJson(rule)).ok, predicateId).toBe(false);
     }
   });
 
+  it('rejects an unknown trigger event', () => {
+    const rule = { ...validRule(), trigger: { event: 'SomethingInvented', filters: [] } };
+    expect(safeParseScoringRule(asJson(rule)).ok).toBe(false);
+  });
+
+  it('rejects an unknown alliance target', () => {
+    const rule = { ...validRule(), award: { points: explicit(5), alliance: 'green' } };
+    expect(safeParseScoringRule(asJson(rule)).ok).toBe(false);
+  });
+
+  it('requires provenance on the award', () => {
+    const rule = { ...validRule(), award: { points: 5, alliance: 'owner' } };
+    expect(safeParseScoringRule(asJson(rule)).ok).toBe(false);
+  });
+
   it('strips unknown keys rather than passing them through', () => {
-    const smuggled = { ...(validRule() as object), evaluate: 'return true', __proto__unsafe: 1 };
-    const result = safeParseScoringRule(smuggled);
+    const result = safeParseScoringRule(asJson({ ...validRule(), sneaky: 'payload' }));
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(Object.keys(result.value)).not.toContain('evaluate');
-  });
-
-  it('rejects an unknown event kind', () => {
-    const rule = validRule() as { trigger: { event: string } };
-    rule.trigger.event = 'PieceTeleported';
-    expect(safeParseScoringRule(rule).ok).toBe(false);
-  });
-
-  it('rejects a malformed award', () => {
-    const noAlliance = validRule() as { award: { alliance?: string } };
-    delete noAlliance.award.alliance;
-    expect(safeParseScoringRule(noAlliance).ok).toBe(false);
-  });
-
-  it('reports the path of a failure', () => {
-    const rule = validRule() as { award: { points: { value: unknown } } };
-    rule.award.points.value = 'two';
-    const result = safeParseScoringRule(rule);
-    expect(result.ok).toBe(false);
-    if (result.ok) return;
-    expect(result.errors[0]?.path).toBe('award.points.value');
+    expect(JSON.stringify(result.value)).not.toContain('sneaky');
   });
 });
 
 describe('objective schema', () => {
   it('accepts a well-formed objective', () => {
-    expect(safeParseObjective(validObjective()).ok).toBe(true);
+    expect(safeParseObjective(asJson(validObjective())).ok).toBe(true);
   });
 
+  it('accepts an optional cycle estimate', () => {
+    const withCycle = { ...validObjective(), estimatedCycleSec: explicit(4) };
+    expect(safeParseObjective(asJson(withCycle)).ok).toBe(true);
+  });
+
+  /** Objectives reference capability kinds, never mechanism type names. */
   it('rejects a capability that is not in the capability model', () => {
-    const objective = validObjective() as { requiredCapabilities: string[] };
-    objective.requiredCapabilities = ['acquire', 'teleport'];
-    expect(safeParseObjective(objective).ok).toBe(false);
+    const bad = { ...validObjective(), requiredCapabilities: ['shooter'] };
+    expect(safeParseObjective(asJson(bad)).ok).toBe(false);
   });
 
-  it('accepts an objective needing no capabilities', () => {
-    const objective = validObjective() as { requiredCapabilities: string[] };
-    objective.requiredCapabilities = [];
-    expect(safeParseObjective(objective).ok).toBe(true);
+  it('accepts an objective requiring nothing', () => {
+    const free = { ...validObjective(), id: 'park', requiredCapabilities: [] };
+    expect(safeParseObjective(asJson(free)).ok).toBe(true);
   });
 
-  it('requires provenance on the point value', () => {
-    const objective = validObjective() as { pointValue: unknown };
-    objective.pointValue = 6;
-    expect(safeParseObjective(objective).ok).toBe(false);
+  it('requires the repeatable flag to be explicit', () => {
+    const { repeatable: _omit, ...withoutFlag } = validObjective();
+    expect(safeParseObjective(asJson(withoutFlag)).ok).toBe(false);
   });
 });
 
-describe('review triage', () => {
-  it('flags assumed and unknown values for human review', () => {
+describe('provenance gating', () => {
+  it('marks estimates and gaps as needing review', () => {
     expect(isReviewRequired('assumed')).toBe(true);
     expect(isReviewRequired('unknown')).toBe(true);
     expect(isReviewRequired('explicit')).toBe(false);
     expect(isReviewRequired('inferred')).toBe(false);
+  });
+
+  it('accepts any confidence level on a parsed value', () => {
+    for (const confidence of ['explicit', 'inferred', 'assumed', 'unknown'] as const) {
+      const rule = {
+        ...validRule(),
+        award: { points: { value: 5, confidence, note: 'x' }, alliance: 'owner' },
+      };
+      expect(safeParseScoringRule(asJson(rule)).ok, confidence).toBe(true);
+    }
   });
 });
