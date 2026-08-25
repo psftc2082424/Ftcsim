@@ -1,0 +1,342 @@
+/**
+ * The simulation core.
+ *
+ * One fixed-rate, deterministic world. There is exactly one simulation
+ * implementation in this project: the UI and the headless test harness both
+ * drive *this* class, differing only in what advances the clock
+ * (ARCHITECTURE.md §9.2).
+ *
+ * ── Determinism ────────────────────────────────────────────────────────────
+ * The integer tick counter is the only clock. Wall-clock access, `Math.random`
+ * and ambient entropy are lint-banned throughout `core/`. Contacts are resolved
+ * in id order, never in hash-bucket order. Given the same seed, the same robot
+ * configurations and the same controller outputs, `stateHash()` is identical on
+ * every run.
+ *
+ * ── Tick order ─────────────────────────────────────────────────────────────
+ * The canonical order is fixed in ARCHITECTURE.md §9. Phase 1 implements the
+ * subset whose systems exist; the omitted steps are listed so the sequence is
+ * auditable rather than lost:
+ *
+ *    1  match clock                      — Phase 3, not implemented
+ *    2  controller.sample                ✓
+ *    3  mechanisms.update                — Phase 2, not implemented
+ *    4  drivetrain.solve                 ✓  (uses tick n-1 battery voltage)
+ *    5  traction.limit                   ✓  (identity in Phase 1)
+ *    6  integrate                        ✓
+ *    7  broadphase -> narrowphase -> resolve   ✓
+ *    8  events.flush                     — Phase 3, not implemented
+ *    9  rulesEngine.evaluate             — Phase 3, not implemented
+ *   10  effects.apply                    — Phase 3, not implemented
+ *   11  battery.update                   ✓
+ *   12  telemetry.sample                 ✓  (pulled by the caller at 10 Hz)
+ *   13  tick++                           ✓
+ *
+ * No no-op stand-ins are created for the missing steps.
+ */
+
+import { Battery, type BatteryConfig } from '../motor/battery.js';
+import { Pcg32, type SubStreamId } from '../math/rng.js';
+import { StateHasher } from '../math/hash.js';
+import { solveDrivetrain, type DrivetrainSolution } from '../drive/drivetrain.js';
+import { IdealTraction, type TractionModel } from '../drive/traction.js';
+import type { ChassisVelocity } from '../drive/mecanumKinematics.js';
+import { rotate, vec2 } from '../math/vec2.js';
+import { deriveRobot, type DerivedRobot } from '../robot/derive.js';
+import type { RobotConfig } from '../robot/robotConfig.js';
+import {
+  bodyAabb,
+  createDynamicBody,
+  spansOverlap,
+  type EntityId,
+  type Pose,
+  type RigidBody,
+} from '../physics/body.js';
+import { amps } from '../units/si.js';
+import { createObb } from '../physics/shapes.js';
+import { SpatialHash } from '../physics/broadphase.js';
+import { collide } from '../physics/sat.js';
+import { resolveContact } from '../physics/resolve.js';
+import { integrateBody } from '../physics/integrate.js';
+import { createStandardField, type FieldTemplate } from '../field/fieldTemplate.js';
+import type { Controller } from '../control/controller.js';
+import type { Alliance, RobotSnapshot, WorldSnapshot } from './snapshot.js';
+
+/** Fixed simulation rate. ASSUMPTIONS.md §4.1. */
+export const TICK_RATE_HZ = 200;
+export const DT_SECONDS = 1 / TICK_RATE_HZ;
+
+/** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
+export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
+
+export interface RobotSpec {
+  readonly config: RobotConfig;
+  readonly controller: Controller;
+  readonly alliance?: Alliance;
+  readonly startPose?: Pose;
+}
+
+export interface SimWorldOptions {
+  /**
+   * Robots in the world. The core supports several; Phase 1's UI creates one.
+   * Nothing here special-cases the count (ARCHITECTURE.md §9).
+   */
+  readonly robots: readonly RobotSpec[];
+  readonly field?: FieldTemplate;
+  readonly battery?: BatteryConfig;
+  readonly traction?: TractionModel;
+  readonly seed?: number;
+}
+
+interface SimRobot {
+  readonly derived: DerivedRobot;
+  readonly body: RigidBody;
+  readonly alliance: Alliance;
+  readonly controller: Controller;
+  previousPose: Pose;
+  accelerationMps2: number;
+  solution: DrivetrainSolution;
+}
+
+export class SimWorld {
+  readonly dt = DT_SECONDS;
+  readonly field: FieldTemplate;
+  readonly seed: number;
+
+  private tickCount = 0;
+  private readonly robots: SimRobot[] = [];
+  private readonly bodies = new Map<EntityId, RigidBody>();
+  private readonly battery: Battery;
+  private readonly broadphase = new SpatialHash();
+  private readonly traction: TractionModel;
+  private readonly subStreams = new Map<SubStreamId, Pcg32>();
+  private cachedSnapshot: WorldSnapshot | null = null;
+
+  constructor(options: SimWorldOptions) {
+    if (options.robots.length === 0) {
+      throw new Error('SimWorld needs at least one robot.');
+    }
+
+    this.field = options.field ?? createStandardField();
+    this.traction = options.traction ?? IdealTraction;
+    this.seed = options.seed ?? 0;
+    this.battery = new Battery(options.battery);
+
+    for (const wall of this.field.bodies) this.bodies.set(wall.id, wall);
+
+    options.robots.forEach((spec, index) => {
+      const derived = deriveRobot(spec.config);
+      const body = createDynamicBody({
+        id: index,
+        kind: 'robot',
+        shape: createObb(derived.lengthM, derived.widthM),
+        mass: derived.massKg,
+        inertiaZ: derived.inertiaZ,
+        span: { bottom: 0, top: derived.heightM },
+        pose: spec.startPose ?? { p: vec2(0, 0), theta: 0 },
+      });
+
+      this.bodies.set(body.id, body);
+      this.robots.push({
+        derived,
+        body,
+        alliance: spec.alliance ?? 'red',
+        controller: spec.controller,
+        previousPose: body.pose,
+        accelerationMps2: 0,
+        solution: this.solveFor(derived, { vx: 0, vy: 0, omega: 0 }, { x: 0, y: 0, turn: 0 }),
+      });
+    });
+  }
+
+  get tick(): number {
+    return this.tickCount;
+  }
+
+  /** Simulated time, derived from the tick counter. Never a wall clock. */
+  get timeSec(): number {
+    return this.tickCount * DT_SECONDS;
+  }
+
+  get batteryVolts(): number {
+    return this.battery.voltage;
+  }
+
+  /**
+   * Seeded generator for one subsystem.
+   *
+   * Phase 1 draws no random numbers — nothing in the drivetrain, collision or
+   * integration is stochastic. The generator is owned here from the start so
+   * that when shooter spread or piece scatter arrives it draws from a seeded,
+   * replayable sub-stream rather than from ambient entropy.
+   */
+  rng(stream: SubStreamId): Pcg32 {
+    const existing = this.subStreams.get(stream);
+    if (existing !== undefined) return existing;
+    const created = new Pcg32(this.seed, stream);
+    this.subStreams.set(stream, created);
+    return created;
+  }
+
+  /** Advance the world by exactly one fixed timestep. */
+  step(): void {
+    const snapshot = this.snapshot();
+
+    for (const robot of this.robots) {
+      robot.previousPose = robot.body.pose;
+
+      // 2. Sample the controller. Any source, one struct.
+      const input = robot.controller.sample(this.tickCount, snapshot);
+
+      // 4-5. Drivetrain: torque -> wheel force -> body wrench, ideal traction.
+      const chassis = chassisVelocityOf(robot.body);
+      robot.solution = this.solveFor(robot.derived, chassis, {
+        x: input.drive.x,
+        y: input.drive.y,
+        turn: input.drive.turn,
+      });
+
+      // 6. Integrate.
+      const speedBefore = Math.hypot(robot.body.vel.v.x, robot.body.vel.v.y);
+      integrateBody(robot.body, robot.solution.wrench, DT_SECONDS);
+      const speedAfter = Math.hypot(robot.body.vel.v.x, robot.body.vel.v.y);
+      robot.accelerationMps2 = (speedAfter - speedBefore) / DT_SECONDS;
+    }
+
+    // 7. Collision.
+    this.resolveCollisions();
+
+    // 11. Battery voltage for the *next* tick (ARCHITECTURE.md §5.2).
+    let packCurrent = 0;
+    for (const robot of this.robots) packCurrent += robot.solution.totalCurrent;
+    this.battery.update(amps(packCurrent));
+
+    // 13.
+    this.tickCount++;
+    this.cachedSnapshot = null;
+  }
+
+  /** Advance several ticks. */
+  stepMany(ticks: number): void {
+    for (let i = 0; i < ticks; i++) this.step();
+  }
+
+  /**
+   * Immutable view of the world.
+   *
+   * Built at most once per tick and shared by the controllers, the renderer and
+   * the telemetry sampler, so the per-tick allocation stays bounded by robot
+   * count rather than by how many consumers ask for it.
+   */
+  snapshot(): WorldSnapshot {
+    const cached = this.cachedSnapshot;
+    if (cached !== null) return cached;
+
+    const robots: RobotSnapshot[] = this.robots.map((robot) => ({
+      id: robot.body.id,
+      name: robot.derived.config.name,
+      alliance: robot.alliance,
+      pose: robot.body.pose,
+      previousPose: robot.previousPose,
+      vel: robot.body.vel,
+      chassis: chassisVelocityOf(robot.body),
+      accelerationMps2: robot.accelerationMps2,
+      lengthM: robot.derived.lengthM,
+      widthM: robot.derived.widthM,
+      heightM: robot.derived.heightM,
+      gearRatio: robot.derived.drivetrain.gearRatio,
+      wheelRadiusM: robot.derived.wheelRadius,
+      drive: {
+        duties: robot.solution.wheelDuties,
+        motorSpeeds: robot.solution.motorSpeeds,
+        motorTorques: robot.solution.motorTorques,
+        motorCurrents: robot.solution.motorCurrents,
+        wheelForces: robot.solution.wheelForces,
+      },
+    }));
+
+    const snapshot: WorldSnapshot = {
+      tick: this.tickCount,
+      timeSec: this.timeSec,
+      robots,
+      batteryVolts: this.battery.voltage,
+      batteryCurrentA: this.battery.current,
+    };
+    this.cachedSnapshot = snapshot;
+    return snapshot;
+  }
+
+  /** Derived robot data, for callers that need the analytic reference values. */
+  derivedRobot(index: number): DerivedRobot {
+    const robot = this.robots[index];
+    if (robot === undefined) throw new Error(`No robot at index ${index}.`);
+    return robot.derived;
+  }
+
+  /**
+   * Order-sensitive digest of the full simulation state.
+   *
+   * Any accidental nondeterminism — unordered iteration, a leaked wall clock,
+   * an unseeded draw — changes this value immediately.
+   */
+  stateHash(): string {
+    const hasher = new StateHasher();
+    hasher.pushInt32(this.tickCount);
+    hasher.pushFloat(this.battery.voltage);
+    hasher.pushFloat(this.battery.current);
+
+    for (const robot of this.robots) {
+      const { pose, vel } = robot.body;
+      hasher.pushInt32(robot.body.id);
+      hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
+      hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
+    }
+
+    return hasher.digestHex();
+  }
+
+  private solveFor(
+    derived: DerivedRobot,
+    chassis: ChassisVelocity,
+    command: { x: number; y: number; turn: number },
+  ): DrivetrainSolution {
+    return solveDrivetrain(
+      derived.drivetrain,
+      chassis,
+      command,
+      this.battery.voltage,
+      this.traction,
+      derived.massKg,
+    );
+  }
+
+  private resolveCollisions(): void {
+    this.broadphase.clear();
+    for (const body of this.bodies.values()) {
+      this.broadphase.insert(body.id, bodyAabb(body));
+    }
+
+    // Pairs arrive sorted by id, so resolution order is fixed regardless of how
+    // the spatial hash happened to bucket them.
+    for (const [idA, idB] of this.broadphase.queryPairs()) {
+      const a = this.bodies.get(idA);
+      const b = this.bodies.get(idB);
+      if (a === undefined || b === undefined) continue;
+      if (a.invMass === 0 && b.invMass === 0) continue;
+
+      // Bodies only interact if they occupy overlapping heights. In Phase 1
+      // everything is floor-mounted, so this always passes; it is what will let
+      // a low robot pass under a raised element later.
+      if (!spansOverlap(a.span, b.span)) continue;
+
+      const contact = collide(a.shape, a.pose, b.shape, b.pose);
+      if (contact !== null) resolveContact(a, b, contact);
+    }
+  }
+}
+
+/** Body-frame velocity of a robot, from its world-frame velocity and heading. */
+export function chassisVelocityOf(body: RigidBody): ChassisVelocity {
+  const local = rotate(vec2(body.vel.v.x, body.vel.v.y), -body.pose.theta);
+  return { vx: local.x, vy: local.y, omega: body.vel.omega };
+}
