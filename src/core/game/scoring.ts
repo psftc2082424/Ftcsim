@@ -23,6 +23,7 @@
  */
 
 import type { CapabilityKind } from '../mechanism/capability.js';
+import type { SimEventKind } from './events.js';
 import type { PhaseId } from './matchStructure.js';
 import type { Sourced } from './sourced.js';
 
@@ -32,14 +33,12 @@ export type PhaseScope = PhaseId | 'ANY';
 /**
  * Facts the physics layer emits. Rules consume these; physics never computes
  * score itself (ARCHITECTURE.md §3.2).
+ *
+ * Defined alongside the event payloads in `events.ts` so the vocabulary a rule
+ * may reference and the events actually emitted cannot drift apart. Re-exported
+ * here because a rule's trigger is the main place it is written down.
  */
-export type SimEventKind =
-  | 'PieceEnteredRegion'
-  | 'PieceReleasedBy'
-  | 'PieceCameToRest'
-  | 'RobotOverlapsZone'
-  | 'RobotHeightExceeded'
-  | 'MechanismStateChanged';
+export type { SimEventKind } from './events.js';
 
 export type FilterValue = string | number | boolean;
 
