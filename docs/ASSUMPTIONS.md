@@ -575,6 +575,35 @@ hardware fact rather than an estimate, and it is season-stable. It is the
 constraint that stops a robot from having every mechanism at once, and therefore
 one of the structural sources of the tradeoffs `PRODUCT_SPEC.md` §11 requires.
 
+### 9.4 Mechanism preset template values
+
+| | |
+|---|---|
+| **Values** | Per-template mass, motor choice, gearing and capability parameters |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/mechanism/presets.ts` |
+
+Templates are authoring conveniences — a named starting point the user edits —
+not calibrated designs. They divide into two kinds of value:
+
+**Values the physics consumes today.** `massLb` and `actuation` are real inputs:
+mass changes acceleration, motor count consumes ports. The masses (1–7 lb) are
+plausible FTC subassembly weights but are **not** measured. A team should replace
+them with their own CAD weights. Motor selection follows obvious engineering
+logic rather than measurement — flywheels take the 1150 RPM unit, lifts and
+climbers the 117/60 RPM units, intakes the 435 RPM unit.
+
+**Values nothing consumes yet.** Capacity, reach, exit speed, launch angle,
+spread, travel time, climb time and success rate are *declarative descriptors*.
+No Phase 2 code reads them; they are consumed by the rules engine in Phase 3
+once game pieces exist. They are recorded here so they are not later mistaken
+for calibrated figures — an exit speed of 30 ft/s is a placeholder, not a
+prediction.
+
+**Consequence.** A mechanism's contribution to simulated performance in Phase 2
+is entirely through mass and motor ports. Its throughput number is derived
+(§9.1) and directional; its other capability figures are inert.
+
 ---
 
 ## 10. Revision log
@@ -585,3 +614,4 @@ one of the structural sources of the tradeoffs `PRODUCT_SPEC.md` §11 requires.
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |
 | 2026-08-24 | Motor catalogue extended from 5 to 10 verified entries, including the 1:1 base motor. Base free speed and base stall torque are now datasheet-read rather than inferred; added the implied-gearbox-efficiency integrity check (§7.1). |
 | 2026-08-24 | Added §9 (mechanisms): throughput constant, centre-of-mass model with mechanisms, motor port budget. Centre-of-mass entry supersedes §1.4 for robots carrying mechanisms. |
+| 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |

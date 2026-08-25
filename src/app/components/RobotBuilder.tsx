@@ -25,6 +25,12 @@ import {
   type RobotConfig,
 } from '../../core/robot/robotConfig.js';
 import { GOBILDA_5203_SERIES } from '../../core/motor/catalog/goBILDA.js';
+import type { MechanismConfig } from '../../core/mechanism/mechanism.js';
+import {
+  MECHANISM_PRESETS,
+  getMechanismPreset,
+  instantiateMechanism,
+} from '../../core/mechanism/presets.js';
 import {
   safeParseRobotConfig,
   warningsFor,
@@ -48,6 +54,12 @@ interface Draft {
   motorCount: string;
   gearRatio: string;
   wheelDiameterIn: string;
+  /**
+   * Held as structured config rather than strings: mechanisms are added whole
+   * from a template and only their mass is edited inline, so there is no
+   * half-typed intermediate state to protect against.
+   */
+  mechanisms: readonly MechanismConfig[];
 }
 
 function toDraft(config: RobotConfig): Draft {
@@ -61,7 +73,15 @@ function toDraft(config: RobotConfig): Draft {
     motorCount: String(config.drivetrain.motorCount),
     gearRatio: String(config.drivetrain.gearRatio),
     wheelDiameterIn: String(config.drivetrain.wheelDiameterIn),
+    mechanisms: config.mechanisms,
   };
+}
+
+/** Unique enough for a mechanism within one robot. */
+function newMechanismId(preset: string, existing: readonly MechanismConfig[]): string {
+  let n = 1;
+  while (existing.some((m) => m.id === `${preset}-${n}`)) n++;
+  return `${preset}-${n}`;
 }
 
 /**
@@ -90,6 +110,7 @@ function draftToRaw(draft: Draft, id: string): unknown {
       gearRatio: num(draft.gearRatio),
       wheelDiameterIn: num(draft.wheelDiameterIn),
     },
+    mechanisms: draft.mechanisms,
   };
 }
 
@@ -271,6 +292,120 @@ export function RobotBuilder({ applied, onApply }: Props) {
           onChange={set('wheelDiameterIn')}
         />
       </div>
+
+      <h3>Mechanisms</h3>
+      <p className="muted small">
+        Each mechanism adds mass and consumes motor ports. That is where the tradeoffs come from —
+        a robot cannot be good at everything.
+      </p>
+
+      <div className="mech-add">
+        <select
+          value=""
+          onChange={(event) => {
+            const choice = event.target.value;
+            if (choice === '') return;
+            const preset = getMechanismPreset(choice);
+            setDraft((previous) => ({
+              ...previous,
+              mechanisms: [
+                ...previous.mechanisms,
+                instantiateMechanism(preset, newMechanismId(choice, previous.mechanisms)),
+              ],
+            }));
+          }}
+        >
+          <option value="">Add a mechanism…</option>
+          {MECHANISM_PRESETS.map((preset) => (
+            <option key={preset.preset} value={preset.preset} title={preset.summary}>
+              {preset.label} — {preset.massLb} lb
+              {preset.motorCount > 0 ? `, ${preset.motorCount} motor` : ', passive'}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {draft.mechanisms.length === 0 ? (
+        <p className="muted small">No mechanisms. The robot is a bare drivetrain.</p>
+      ) : (
+        <ul className="mech-list">
+          {draft.mechanisms.map((mechanism, index) => (
+            <li key={mechanism.id} className="mech-row">
+              <div className="mech-head">
+                <span className="mech-name">{mechanism.name}</span>
+                <button
+                  type="button"
+                  className="secondary danger mech-remove"
+                  aria-label={`Remove ${mechanism.name}`}
+                  onClick={() =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      mechanisms: previous.mechanisms.filter((_, i) => i !== index),
+                    }))
+                  }
+                >
+                  Remove
+                </button>
+              </div>
+              <div className="mech-detail">
+                <label className="mech-mass">
+                  <span>Mass</span>
+                  <input
+                    type="number"
+                    step="any"
+                    aria-label={`${mechanism.name} mass in pounds`}
+                    value={String(mechanism.massLb)}
+                    onChange={(event) => {
+                      const massLb = num(event.target.value);
+                      setDraft((previous) => ({
+                        ...previous,
+                        mechanisms: previous.mechanisms.map((m, i) =>
+                          i === index ? { ...m, massLb } : m,
+                        ),
+                      }));
+                    }}
+                  />
+                  <span className="telemetry-unit">lb</span>
+                </label>
+                <span className="mech-meta">
+                  {mechanism.actuation === undefined
+                    ? 'passive'
+                    : `${mechanism.actuation.motorCount} motor`}
+                  {' · '}
+                  {mechanism.capabilities.map((c) => c.kind).join(', ')}
+                </span>
+              </div>
+              {errorFor(errors, `mechanisms.${index}.massLb`) !== undefined && (
+                <span className="builder-field-error">
+                  {errorFor(errors, `mechanisms.${index}.massLb`)}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <Derived label="Chassis mass" value={perf.chassisMassLb.toFixed(1)} unit="lb" />
+      <Derived label="Mechanism mass" value={perf.mechanismMassLb.toFixed(1)} unit="lb" />
+      <Derived
+        label="Total mass"
+        value={perf.totalMassLb.toFixed(1)}
+        unit="lb"
+        delta={delta((p) => p.totalMassLb)}
+      />
+      <Derived
+        label="Motor ports"
+        value={`${perf.portsUsed} / ${perf.portsAvailable}`}
+      />
+
+      {perf.portsOverBudget && (
+        <div className="builder-warning is-error">
+          <span className="warning-tag">over budget</span>
+          {perf.portsUsed} motors on {perf.portsAvailable} ports. An FTC control system has four
+          ports on the Control Hub and four on an Expansion Hub; remove a mechanism or reduce the
+          drivetrain motor count.
+        </div>
+      )}
 
       {warnings.length > 0 && (
         <div className="builder-warnings">

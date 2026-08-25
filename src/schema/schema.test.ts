@@ -14,6 +14,11 @@ import {
 } from './migrations.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../core/robot/robotConfig.js';
 import { deriveRobot } from '../core/robot/derive.js';
+import {
+  MECHANISM_PRESETS,
+  instantiateMechanism,
+  type MechanismPreset,
+} from '../core/mechanism/presets.js';
 
 const valid = (): unknown => JSON.parse(JSON.stringify(DEFAULT_ROBOT_CONFIG)) as unknown;
 
@@ -268,6 +273,41 @@ describe('migrations', () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.errors[0]?.path).toBe('schemaVersion');
+  });
+});
+
+describe('mechanism preset templates satisfy the schema', () => {
+  /**
+   * The builder's picker must not be able to produce a robot the validator
+   * rejects. This lives here rather than beside the templates because `core/`
+   * may not import `schema/` (ARCHITECTURE.md §3.1).
+   */
+  it('validates a robot carrying every template at once', () => {
+    const mechanisms = MECHANISM_PRESETS.map((preset, i) =>
+      instantiateMechanism(preset, `m-${i}`),
+    );
+    expect(safeParseRobotConfig({ ...DEFAULT_ROBOT_CONFIG, mechanisms }).ok).toBe(true);
+  });
+
+  it('validates each template individually', () => {
+    for (const preset of MECHANISM_PRESETS) {
+      const result = safeParseRobotConfig({
+        ...DEFAULT_ROBOT_CONFIG,
+        mechanisms: [instantiateMechanism(preset, 'only')],
+      });
+      expect(result.ok, `${preset.preset} failed validation`).toBe(true);
+    }
+  });
+
+  it('rejects a mechanism with no capabilities', () => {
+    const broken = {
+      ...instantiateMechanism(MECHANISM_PRESETS[0] as MechanismPreset, 'x'),
+      capabilities: [],
+    };
+    const result = safeParseRobotConfig({ ...DEFAULT_ROBOT_CONFIG, mechanisms: [broken] });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors[0]?.message).toMatch(/must do something/);
   });
 });
 

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { computePerformance, percentChange } from './robotPerformance.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../core/robot/robotConfig.js';
+import {
+  getMechanismPreset,
+  instantiateMechanism,
+} from '../core/mechanism/presets.js';
 
 const withChassis = (patch: Partial<RobotConfig['chassis']>): RobotConfig => ({
   ...DEFAULT_ROBOT_CONFIG,
@@ -87,6 +91,61 @@ describe('performance readout — responds to design changes', () => {
 
   it('reports clamped geometry for an impossibly small robot', () => {
     expect(computePerformance(withChassis({ lengthIn: 2, widthIn: 2 })).geometryClamped).toBe(true);
+  });
+});
+
+describe('performance readout — mass and port budget with mechanisms', () => {
+  const bare = computePerformance(DEFAULT_ROBOT_CONFIG);
+
+  const withPresets = (keys: readonly string[]) =>
+    computePerformance({
+      ...DEFAULT_ROBOT_CONFIG,
+      mechanisms: keys.map((key, i) =>
+        instantiateMechanism(getMechanismPreset(key), `m-${i}`),
+      ),
+    });
+
+  it('reports a bare drivetrain as all chassis mass and four ports', () => {
+    expect(bare.mechanismMassLb).toBe(0);
+    expect(bare.totalMassLb).toBeCloseTo(bare.chassisMassLb, 9);
+    expect(bare.portsUsed).toBe(4);
+    expect(bare.portsRemaining).toBe(4);
+    expect(bare.portsOverBudget).toBe(false);
+  });
+
+  it('splits chassis and mechanism mass, and totals them', () => {
+    const loaded = withPresets(['intake']); // 4 lb template
+    expect(loaded.chassisMassLb).toBeCloseTo(bare.chassisMassLb, 6);
+    expect(loaded.mechanismMassLb).toBeCloseTo(4, 6);
+    expect(loaded.totalMassLb).toBeCloseTo(bare.chassisMassLb + 4, 6);
+  });
+
+  /** The readout the builder exists to show: mass bought costs acceleration. */
+  it('shows added mechanism mass costing acceleration but not top speed', () => {
+    const loaded = withPresets(['intake', 'elevator']); // 4 + 7 lb
+    expect(loaded.totalMassLb).toBeGreaterThan(bare.totalMassLb);
+    expect(loaded.peakAccelFtPerSec2).toBeLessThan(bare.peakAccelFtPerSec2);
+    expect(loaded.topSpeedFtPerSec).toBeCloseTo(bare.topSpeedFtPerSec, 9);
+  });
+
+  it('counts mechanism motors against the port budget', () => {
+    const loaded = withPresets(['intake', 'shooter', 'climber']);
+    expect(loaded.portsUsed).toBe(7);
+    expect(loaded.portsRemaining).toBe(1);
+    expect(loaded.portsOverBudget).toBe(false);
+  });
+
+  it('flags an over-budget robot', () => {
+    const loaded = withPresets(['intake', 'outtake', 'shooter', 'elevator', 'climber']);
+    expect(loaded.portsUsed).toBe(9);
+    expect(loaded.portsRemaining).toBe(-1);
+    expect(loaded.portsOverBudget).toBe(true);
+  });
+
+  it('charges mass but no port for a passive mechanism', () => {
+    const loaded = withPresets(['deflector']);
+    expect(loaded.portsUsed).toBe(4);
+    expect(loaded.mechanismMassLb).toBeGreaterThan(0);
   });
 });
 

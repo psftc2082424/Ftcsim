@@ -16,6 +16,7 @@ import { analyticFreeSpeed, analyticPeakAcceleration } from '../core/drive/drive
 import { DEFAULT_BATTERY } from '../core/motor/battery.js';
 import {
   asVolts,
+  kilogramsToPounds,
   metersPerSec2ToFeetPerSec2,
   metersPerSecToFeetPerSec,
   metersToInches,
@@ -44,6 +45,18 @@ export interface RobotPerformance {
   // --- Electrical ---
   readonly stallCurrentA: number;
   readonly stallSagV: number;
+
+  // --- Mass budget, pounds ---
+  readonly chassisMassLb: number;
+  readonly mechanismMassLb: number;
+  /** What the physics actually accelerates: chassis + mechanisms. */
+  readonly totalMassLb: number;
+
+  // --- Motor port budget ---
+  readonly portsUsed: number;
+  readonly portsAvailable: number;
+  readonly portsRemaining: number;
+  readonly portsOverBudget: boolean;
 }
 
 const STANDARD_GRAVITY_MPS2 = 9.80665;
@@ -83,6 +96,15 @@ export function computePerformance(config: RobotConfig): RobotPerformance {
 
     stallCurrentA,
     stallSagV,
+
+    chassisMassLb: kilogramsToPounds(derived.chassisMassKg),
+    mechanismMassLb: kilogramsToPounds(derived.mechanismMassKg),
+    totalMassLb: kilogramsToPounds(derived.massKg),
+
+    portsUsed: derived.ports.used,
+    portsAvailable: derived.ports.available,
+    portsRemaining: derived.ports.remaining,
+    portsOverBudget: derived.ports.overBudget,
   };
 }
 
