@@ -89,10 +89,13 @@ target.
 | **Confidence** | **ASSUMED** |
 | **Location** | `src/core/robot/derive.ts` |
 
-Follows from the same uniform-density assumption as §1.3. In Phase 1 no mechanism
-masses exist, so there is nothing to shift it. When Phase 2 adds mechanism mass
-and mount positions, this becomes a mass-weighted centroid and this entry must be
-revised.
+Follows from the same uniform-density assumption as §1.3, and holds exactly for a
+robot with no mechanisms.
+
+**Superseded by §9.2 for robots that carry mechanisms.** Mechanism mass and mount
+positions now shift the centre of mass to a mass-weighted centroid. Note that the
+offset is derived and reported but is not yet consumed by the integrator, which
+still rotates bodies about their geometric centre — see §9.2 and §8.
 
 ---
 
@@ -496,7 +499,7 @@ the external belt reduction carries an efficiency term (§2.3).
 | Motor heating / thermal derating | No datasheet basis; long-run effect | Sustained performance is optimistic |
 | Motor controller current limiting | Firmware-dependent, unmeasured | Peak current may exceed real limits |
 | Battery discharge over match time | Needs a discharge curve | `V_oc` is constant within a run |
-| Mass shift from mechanisms | Phase 2 | Centre of mass fixed at centroid (§1.4) |
+| Centre-of-mass offset in the dynamics | Derived but not yet integrated | Robot rotates about its centroid (§9.2) |
 | Continuous collision detection | Unnecessary at 200 Hz (§4.1) | Would matter only at much larger `dt` |
 | Aerodynamic drag | Negligible at 2–3 m/s | None |
 
@@ -510,10 +513,75 @@ performance.** The acceleration figure is the least trustworthy of them.
 
 ---
 
-## 9. Revision log
+## 9. Mechanisms
+
+### 9.1 `PIECES_PER_OUTPUT_REVOLUTION` — mechanism throughput
+
+| | |
+|---|---|
+| **Value** | `1` piece per revolution of the mechanism output |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/mechanism/mechanism.ts` |
+| **Used by** | `throughputPerSec = outputRpm / 60 × PIECES_PER_OUTPUT_REVOLUTION` |
+
+**Reasoning.** A mechanism's throughput has to come from its motor and gearing
+rather than from a number the user types, or the statistics stop corresponding
+to the design (`PRODUCT_SPEC.md` §14). One piece per output revolution is the
+standard first-order model for a roller intake or an indexed feeder: each turn
+of the roller sweeps one game piece through.
+
+**Known bias.** Real intakes vary widely. A wide roller can take two or three
+pieces per revolution; a single-slot indexer may need more than one revolution
+per piece. The constant is therefore a *shape* — throughput proportional to
+output speed — rather than a calibrated figure, and it is the reason a
+throughput number should be read as relative rather than absolute in Phase 2.
+
+**Extension path.** The natural refinement is a per-mechanism
+`piecesPerRevolution` field once real games define real piece geometry in
+Phase 3, at which point this global constant becomes its default.
+
+### 9.2 Centre of mass with mechanisms
+
+| | |
+|---|---|
+| **Model** | Uniform chassis at the centroid; each mechanism a point mass at its mount |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/mechanism/mechanism.ts` (`centreOfMassOffsetIn`) |
+
+Supersedes §1.4 for robots that have mechanisms. The chassis keeps its
+uniform-density treatment and contributes no moment; every mechanism is
+collapsed to a point at its mount coordinates.
+
+**Known bias.** A mechanism is not a point — a linear slide spans most of the
+robot — so the offset is overstated for long mechanisms and understated for
+compact ones mounted high. The vertical component is not modelled at all,
+because the simulation is planar; a top-heavy robot tips in reality and cannot
+here.
+
+**Not yet consumed by the physics.** The offset is derived and reported, but the
+rigid-body integrator still rotates about the geometric centre. Wiring it into
+the dynamics is a Phase 3 change and is listed in §8.
+
+### 9.3 Motor port budget
+
+| | |
+|---|---|
+| **Value** | `TOTAL_MOTOR_PORTS = 8` |
+| **Confidence** | **EXPLICIT** — FTC control-system hardware |
+| **Location** | `src/core/mechanism/mechanism.ts` |
+
+Four motor ports on a REV Control Hub plus four on an Expansion Hub. This is a
+hardware fact rather than an estimate, and it is season-stable. It is the
+constraint that stops a robot from having every mechanism at once, and therefore
+one of the structural sources of the tradeoffs `PRODUCT_SPEC.md` §11 requires.
+
+---
+
+## 10. Revision log
 
 | Date | Change |
 |---|---|
 | 2026-08-24 | Ledger created for Phase 1. |
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |
 | 2026-08-24 | Motor catalogue extended from 5 to 10 verified entries, including the 1:1 base motor. Base free speed and base stall torque are now datasheet-read rather than inferred; added the implied-gearbox-efficiency integrity check (§7.1). |
+| 2026-08-24 | Added §9 (mechanisms): throughput constant, centre-of-mass model with mechanisms, motor port budget. Centre-of-mass entry supersedes §1.4 for robots carrying mechanisms. |

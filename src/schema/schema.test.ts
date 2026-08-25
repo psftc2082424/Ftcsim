@@ -173,6 +173,52 @@ describe('migrations', () => {
     }
   });
 
+  /**
+   * The first real migration, and the one that proves the ladder works: a robot
+   * saved before the capability framework existed must still load. A v1 robot
+   * genuinely had no mechanisms, so an empty array is the correct upgrade rather
+   * than a guess at intent.
+   */
+  it('upgrades a v1 record by giving it an empty mechanism list', () => {
+    const v1 = {
+      schemaVersion: 1,
+      id: 'legacy',
+      name: 'Last Season Bot',
+      chassis: { lengthIn: 18, widthIn: 17, heightIn: 16, massLb: 31 },
+      drivetrain: {
+        motorId: 'gobilda-5203-312',
+        motorCount: 4,
+        gearRatio: 1,
+        wheelDiameterIn: 3.78,
+      },
+    };
+
+    const migrated = migrateRobotConfig(v1);
+    expect(migrated['schemaVersion']).toBe(2);
+    expect(migrated['mechanisms']).toEqual([]);
+
+    const result = safeParseRobotConfig(migrated);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // Everything else must survive untouched.
+    expect(result.config.name).toBe('Last Season Bot');
+    expect(result.config.chassis).toEqual(v1.chassis);
+    expect(result.config.drivetrain).toEqual(v1.drivetrain);
+  });
+
+  it('produces a v1-migrated robot the physics can derive from', () => {
+    const v1: Record<string, unknown> = {
+      ...(valid() as Record<string, unknown>),
+      schemaVersion: 1,
+    };
+    delete v1['mechanisms'];
+
+    const config = parseRobotConfig(migrateRobotConfig(v1));
+    expect(() => deriveRobot(config)).not.toThrow();
+    expect(deriveRobot(config).mechanisms).toEqual([]);
+  });
+
   it('refuses a record from a newer build', () => {
     const future = { ...(valid() as object), schemaVersion: CURRENT_ROBOT_CONFIG_VERSION + 1 };
     expect(() => migrateRobotConfig(future)).toThrow(MigrationError);
