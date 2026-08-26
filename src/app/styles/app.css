@@ -690,3 +690,66 @@ button.danger:hover {
   background: rgba(224, 108, 117, 0.08);
   border-color: rgba(224, 108, 117, 0.3);
 }
+
+/* --- Match panel -------------------------------------------------------- */
+
+.match-score {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.9rem;
+  font-weight: 600;
+  padding: 0.35rem 0;
+}
+
+.match-score-red {
+  color: #e2707a;
+}
+
+.match-score-blue {
+  color: #6f9fe8;
+}
+
+.match-score-divider {
+  color: var(--muted);
+  font-size: 1.2rem;
+}
+
+.match-awards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.match-award {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  padding: 0.15rem 0.35rem;
+  border-left: 2px solid transparent;
+}
+
+.match-award.red {
+  border-left-color: #e2707a;
+}
+
+.match-award.blue {
+  border-left-color: #6f9fe8;
+}
+
+.match-award-label {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.match-award-points {
+  font-variant-numeric: tabular-nums;
+}

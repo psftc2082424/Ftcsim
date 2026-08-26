@@ -14,6 +14,7 @@ import { lerpAngle } from '../../core/math/angle.js';
 import { inchesToMeters } from '../../core/units/convert.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
 import type { FieldTemplate } from '../../core/field/fieldTemplate.js';
+import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera } from './camera.js';
 
 /** FTC fields are laid out on 24 in foam tiles, 6 x 6 of them. */
@@ -30,16 +31,42 @@ const COLORS = {
   robotOutline: '#9ecbff',
   robotFront: '#ffd166',
   velocity: '#5ce0a0',
+  piece: '#b072d6',
+  pieceOutline: '#e0c6f2',
+  regionFill: 'rgba(120, 170, 220, 0.10)',
+  regionEdge: 'rgba(150, 195, 240, 0.55)',
+  redEdge: 'rgba(220, 100, 110, 0.65)',
+  blueEdge: 'rgba(100, 150, 235, 0.65)',
+  label: 'rgba(200, 220, 240, 0.75)',
 } as const;
+
+/**
+ * Game geometry to draw underneath the robots.
+ *
+ * Optional, and typed as the game layer's own shapes rather than as something
+ * the renderer defines: a season is data, and the renderer should draw whatever
+ * regions and zones a `GameDefinition` happens to declare without knowing what
+ * any of them mean. Nothing here reads a region id.
+ */
+export interface FieldOverlay {
+  readonly regions: readonly FieldRegion[];
+  readonly zones: readonly FieldZone[];
+}
 
 export interface RenderOptions {
   readonly showVelocity: boolean;
   readonly showGrid: boolean;
+  /** Draw the game's regions and zones. Off shows a bare drivetrain field. */
+  readonly showGameGeometry?: boolean | undefined;
+  /** Label each region and zone with its id. Useful while authoring a layout. */
+  readonly showGeometryLabels?: boolean | undefined;
 }
 
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   showVelocity: true,
   showGrid: true,
+  showGameGeometry: true,
+  showGeometryLabels: false,
 };
 
 export function renderFrame(
@@ -48,6 +75,7 @@ export function renderFrame(
   field: FieldTemplate,
   alpha: number,
   options: RenderOptions = DEFAULT_RENDER_OPTIONS,
+  overlay?: FieldOverlay | undefined,
 ): void {
   const width = ctx.canvas.clientWidth;
   const height = ctx.canvas.clientHeight;
@@ -57,9 +85,106 @@ export function renderFrame(
   ctx.fillRect(0, 0, width, height);
 
   drawField(ctx, camera, field, options.showGrid);
+
+  // Under the entities: game geometry is markings on the floor, and a robot
+  // standing on a zone should be drawn over it.
+  if (overlay !== undefined && options.showGameGeometry !== false) {
+    drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true);
+  }
+
+  for (const piece of snapshot.pieces) drawPiece(ctx, camera, piece, alpha);
   for (const robot of snapshot.robots) {
     drawRobot(ctx, camera, robot, alpha, options.showVelocity);
   }
+}
+
+/**
+ * Draw every region and zone the game declares.
+ *
+ * Alliance colouring comes from the id prefix, which is a *display* convention
+ * and nothing else: getting it wrong tints an outline, it cannot change a
+ * score. The renderer still has no idea what any of these places are for.
+ */
+function drawOverlay(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  overlay: FieldOverlay,
+  showLabels: boolean,
+): void {
+  for (const shaped of [...overlay.regions, ...overlay.zones]) {
+    ctx.fillStyle = COLORS.regionFill;
+    ctx.strokeStyle = shaped.id.startsWith('red-')
+      ? COLORS.redEdge
+      : shaped.id.startsWith('blue-')
+        ? COLORS.blueEdge
+        : COLORS.regionEdge;
+    ctx.lineWidth = 1.5;
+
+    if (shaped.shape.kind === 'circle') {
+      const radius = metersToPixels(camera, shaped.shape.radius);
+      ctx.beginPath();
+      ctx.arc(
+        worldToScreenX(camera, shaped.centerM.x),
+        worldToScreenY(camera, shaped.centerM.y),
+        radius,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.stroke();
+    } else {
+      const vertices = shaped.shape.vertices;
+      if (vertices.length === 0) continue;
+
+      ctx.beginPath();
+      vertices.forEach((vertex, index) => {
+        const sx = worldToScreenX(camera, vertex.x);
+        const sy = worldToScreenY(camera, vertex.y);
+        if (index === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    if (showLabels) {
+      ctx.fillStyle = COLORS.label;
+      ctx.font = '10px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(
+        shaped.id,
+        worldToScreenX(camera, shaped.centerM.x),
+        worldToScreenY(camera, shaped.centerM.y),
+      );
+      ctx.textAlign = 'start';
+    }
+  }
+}
+
+function drawPiece(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  piece: WorldSnapshot['pieces'][number],
+  alpha: number,
+): void {
+  const x = piece.previousPose.p.x + (piece.pose.p.x - piece.previousPose.p.x) * alpha;
+  const y = piece.previousPose.p.y + (piece.pose.p.y - piece.previousPose.p.y) * alpha;
+
+  ctx.beginPath();
+  ctx.arc(
+    worldToScreenX(camera, x),
+    worldToScreenY(camera, y),
+    // Floored so an artifact stays visible when the whole field is on screen.
+    Math.max(2, metersToPixels(camera, piece.radiusM)),
+    0,
+    Math.PI * 2,
+  );
+  ctx.fillStyle = COLORS.piece;
+  ctx.fill();
+  ctx.strokeStyle = COLORS.pieceOutline;
+  ctx.lineWidth = 1;
+  ctx.stroke();
 }
 
 function drawField(

@@ -111,9 +111,10 @@ map, not a substitute for reading it.
 ### Where the project is
 
 Phases 1 and 2 are complete. **Phase 3 is built end to end** — snapshot →
-observations → events → rules → score — and the work since has been raising its
-fidelity rather than adding pipeline. Phase 4 (PDF ingestion) and Phase 5
-(metrics, archetypes) are not started.
+observations → events → rules → score — and it is now wired into the app: the
+browser runs a real DECODE `MatchSimulation`, draws the game's regions and zones
+and its pieces, and shows phase, clock, score and recent awards. Phase 4 (PDF
+ingestion) and Phase 5 (metrics, archetypes) are not started.
 
 `docs/ASSUMPTIONS.md` is the live ledger and is accurate. Read §2.2, §5.7, §5.8,
 §10.9 and §10.14 before touching physics or the DECODE fixture.
@@ -173,6 +174,11 @@ one gap. It needs the DECODE field CAD model or the Event FIELD Setup Guide —
 neither is in `Game Manuals/`. Region ids are the contract with `decode.ts` and
 must not change; only `LAYOUT` in `decodeField.ts` moves.
 
-After that, in order: emit robot-to-robot contact so G402 can be assessed;
-`OVERFLOW` modelled as the state the manual describes rather than as a region;
-then Phase 4.
+**Out of scope by decision, not by oversight:** robot-to-robot interaction. The
+simulator assumes solo runs, so G402 (AUTO opponent interference) is not
+assessed and no robot-contact event exists.
+
+After the layout, in order: stage the starting ARTIFACTS from
+`DECODE_SETUP` — the composition is transcribed but nothing places pieces, and
+placing them needs the SPIKE MARK coordinates the layout gap covers; then
+Phase 4 (PDF ingestion).

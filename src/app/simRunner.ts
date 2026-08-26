@@ -17,17 +17,22 @@
  * second simulation implementation.
  */
 
-import { DT_SECONDS, SimWorld, TELEMETRY_TICK_INTERVAL } from '../core/sim/simWorld.js';
+import { DT_SECONDS, TELEMETRY_TICK_INTERVAL } from '../core/sim/simWorld.js';
+import { simulationFromDefinition, type MatchSimulation } from '../core/game/matchSimulation.js';
+import type { GameDefinition } from '../core/game/gameDefinition.js';
+import type { MatchState } from '../core/game/matchStructure.js';
 import { LatchedController } from '../core/control/controller.js';
 import { NEUTRAL_INPUT } from '../core/control/controlInput.js';
 import { createStandardField, type FieldTemplate } from '../core/field/fieldTemplate.js';
 import { sampleTelemetry, type TelemetrySample } from '../core/telemetry/sampler.js';
 import type { RobotConfig } from '../core/robot/robotConfig.js';
 import { vec2 } from '../core/math/vec2.js';
+import type { Pose } from '../core/physics/body.js';
 import {
   DEFAULT_RENDER_OPTIONS,
   renderFrame,
   syncCanvasSize,
+  type FieldOverlay,
   type RenderOptions,
 } from './render/fieldRenderer.js';
 import type { InputHub } from './input/sources.js';
@@ -44,6 +49,9 @@ import { FixedTimestepAccumulator } from './fixedTimestep.js';
  */
 const MAX_FRAME_SECONDS = 0.25;
 
+/** How many recent awards the live scoring feed carries. */
+const RECENT_AWARD_COUNT = 6;
+
 export interface RunnerStats {
   readonly tick: number;
   readonly simTimeSec: number;
@@ -52,13 +60,45 @@ export interface RunnerStats {
   readonly activeSource: string | null;
 }
 
+/**
+ * What the game layer is doing, sampled at the telemetry rate.
+ *
+ * Separate from `RunnerStats` because it describes the *match* rather than
+ * the loop, and separate from telemetry because telemetry describes one
+ * robot. A definition with no rules simply never awards anything.
+ */
+export interface MatchAward {
+  readonly ruleId: string;
+  readonly label: string;
+  readonly points: number;
+  readonly alliance: 'red' | 'blue';
+}
+
+export interface MatchStatus {
+  readonly state: MatchState;
+  readonly matchTimeSec: number;
+  readonly red: number;
+  readonly blue: number;
+  /** Most recent awards, newest first. A live feed, not the audit trail. */
+  readonly recentAwards: readonly MatchAward[];
+}
+
 export type TelemetryListener = (sample: TelemetrySample) => void;
 export type StatsListener = (stats: RunnerStats) => void;
+export type MatchListener = (status: MatchStatus) => void;
 
 export class SimRunner {
   readonly field: FieldTemplate;
 
-  private world: SimWorld;
+  /**
+   * The whole Phase 3 pipeline, not a bare `SimWorld`.
+   *
+   * `MatchSimulation` owns a world and adds observations, events, rules and
+   * score on top of it. Driving that here is what makes the game layer visible
+   * in the product rather than only in tests, and it is still the one
+   * simulation implementation — the headless harness drives the same class.
+   */
+  private simulation: MatchSimulation;
   private readonly controller = new LatchedController('ui');
   private readonly stepper = new FixedTimestepAccumulator(DT_SECONDS, MAX_FRAME_SECONDS);
   private lastFrameMs: number | null = null;
@@ -68,6 +108,7 @@ export class SimRunner {
 
   private readonly telemetryListeners = new Set<TelemetryListener>();
   private readonly statsListeners = new Set<StatsListener>();
+  private readonly matchListeners = new Set<MatchListener>();
   private lastTelemetryTick = -1;
 
   private frameCount = 0;
@@ -79,25 +120,32 @@ export class SimRunner {
   constructor(
     private robotConfig: RobotConfig,
     private readonly inputHub: InputHub,
+    private readonly game: GameDefinition,
+    private readonly startPose: Pose = { p: vec2(0, 0), theta: 0 },
     private readonly seed = 1,
   ) {
     this.field = createStandardField();
-    this.world = this.createWorld();
+    this.simulation = this.createSimulation();
   }
 
-  private createWorld(): SimWorld {
-    return new SimWorld({
+  private createSimulation(): MatchSimulation {
+    return simulationFromDefinition(this.game, {
       robots: [
         {
           config: this.robotConfig,
           controller: this.controller,
           alliance: 'red',
-          startPose: { p: vec2(0, 0), theta: 0 },
+          startPose: this.startPose,
         },
       ],
       field: this.field,
       seed: this.seed,
     });
+  }
+
+  /** Regions and zones the game declares, for the renderer's overlay. */
+  get overlay(): FieldOverlay {
+    return { regions: this.game.regions, zones: this.game.zones };
   }
 
   attach(canvas: HTMLCanvasElement): void {
@@ -123,10 +171,11 @@ export class SimRunner {
   reset(config: RobotConfig = this.robotConfig): void {
     this.robotConfig = config;
     this.controller.set(NEUTRAL_INPUT);
-    this.world = this.createWorld();
+    this.simulation = this.createSimulation();
     this.stepper.reset();
     this.lastTelemetryTick = -1;
     this.emitTelemetry();
+    this.emitMatch();
   }
 
   setRenderOptions(options: RenderOptions): void {
@@ -143,13 +192,18 @@ export class SimRunner {
     return () => this.statsListeners.delete(listener);
   }
 
+  onMatch(listener: MatchListener): () => void {
+    this.matchListeners.add(listener);
+    return () => this.matchListeners.delete(listener);
+  }
+
   private readonly frame = (nowMs: number): void => {
     this.rafId = requestAnimationFrame(this.frame);
 
     if (this.lastFrameMs === null) {
       this.lastFrameMs = nowMs;
       this.lastRateSampleMs = nowMs;
-      this.lastRateSampleTick = this.world.tick;
+      this.lastRateSampleTick = this.simulation.tick;
     }
 
     const elapsed = (nowMs - this.lastFrameMs) / 1000;
@@ -159,13 +213,14 @@ export class SimRunner {
     const steps = this.stepper.advance(elapsed);
     for (let i = 0; i < steps; i++) {
       this.controller.set(this.inputHub.read() ?? NEUTRAL_INPUT);
-      this.world.step();
+      this.simulation.step();
     }
 
     this.render(this.stepper.alpha);
 
-    if (this.world.tick - this.lastTelemetryTick >= TELEMETRY_TICK_INTERVAL) {
+    if (this.simulation.tick - this.lastTelemetryTick >= TELEMETRY_TICK_INTERVAL) {
       this.emitTelemetry();
+      this.emitMatch();
     }
 
     this.updateRates(nowMs);
@@ -179,14 +234,44 @@ export class SimRunner {
     const ctx = canvas.getContext('2d');
     if (ctx === null) return;
 
-    renderFrame(ctx, this.world.snapshot(), this.field, alpha, this.renderOptions);
+    renderFrame(
+      ctx,
+      this.simulation.world.snapshot(),
+      this.field,
+      alpha,
+      this.renderOptions,
+      this.overlay,
+    );
     this.frameCount++;
   }
 
   private emitTelemetry(): void {
-    this.lastTelemetryTick = this.world.tick;
-    const sample = sampleTelemetry(this.world.snapshot());
+    this.lastTelemetryTick = this.simulation.tick;
+    const sample = sampleTelemetry(this.simulation.world.snapshot());
     for (const listener of this.telemetryListeners) listener(sample);
+  }
+
+  private emitMatch(): void {
+    if (this.matchListeners.size === 0) return;
+
+    const score = this.simulation.score;
+    const status: MatchStatus = {
+      state: this.simulation.matchState,
+      matchTimeSec: this.simulation.tick * DT_SECONDS,
+      red: score.red,
+      blue: score.blue,
+      recentAwards: score.deltas
+        .slice(-RECENT_AWARD_COUNT)
+        .reverse()
+        .map((delta) => ({
+          ruleId: delta.ruleId,
+          label: delta.label,
+          points: delta.points,
+          alliance: delta.alliance,
+        })),
+    };
+
+    for (const listener of this.matchListeners) listener(status);
   }
 
   private updateRates(nowMs: number): void {
@@ -194,15 +279,15 @@ export class SimRunner {
     if (windowMs < 500) return;
 
     this.framesPerSecond = (this.frameCount * 1000) / windowMs;
-    this.ticksPerSecond = ((this.world.tick - this.lastRateSampleTick) * 1000) / windowMs;
+    this.ticksPerSecond = ((this.simulation.tick - this.lastRateSampleTick) * 1000) / windowMs;
 
     this.frameCount = 0;
     this.lastRateSampleMs = nowMs;
-    this.lastRateSampleTick = this.world.tick;
+    this.lastRateSampleTick = this.simulation.tick;
 
     const stats: RunnerStats = {
-      tick: this.world.tick,
-      simTimeSec: this.world.timeSec,
+      tick: this.simulation.tick,
+      simTimeSec: this.simulation.tick * DT_SECONDS,
       framesPerSecond: this.framesPerSecond,
       ticksPerSecond: this.ticksPerSecond,
       activeSource: this.inputHub.activeSource(),

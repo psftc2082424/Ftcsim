@@ -10,12 +10,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
+import { DECODE_GAME } from '../core/game/fixtures/decodeGame.js';
+import { inchesToMeters } from '../core/units/convert.js';
+import { vec2 } from '../core/math/vec2.js';
 import type { TelemetrySample } from '../core/telemetry/sampler.js';
+import type { MatchStatus } from './simRunner.js';
 import { SimRunner, type RunnerStats } from './simRunner.js';
 import { GamepadSource, InputHub, KeyboardSource, VirtualPadSource } from './input/sources.js';
 import { DEFAULT_KEY_BINDINGS, type KeyBindings } from './input/bindings.js';
 import { DEFAULT_RENDER_OPTIONS, type RenderOptions } from './render/fieldRenderer.js';
 import { TelemetryPanel } from './components/TelemetryPanel.js';
+import { MatchPanel } from './components/MatchPanel.js';
 import { VirtualGamepad } from './components/VirtualGamepad.js';
 import { ControlsPanel } from './components/ControlsPanel.js';
 import { RobotBuilder } from './components/RobotBuilder.js';
@@ -25,6 +30,17 @@ import { createStore } from '../storage/kvStore.js';
 import type { RobotConfig } from '../core/robot/robotConfig.js';
 import './styles/app.css';
 
+/**
+ * Where a DECODE robot legally starts (G304, p.102): over a LAUNCH LINE,
+ * touching the FIELD perimeter, and fully on its own side. The GOAL-side LAUNCH
+ * ZONE's base is the whole GOAL-side wall, so this puts an 18 in robot against
+ * that wall inside red's half.
+ */
+const LEGAL_START_POSE = {
+  p: vec2(inchesToMeters(-30), inchesToMeters(63)),
+  theta: 0,
+};
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -32,6 +48,7 @@ export function App() {
   const [robotConfig, setRobotConfig] = useState<RobotConfig>(DEFAULT_ROBOT_CONFIG);
   const [telemetry, setTelemetry] = useState<TelemetrySample | null>(null);
   const [stats, setStats] = useState<RunnerStats | null>(null);
+  const [match, setMatch] = useState<MatchStatus | null>(null);
   const [renderOptions, setRenderOptions] = useState<RenderOptions>(DEFAULT_RENDER_OPTIONS);
   const [gamepadConnected, setGamepadConnected] = useState(false);
 
@@ -44,7 +61,7 @@ export function App() {
     const hub = new InputHub([virtualSource, gamepadSource, keyboardSource]);
 
     return {
-      runner: new SimRunner(DEFAULT_ROBOT_CONFIG, hub),
+      runner: new SimRunner(DEFAULT_ROBOT_CONFIG, hub, DECODE_GAME, LEGAL_START_POSE),
       keyboard: keyboardSource,
       gamepad: gamepadSource,
       virtualPad: virtualSource,
@@ -85,6 +102,7 @@ export function App() {
     const detachKeyboard = keyboard.attach(window);
     const detachGamepad = gamepad.attach(window);
     const unsubscribeTelemetry = runner.onTelemetry(setTelemetry);
+    const unsubscribeMatch = runner.onMatch(setMatch);
     const unsubscribeStats = runner.onStats((next) => {
       setStats(next);
       setGamepadConnected(gamepad.connected);
@@ -97,6 +115,7 @@ export function App() {
       detachKeyboard();
       detachGamepad();
       unsubscribeTelemetry();
+      unsubscribeMatch();
       unsubscribeStats();
     };
   }, [runner, keyboard, gamepad]);
@@ -105,7 +124,7 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>FTC Universal 2D Simulator</h1>
-        <span className="phase-badge">Phase 2 — Robot Builder</span>
+        <span className="phase-badge">Phase 3 — DECODE match</span>
       </header>
 
       <main className="app-main">
@@ -138,6 +157,26 @@ export function App() {
               />
               Velocity vector
             </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderOptions.showGameGeometry !== false}
+                onChange={(event) =>
+                  setRenderOptions({ ...renderOptions, showGameGeometry: event.target.checked })
+                }
+              />
+              Game zones
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={renderOptions.showGeometryLabels === true}
+                onChange={(event) =>
+                  setRenderOptions({ ...renderOptions, showGeometryLabels: event.target.checked })
+                }
+              />
+              Zone labels
+            </label>
           </div>
 
           <p className="muted small field-note">
@@ -147,6 +186,7 @@ export function App() {
         </div>
 
         <aside className="side-column">
+          <MatchPanel game={DECODE_GAME} status={match} />
           <TelemetryPanel sample={telemetry} stats={stats} />
           <VirtualGamepad source={virtualPad} />
           <ControlsPanel

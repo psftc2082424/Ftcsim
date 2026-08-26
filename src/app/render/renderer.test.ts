@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY } from './camera.js';
-import { renderFrame } from './fieldRenderer.js';
+import { DEFAULT_RENDER_OPTIONS, renderFrame } from './fieldRenderer.js';
+import {
+  DECODE_FIELD_REGIONS,
+  DECODE_FIELD_ZONES,
+  DECODE_LAUNCH_ZONE_OUTLINES,
+} from '../../core/game/fixtures/decodeField.js';
+import { inchesToMeters } from '../../core/units/convert.js';
 import { createStandardField } from '../../core/field/fieldTemplate.js';
 import { runHeadless } from '../../core/sim/headless.js';
 import { DEFAULT_ROBOT_CONFIG } from '../../core/robot/robotConfig.js';
@@ -51,6 +57,7 @@ interface DrawCall {
 
 function createRecordingContext(width: number, height: number) {
   const calls: DrawCall[] = [];
+  const texts: string[] = [];
   const record =
     (op: string) =>
     (...args: number[]): void => {
@@ -72,9 +79,18 @@ function createRecordingContext(width: number, height: number) {
     restore: record('restore'),
     translate: record('translate'),
     rotate: record('rotate'),
+    closePath: record('closePath'),
+    fill: record('fill'),
+    arc: record('arc'),
+    fillText: (text: string, x: number, y: number): void => {
+      calls.push({ op: 'fillText', args: [x, y] });
+      texts.push(text);
+    },
+    font: '',
+    textAlign: 'start',
   };
 
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
+  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls, texts };
 }
 
 describe('field renderer', () => {
@@ -195,5 +211,143 @@ describe('field renderer', () => {
     expect(a.calls.filter((c) => c.op === 'lineTo').length).toBeGreaterThan(
       b.calls.filter((c) => c.op === 'lineTo').length,
     );
+  });
+});
+
+/**
+ * Game geometry and pieces are drawn, and the renderer stays season-agnostic
+ * while doing it.
+ *
+ * The app used to show a bare field with a robot on it: `snapshot.pieces` was
+ * never drawn at all, and none of the regions or zones a `GameDefinition`
+ * declares appeared. Phase 3 was complete in the core and invisible in the
+ * product.
+ */
+describe('game overlay and pieces', () => {
+  const field = createStandardField();
+
+  const overlay = { regions: DECODE_FIELD_REGIONS, zones: DECODE_FIELD_ZONES };
+
+  const withPieces = (ticks: number) =>
+    runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(-1.0, 0.5), theta: 0 },
+        },
+      ],
+      pieces: [
+        { pieceId: 'a1', pieceType: 'P', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(0.3, 0.2) },
+      ],
+      ticks,
+    }).finalSnapshot;
+
+  it('draws a game piece as a circle at its own position', () => {
+    const snapshot = withPieces(10);
+    const piece = snapshot.pieces[0];
+    expect(piece).toBeDefined();
+    if (piece === undefined) return;
+
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, field, 1);
+
+    const camera = fitCamera(800, 800, field.widthM, field.lengthM);
+    const arcs = calls.filter((c) => c.op === 'arc');
+    expect(arcs.length).toBeGreaterThan(0);
+    expect(arcs[0]?.args[0]).toBeCloseTo(worldToScreenX(camera, piece.pose.p.x), 6);
+    expect(arcs[0]?.args[1]).toBeCloseTo(worldToScreenY(camera, piece.pose.p.y), 6);
+  });
+
+  it('draws nothing extra without an overlay', () => {
+    const snapshot = withPieces(1);
+    const without = createRecordingContext(800, 800);
+    renderFrame(without.ctx, snapshot, field, 0);
+
+    const with_ = createRecordingContext(800, 800);
+    renderFrame(with_.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+
+    expect(with_.calls.length).toBeGreaterThan(without.calls.length);
+  });
+
+  it('honours the option that turns game geometry off', () => {
+    const snapshot = withPieces(1);
+    const on = createRecordingContext(800, 800);
+    renderFrame(on.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+
+    const off = createRecordingContext(800, 800);
+    renderFrame(
+      off.ctx,
+      snapshot,
+      field,
+      0,
+      { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: false },
+      overlay,
+    );
+
+    expect(off.calls.length).toBeLessThan(on.calls.length);
+  });
+
+  it('closes a path for every polygon it fills', () => {
+    const snapshot = withPieces(1);
+    const { calls } = (() => {
+      const rec = createRecordingContext(800, 800);
+      renderFrame(rec.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+      return rec;
+    })();
+
+    // One closePath per polygonal region or zone; circles use arc instead.
+    const polygons = [...overlay.regions, ...overlay.zones].filter(
+      (shaped) => shaped.shape.kind !== 'circle',
+    ).length;
+    expect(calls.filter((c) => c.op === 'closePath')).toHaveLength(polygons);
+  });
+
+  it('labels shapes by id only when asked', () => {
+    const snapshot = withPieces(1);
+
+    const plain = createRecordingContext(800, 800);
+    renderFrame(plain.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+    expect(plain.texts).toEqual([]);
+
+    const labelled = createRecordingContext(800, 800);
+    renderFrame(
+      labelled.ctx,
+      snapshot,
+      field,
+      0,
+      { ...DEFAULT_RENDER_OPTIONS, showGeometryLabels: true },
+      overlay,
+    );
+    expect(labelled.texts).toContain('red-ramp');
+    expect(labelled.texts).toContain('goal-launch-zone');
+  });
+
+  /**
+   * The renderer may not branch on what a region *is*. It colours by id prefix,
+   * which is a display convention: getting it wrong tints an outline and can
+   * never change a score.
+   */
+  it('draws a triangular zone with its real vertex count', () => {
+    const snapshot = withPieces(1);
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+
+    const camera = fitCamera(800, 800, field.widthM, field.lengthM);
+    const apex = DECODE_LAUNCH_ZONE_OUTLINES.goalSide.find((v) => v.x === 0);
+    expect(apex).toBeDefined();
+    if (apex === undefined) return;
+
+    const target = {
+      x: worldToScreenX(camera, inchesToMeters(apex.x)),
+      y: worldToScreenY(camera, inchesToMeters(apex.y)),
+    };
+    const hit = calls.some(
+      (c) =>
+        (c.op === 'lineTo' || c.op === 'moveTo') &&
+        Math.abs((c.args[0] ?? 0) - target.x) < 1e-6 &&
+        Math.abs((c.args[1] ?? 0) - target.y) < 1e-6,
+    );
+    expect(hit).toBe(true);
   });
 });
