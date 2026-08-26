@@ -21,8 +21,13 @@ permissions:
   id-token: write
 
 # Let a running deployment finish; queue at most one more behind it.
+#
+# Named distinctly rather than `pages`, which is what GitHub's own built-in
+# "pages build and deployment" workflow uses. While Pages was briefly set to
+# deploy from a branch, both workflows ran on every push and shared that group,
+# and runs sat queued behind each other until they failed at startup.
 concurrency:
-  group: pages
+  group: pages-deploy
   cancel-in-progress: false
 
 jobs:
