@@ -369,20 +369,31 @@ Semi-implicit (symplectic) Euler at fixed `dt = 1/200 s`.
 
 ## 6. Game-definition architecture *(Phase 3–4)*
 
-**Implementation status.** The *type layer* is built and tested; the runtime is
-not. Shipped today:
+**Implementation status.** Phase 3 is built end to end: a snapshot becomes
+observations, observations become events, events run through rules, and rules
+produce score. Shipped today:
 
 | Module | Contents |
 |---|---|
 | `core/game/sourced.ts` | `Sourced<T>` and its constructors |
 | `core/game/matchStructure.ts` | Match timing types and pure derivation |
+| `core/game/matchClock.ts` | Tick-driven phase transitions |
 | `core/game/scoring.ts` | `Objective` and `ScoringRule` types, capability helpers |
+| `core/game/events.ts` | The closed `SimEvent` union — the physics→rules channel |
+| `core/game/predicates.ts` | The reviewed predicate registry |
+| `core/game/rulesEngine.ts` | Rule matching and evaluation |
+| `core/game/effects.ts` | The closed `Effect` union and score state |
+| `core/game/regions.ts` | Placed field geometry and support fractions |
+| `core/game/membershipDetector.ts` | Membership changes → events |
+| `core/game/observation.ts` | `WorldSnapshot` → detector observations |
+| `core/game/matchRunner.ts` | Clock, rules, effects and logical world state |
+| `core/game/matchSimulation.ts` | The whole pipeline, wired and ordered |
+| `core/game/gameDefinition.ts` | The container, validation, and the derived ledger |
+| `core/game/fixtures/` | DECODE as a golden `GameDefinition` |
 | `schema/gameDefinition.schema.ts` | Zod validation and `safeParse*` |
 
-Not built: the rules engine, the predicate registry, game pieces, field
-geometry, metrics, the `GameDefinition` container itself, and PDF ingestion.
-Sections below mark which is which, so this document can be trusted about what
-exists.
+Not built: metrics, and the Phase 4 PDF ingestion pipeline (§6.6). Sections below
+mark which is which, so this document can be trusted about what exists.
 
 ### 6.1 Provenance wrapper
 
@@ -393,20 +404,33 @@ interface Sourced<T> {
   readonly value: T;
   readonly confidence: Confidence;
   readonly sourcePage?: number | undefined;
-  readonly sourceQuote?: string | undefined;
+  readonly sourceRule?: string | undefined;   // e.g. R101, G415
+  readonly sourceQuote?: string | undefined;  // verbatim
   readonly note?: string | undefined;
 }
 ```
+
+`sourceRule` is separate from `sourcePage` rather than overloading it: FTC
+manuals are cited by rule far more often than by page, and a rule number
+survives a re-paginated revision where a page number does not.
 
 Constructed through named helpers rather than object literals, so the confidence
 level is always a deliberate choice:
 
 ```ts
-explicit(value, sourcePage?, sourceQuote?)   // stated outright by the manual
-inferred(value, note, sourcePage?)           // deduced from a diagram or context
-assumed(value, note)                         // engineering estimate; note required
-unresolved(placeholder, note)                // undeterminable; a human must replace it
+explicit(value, sourcePage?, sourceQuote?, note?)      // stated outright
+explicitRule(value, sourceRule, sourceQuote?, page?)   // stated, cited by rule
+inferred(value, note, sourcePage?)                     // deduced from context
+assumed(value, note)                                   // estimate; note required
+unresolved(placeholder, note)                          // a human must replace it
 ```
+
+**`sourceQuote` is verbatim, and that is load-bearing.** A value read out of a
+table quotes the row as printed and names its column in `note`; reconstructing a
+row as `"LABEL | value"` reads like a quotation but is not one, and nothing can
+check it against the source. `tools/verify-citations.mjs` searches each quote on
+the page it claims — it found three real errors on its first run, including
+constants citing a rule that says nothing about them.
 
 Note the asymmetry in naming: the *confidence value* is `'unknown'`, but the
 constructor is `unresolved()` — it carries a working placeholder so the
@@ -419,51 +443,80 @@ Wrapping every extracted field makes `PRODUCT_SPEC.md` §3 structural rather tha
 advisory: a field cannot hold a bare number, so "where did this come from?"
 always has an answer.
 
-> **Planned, not shipped:** a `collectAssumptions()` walk that projects a whole
-> definition into a review list. The wrapper makes it possible; nothing
-> implements it yet. Until then the review surface is per-field.
+**Built:** `collectProvenance()` walks a whole definition and reports every
+`Sourced` value with its path; `assumptionLedger()` filters that to what needs
+review, and `provenanceSummary()` counts each confidence level. The ledger for a
+season is therefore a projection over the definition rather than a document that
+drifts.
 
-### 6.2 Container shape *(planned — not implemented)*
+Two subtleties the DECODE transcription forced. A `Sourced` shared between fields
+is reported at *every* path that uses it — deduplicating by identity hid that
+both DECODE piece types share one estimated mass. And `provenanceNotes` carries
+statements that belong to a definition rather than to any single value, because
+the largest gap in a fixture is often of that kind: "element positions are
+published only in the CAD model".
 
-There is deliberately **no `GameDefinition` interface in the codebase yet.**
-Declaring the container would mean inventing shapes for `FieldElement`, `Zone`,
-`GamePieceType`, `StrategicFunction` and `MetricSpec` — five types whose real
-requirements are not yet known. Writing them now would be speculation frozen
-into a type, and the migration cost of getting them wrong is paid by every saved
-definition.
+### 6.2 Container shape *(built)*
 
-The intended shape, once those parts exist:
+Deferred until its members existed, which was the right call: the shape below
+differs from what was sketched here, and every difference came from building the
+parts rather than from imagining them.
 
 ```ts
 interface GameDefinition {
-  schemaVersion: number;
   id: string; season: string; name: string;
-  field: {
-    template: 'ftc-standard-12ft' | 'custom';
-    widthIn: Sourced<number>; lengthIn: Sourced<number>;
-    elements: FieldElement[]; zones: Zone[]; startPositions: Pose2[];
-  };
+
+  match: MatchStructure;                          // §6.3
   pieces: GamePieceType[];
-  match: MatchStructure;              // built (§6.3)
-  robotConstraints: {
-    maxLengthIn: Sourced<number>; maxWidthIn: Sourced<number>;
-    maxHeightIn: Sourced<number>; expansionRules: Sourced<string>[];
-  };
-  objectives: Objective[];            // built (§6.4)
-  strategicFunctions: StrategicFunction[];
-  scoringRules: ScoringRule[];        // built (§6.4)
-  metrics: MetricSpec[];
-  assumptions: AssumptionEntry[];
+
+  regions: FieldRegion[];                         // placed geometry
+  zones: FieldZone[];                             // robot support is measured here
+  slottedRegions: Record<string, number>;         // ordered regions and their slots
+
+  setup?: MatchSetupSpec;                         // how pieces are staged
+  rules: ScoringRule[];                           // §6.4
+  objectives: Objective[];                        // §6.4
+  robotConstraints: RobotConstraints;
+
+  rankingPoints?: RankingPointRules;              // recorded, not scored
+  penalties?: PenaltyValues;                      // values only; triggers need a referee
+  provenanceNotes?: Sourced<unknown>[];           // facts that belong to no single field
+
+  variables?: Record<string, FilterValue>;        // per-match, e.g. a randomised motif
 }
 ```
 
-`field.template` keeps the season-stable 12 ft × 12 ft perimeter out of the
-extractor entirely.
+Four departures from the sketch, each with a reason found in the building:
 
-The pieces that exist today are consumed and validated individually — see
-`safeParseMatchStructure`, `safeParseScoringRule` and `safeParseObjective` in
-§6.5 — so the container can be assembled last, when its remaining members are
-actually understood.
+**Regions and zones are separate, and both are top-level.** The sketch nested
+them under `field` alongside a template and dimensions. In practice a *region*
+is where a piece can be (scoring asks "is the artifact in it") and a *zone* is
+where a robot's support is measured ("is the robot fully in it"), and those are
+different questions asked by different rules. Field perimeter and dimensions
+belong to `FieldTemplate` in the physics layer, not to the game definition.
+
+**`schemaVersion` is not here.** Versioning belongs to the persisted form, which
+is `schema/`'s concern; putting it on the runtime type would make every consumer
+carry a field none of them read.
+
+**Ranking points and penalties are recorded rather than scored.** A ranking point
+is a threshold on a match total that no event carries, and it depends on an event
+tier that is not part of the game — `rankingPointsFor(rules, tier, totals)`
+throws on an unknown tier rather than defaulting, because silently scoring a
+Championship against a lower bar inflates every result in the tournament. Penalty
+*values* are transcribed; which actions draw a foul is referee judgement, and no
+rule in a definition assesses one.
+
+**`provenanceNotes` exists because a manual says things that are not values.**
+"Element positions are published only in the CAD model" is the largest gap in the
+DECODE fixture and belongs to no field; without somewhere to put it, it lives in
+a comment and never reaches the ledger.
+
+`validateGameDefinition` cross-checks the parts against each other before a match
+runs: rules naming geometry that does not exist, predicates this build cannot
+resolve, staged pieces that do not add up to the declared counts, ranking-point
+criteria whose event tiers disagree. Errors mean the definition cannot score
+correctly; warnings mean it will run with something estimated.
 
 ### 6.3 Match structure *(built)*
 
@@ -471,12 +524,14 @@ actually understood.
 type PeriodId  = 'AUTO' | 'TELEOP';
 type SubPhaseId = 'ENDGAME';
 type PhaseId   = PeriodId | SubPhaseId;          // what a rule can scope to
-type MatchState = 'PRE' | PhaseId | 'POST';      // what the clock can report
+type MatchState = 'PRE' | PhaseId | 'TRANSITION' | 'POST';   // what the clock reports
 
 interface MatchStructure {
   readonly periods: readonly [AutoPeriod, TeleopPeriod];
   /** Dead time between autonomous and teleop, if the game defines any. */
   readonly transitionSec?: Sourced<number> | undefined;
+  /** Which period an achievement during that gap is scored as. */
+  readonly transitionScoresAs?: Sourced<PeriodId> | undefined;
 }
 
 interface AutoPeriod   { id: 'AUTO';   durationSec: Sourced<number> }
@@ -502,12 +557,28 @@ convention.
 | `endgameStartSec(m)` | absolute time endgame begins, clamped into teleop |
 | `matchTimeline(m)` | non-overlapping `PhaseWindow[]` tiling the match exactly once |
 | `matchStateAt(m, t)` | `MatchState` at an absolute time |
+| `scoringStateAt(m, t)` | the phase a rule is scoped against, or `null` |
+| `periodOf(state)` | the period a state belongs to, or `null` |
 | `isWithinPhase(state, scope)` | whether a rule scoped to `scope` applies |
 
-**There is no `TRANSITION` state.** The transition gap is reported as `'PRE'` —
-the match has started but no scoring period is active, and `PRE` already means
-exactly that. Adding a distinct state would give rules a fourth scope to handle
-for no behavioural gain.
+**`TRANSITION` is its own state, and the reason it has to be is instructive.**
+It was originally reported as `'PRE'`, on the argument that the match has started
+but no scoring period is active and `PRE` already means exactly that. That
+argument is wrong, and the DECODE manual says so: an 8-second gap sits between
+AUTO and TELEOP, and "ARTIFACTS that meet scoring criteria prior to the start of
+TELEOP are assessed as part of AUTO" (§10.5 A). Reporting the gap as `PRE` made
+every artifact that settled in it score nothing — which is the opposite of what
+the 8 seconds exist for.
+
+Which period a transition scores as is a property of the game, not of the engine,
+so it is read from `transitionScoresAs`; a structure that does not say scores
+nothing there rather than having a period guessed for it.
+
+`periodOf('TRANSITION')` is deliberately `null`. A period *ends* when its clock
+does — DECODE assesses LEAVE "at the end of AUTO" (§10.5 E), not at the end of
+the settling window that follows it — so end-of-period assessment fires at the
+AUTO→TRANSITION boundary. What the gap scores as is the separate question
+`scoringStateAt` answers.
 
 **The asymmetry that makes the sub-phase model correct**, and the single most
 important semantic in this module:
@@ -531,7 +602,7 @@ values have held for many seasons but they are *rules*, and a real definition
 must read them from that season's manual. Shipping them as `explicit` would be
 precisely the silent invention `PRODUCT_SPEC.md` §3 forbids.
 
-### 6.4 Objectives and scoring rules *(types built, engine not)*
+### 6.4 Objectives and scoring rules *(built)*
 
 Two ideas kept deliberately separate, because one objective may be served by
 several rules:
@@ -590,13 +661,16 @@ a language model from a PDF in Phase 4; there must be no path by which generated
 text becomes executed code. The schema enforces this with a conservative
 identifier pattern (§6.5).
 
-> **Planned, not shipped:** the rules engine itself —
-> `(GameDefinition, WorldSnapshot, SimEvent[], MatchClock, ScoreState) →
-> { deltas: ScoreDelta[], effects: Effect[] }` — together with the predicate
-> registry and the closed `Effect` union
-> (`consumePiece | attachPiece | detachPiece | teleportPiece | setPieceLayer`)
-> through which rules are the only thing allowed to mutate world state. Rules
-> will never touch bodies directly.
+**Built.** The rules engine, the predicate registry and the closed `Effect`
+union are all in place, and `MatchSimulation` wires the whole pipeline. Rules
+never touch bodies: the only channel out is an `Effect`, and the only channel in
+is a `SimEvent`.
+
+One event kind was added by DECODE and is general: `RobotAssessed`. Zone events
+only fire for zones a robot is *in*, which cannot express a rule about where a
+robot is **not** — DECODE's LEAVE awards exactly the robots that produce no zone
+event (§10.5.3). A period boundary therefore restates each robot as a bare fact
+and predicates answer questions about it.
 
 ### 6.5 Validation layer *(built)*
 
