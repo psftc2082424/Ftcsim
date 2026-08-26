@@ -146,7 +146,7 @@ export const scoringRuleSchema = z.object({
   condition: predicateRefSchema.optional(),
   award: z.object({
     points: sourcedSchema(points),
-    alliance: z.enum(['owner', 'red', 'blue']),
+    alliance: z.enum(['owner', 'opponent', 'red', 'blue']),
   }),
   oncePerPiece: z.boolean().optional(),
   maxAwards: z.number().int().positive().max(10_000).optional(),

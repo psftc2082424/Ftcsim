@@ -78,10 +78,24 @@ export const DEFAULT_MIN_PUSH_SPEED_MPS = 0.05;
  */
 export const DEFAULT_RELEASE_GRACE_TICKS = 10;
 
+/**
+ * How long a robot must hold a count before it is reported as sustained, in
+ * seconds.
+ *
+ * Momentary possession and bulldozing are the same thing seen from different
+ * sides, so a rule about how many pieces a robot may hold needs possession that
+ * *persisted*. DECODE's glossary puts MOMENTARY at "fewer than approximately 3
+ * seconds" (p.185) and G408 itself talks about "greater-than-MOMENTARY CONTROL
+ * of 4 or more ARTIFACTS", which is where the default comes from — but the value
+ * belongs to the season, so a definition supplies its own.
+ */
+export const DEFAULT_SUSTAINED_AFTER_SEC = 3;
+
 export interface PossessionOptions {
   readonly contactToleranceM?: number | undefined;
   readonly minPushSpeedMps?: number | undefined;
   readonly releaseGraceTicks?: number | undefined;
+  readonly sustainedAfterSec?: number | undefined;
 }
 
 /** Who is credited with a piece, for `observation.ts`'s attribution hook. */
@@ -110,8 +124,13 @@ export class PossessionTracker {
   private readonly contactToleranceM: number;
   private readonly minPushSpeedMps: number;
   private readonly releaseGraceTicks: number;
+  private readonly sustainedAfterSec: number;
 
   private readonly held = new Map<string, Held>();
+  /** Per robot: the count it currently holds and the tick it reached it. */
+  private readonly countLevel = new Map<string, { count: number; sinceTick: number }>();
+  /** Per robot: counts already reported as sustained in this episode. */
+  private readonly reported = new Map<string, Set<number>>();
   /** Survives release, so a piece that scores after being pushed is credited. */
   private readonly lastCredit = new Map<string, PieceCredit>();
 
@@ -119,6 +138,7 @@ export class PossessionTracker {
     this.contactToleranceM = options.contactToleranceM ?? DEFAULT_CONTACT_TOLERANCE_M;
     this.minPushSpeedMps = options.minPushSpeedMps ?? DEFAULT_MIN_PUSH_SPEED_MPS;
     this.releaseGraceTicks = options.releaseGraceTicks ?? DEFAULT_RELEASE_GRACE_TICKS;
+    this.sustainedAfterSec = options.sustainedAfterSec ?? DEFAULT_SUSTAINED_AFTER_SEC;
   }
 
   /**
@@ -205,6 +225,66 @@ export class PossessionTracker {
       });
     }
 
+    events.push(...this.sustainedEvents(snapshot, tick));
+    return events;
+  }
+
+  /**
+   * Report counts a robot has now held long enough to be deliberate.
+   *
+   * Robots are visited in snapshot order, and levels within a robot in ascending
+   * order, so the event stream is a function of the world rather than of map
+   * iteration.
+   */
+  private sustainedEvents(snapshot: WorldSnapshot, tick: number): readonly SimEvent[] {
+    const events: SimEvent[] = [];
+    const dtSec = snapshot.tick === 0 ? 0 : snapshot.timeSec / snapshot.tick;
+
+    for (const robot of snapshot.robots) {
+      const robotId = String(robot.id);
+      const count = this.heldBy(robotId).length;
+
+      if (count === 0) {
+        // Episode over: the next one starts its reporting from scratch.
+        this.countLevel.delete(robotId);
+        this.reported.delete(robotId);
+        continue;
+      }
+
+      const level = this.countLevel.get(robotId);
+      if (level === undefined || level.count !== count) {
+        this.countLevel.set(robotId, { count, sinceTick: tick });
+        continue;
+      }
+
+      const heldSec = (tick - level.sinceTick) * dtSec;
+      if (heldSec < this.sustainedAfterSec) continue;
+
+      let reported = this.reported.get(robotId);
+      if (reported === undefined) {
+        reported = new Set<number>();
+        this.reported.set(robotId, reported);
+      }
+
+      // Cumulative: reaching four sustained reports one through four, so a rule
+      // charging "per piece over the limit" fires once per excess piece without
+      // the engine knowing the limit.
+      for (let reachedCount = 1; reachedCount <= count; reachedCount++) {
+        if (reported.has(reachedCount)) continue;
+        reported.add(reachedCount);
+
+        events.push({
+          kind: 'PossessionSustained',
+          tick,
+          timeSec: tickToSec(tick, snapshot),
+          robotId,
+          alliance: robot.alliance,
+          possessedCount: reachedCount,
+          heldSec,
+        });
+      }
+    }
+
     return events;
   }
 
@@ -212,6 +292,8 @@ export class PossessionTracker {
   reset(): void {
     this.held.clear();
     this.lastCredit.clear();
+    this.countLevel.clear();
+    this.reported.clear();
   }
 
   /**

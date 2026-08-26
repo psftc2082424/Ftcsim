@@ -80,7 +80,9 @@ function resolveAlliance(
     ('alliance' in event ? event.alliance : undefined) ??
     ('byAlliance' in event ? event.byAlliance : undefined);
 
-  return alliance === 'red' || alliance === 'blue' ? alliance : null;
+  if (alliance !== 'red' && alliance !== 'blue') return null;
+  if (target === 'opponent') return alliance === 'red' ? 'blue' : 'red';
+  return alliance;
 }
 
 function pieceIdOf(event: SimEvent): string | null {

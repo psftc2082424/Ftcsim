@@ -66,8 +66,16 @@ export interface PredicateRef {
   readonly params?: Readonly<Record<string, FilterValue>> | undefined;
 }
 
-/** Whose score moves. `owner` means the alliance that caused the event. */
-export type AllianceTarget = 'owner' | 'red' | 'blue';
+/**
+ * Whose score moves.
+ *
+ * `owner` is the alliance that caused the event. `opponent` is the other one,
+ * which is how every FTC season scores a foul: the manual credits points "towards
+ * the opponent's MATCH point total" rather than deducting them from the
+ * violator, and those are different numbers once a tiebreak looks at either
+ * alliance's own score.
+ */
+export type AllianceTarget = 'owner' | 'opponent' | 'red' | 'blue';
 
 export interface ScoringAward {
   readonly points: Sourced<number>;

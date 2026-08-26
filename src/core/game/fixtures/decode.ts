@@ -27,7 +27,7 @@ import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sour
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
 import type { MatchSetupSpec, PenaltyValues, RankingPointRules } from '../gameDefinition.js';
-import { ARTIFACT, ZONES } from './decodeDimensions.js';
+import { ARTIFACT, CONTROL_LIMIT, ZONES } from './decodeDimensions.js';
 
 // ---------------------------------------------------------------- pieces ---
 
@@ -820,6 +820,86 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
   ...patternRules({ alliance: 'red', rampRegion: DECODE_REGIONS.redRamp, phase: 'TELEOP' }),
   ...patternRules({ alliance: 'blue', rampRegion: DECODE_REGIONS.blueRamp, phase: 'AUTO' }),
   ...patternRules({ alliance: 'blue', rampRegion: DECODE_REGIONS.blueRamp, phase: 'TELEOP' }),
+];
+
+// ------------------------------------------------------------- foul rules ---
+
+/**
+ * The one violation this simulator can assess: G408's CONTROL limit.
+ *
+ * Almost every DECODE foul turns on referee perception — the manual says so
+ * outright, "All rules throughout the Game Rules section are called as perceived
+ * by a REFEREE" (p.89) — and on judgements like PERSISTENT and REPEATED that no
+ * geometry decides. `DECODE_FOULS_ASSESSED_BY_REFEREE` records that, and it
+ * remains true of the rest.
+ *
+ * G408 is different because it is a count:
+ *
+ *   "A ROBOT may not simultaneously CONTROL more than 3 ARTIFACTS.
+ *    Violation: MINOR FOUL per SCORING ELEMENT over the limit." (p.105)
+ *
+ * With possession decided from simulation state, the count is available. What is
+ * not available is intent, and the same rule excludes "bulldozing" — inadvertent
+ * contact with a piece in the robot's path — which is geometrically identical to
+ * herding. So these rules trigger on **sustained** possession rather than on
+ * acquisition: the manual measures excessive violations as "greater-than-
+ * MOMENTARY CONTROL of 4 or more ARTIFACTS", and MOMENTARY is "fewer than
+ * approximately 3 seconds" (§16). A robot driving through a cluster does not
+ * hold it for three seconds; a robot hoarding does.
+ *
+ * That is a proxy, not the rule as written, and ASSUMPTIONS.md §10.14 says so.
+ *
+ * ── Why the count of rules is what it is ───────────────────────────────────
+ *
+ * One rule per count over the limit, because the award is per excess piece and
+ * a filter compares equality. The upper bound is geometric rather than chosen:
+ * a legal robot starts inside an 18 in cube (R101, via `DECODE_ROBOT_
+ * CONSTRAINTS`), and artifacts are 4.9 in across, so at most `4 x 18 / 4.9`
+ * of them can touch its perimeter at once. A robot that has expanded
+ * horizontally could touch more and would be under-fined; that bound needs
+ * R105.A, which this fixture does not model.
+ */
+const MAX_SIMULTANEOUS_CONTACTS = Math.floor(
+  (4 * DECODE_ROBOT_CONSTRAINTS.startingCubeIn.value) / ARTIFACT.specifiedDiameterIn.value,
+);
+
+export const DECODE_FOUL_RULES: readonly ScoringRule[] = (['red', 'blue'] as const).flatMap(
+  (alliance) =>
+    Array.from(
+      { length: Math.max(0, MAX_SIMULTANEOUS_CONTACTS - CONTROL_LIMIT.value) },
+      (_unused, index): ScoringRule => {
+        const count = CONTROL_LIMIT.value + 1 + index;
+
+        return {
+          id: `${alliance}-control-limit-${count}`,
+          label: `${alliance} CONTROL limit exceeded (${count} ARTIFACTS)`,
+          phase: 'ANY',
+          trigger: {
+            event: 'PossessionSustained',
+            filters: [
+              { field: 'alliance', equals: alliance },
+              { field: 'possessedCount', equals: count },
+            ],
+          },
+          // A foul credits the opponent rather than deducting from the
+          // violator, so the penalised alliance's own total is unchanged.
+          award: { points: DECODE_PENALTIES.minorToOpponent, alliance: 'opponent' },
+        };
+      },
+    ),
+);
+
+/**
+ * Everything the rules engine runs: scoring and the one assessable foul.
+ *
+ * Kept as two lists and joined here because the manual keeps them apart — Table
+ * 10-2 is what an alliance earns, Table 10-4 is what it concedes — and because a
+ * caller studying scoring in isolation should be able to take
+ * `DECODE_SCORING_RULES` without the penalty machinery.
+ */
+export const DECODE_RULE_SET: readonly ScoringRule[] = [
+  ...DECODE_SCORING_RULES,
+  ...DECODE_FOUL_RULES,
 ];
 
 // ------------------------------------------------------------- objectives ---

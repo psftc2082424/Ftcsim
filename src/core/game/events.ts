@@ -29,6 +29,7 @@ export const SIM_EVENT_KINDS = [
   'PieceEnteredRegion',
   'PieceExitedRegion',
   'PiecePossessed',
+  'PossessionSustained',
   'PieceReleasedBy',
   'PieceCameToRest',
   'RobotEnteredZone',
@@ -92,6 +93,27 @@ export interface PiecePossessedEvent extends SimEventBase {
    * predicate with its own view of the world.
    */
   readonly possessedCount: number;
+}
+
+/**
+ * A robot has held a given number of pieces long enough for it to be deliberate.
+ *
+ * Fires once per count reached in a possession episode, and only after the count
+ * has stood for longer than the tracker's sustained threshold. That delay is the
+ * whole point: momentary possession is indistinguishable from driving through a
+ * cluster of pieces, so a rule about how many a robot may hold has to be able to
+ * ask for possession that persisted (ASSUMPTIONS.md §10.14).
+ *
+ * Levels are reported cumulatively — a robot that reaches four sustained emits
+ * one, two, three and four — so a rule that fines "per piece over the limit"
+ * fires once per excess piece without the engine knowing what the limit is.
+ */
+export interface PossessionSustainedEvent extends SimEventBase {
+  readonly kind: 'PossessionSustained';
+  readonly robotId: string;
+  readonly alliance: Alliance;
+  readonly possessedCount: number;
+  readonly heldSec: number;
 }
 
 /** A robot let go of a piece. */
@@ -183,6 +205,7 @@ export type SimEvent =
   | PieceEnteredRegionEvent
   | PieceExitedRegionEvent
   | PiecePossessedEvent
+  | PossessionSustainedEvent
   | PieceReleasedByEvent
   | PieceCameToRestEvent
   | RobotZoneEvent

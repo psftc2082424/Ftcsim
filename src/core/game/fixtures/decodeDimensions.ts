@@ -272,6 +272,39 @@ export const ARTIFACT_MASS_LB: Sourced<number> = inferred(
   73,
 );
 
+// -------------------------------------------------------- rule vocabulary ---
+
+/**
+ * Durations the rules refer to by name, from the glossary (§16).
+ *
+ * These are not dimensions, but they are transcribed the same way and for the
+ * same reason: several rules are written in terms of them, and a simulator that
+ * guessed at "momentary" would enforce a different game.
+ */
+export const DURATIONS = {
+  momentaryMaxSec: explicit(
+    3,
+    185,
+    'describes durations that are fewer than approximately 3 seconds',
+    'Glossary, MOMENTARY. The PDF lays terms and definitions in separate ' +
+      'columns, so the label and its text are not adjacent in the extracted order.',
+  ),
+  continuousMinSec: explicit(
+    10,
+    183,
+    'describes durations that are more than approximately 10 seconds',
+    'Glossary, CONTINUOUS. Same column layout as MOMENTARY.',
+  ),
+} as const;
+
+/** §11.4, G408: how many ARTIFACTS one ROBOT may hold at once. */
+export const CONTROL_LIMIT = explicit(
+  3,
+  105,
+  'A ROBOT may not simultaneously CONTROL more than 3 ARTIFACTS.',
+  'G408.',
+);
+
 // -------------------------------------------------------------- AprilTags ---
 
 export const APRIL_TAGS = {
@@ -315,6 +348,8 @@ export const DECODE_DIMENSIONS = {
   classifier: CLASSIFIER,
   artifact: ARTIFACT,
   artifactMassLb: ARTIFACT_MASS_LB,
+  durations: DURATIONS,
+  controlLimit: CONTROL_LIMIT,
   aprilTags: APRIL_TAGS,
   obelisk: OBELISK,
 } as const;

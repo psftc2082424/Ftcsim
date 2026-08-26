@@ -32,6 +32,8 @@ import {
   DECODE_MOTIFS,
   DECODE_POINTS,
   DECODE_REGIONS,
+  DECODE_PENALTIES,
+  DECODE_RULE_SET,
   DECODE_SCORING_RULES,
   DECODE_ZONES,
   RAMP_SLOT_COUNT,
@@ -46,7 +48,7 @@ import {
 } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
 import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
-import { ScriptedController, createInputTrace } from '../../control/scripted.js';
+import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
 import { inchesToMeters } from '../../units/convert.js';
@@ -177,7 +179,7 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
 
   return new MatchSimulation({
     structure: DECODE_MATCH,
-    rules: DECODE_SCORING_RULES,
+    rules: DECODE_RULE_SET,
     regions: DECODE_FIELD_REGIONS,
     zones: DECODE_FIELD_ZONES,
     slottedRegions: DECODE_SLOTTED_REGIONS,
@@ -496,7 +498,7 @@ describe('PATTERN (§10.5.2)', () => {
 
     const result = new MatchSimulation({
       structure: DECODE_MATCH,
-      rules: DECODE_SCORING_RULES,
+      rules: DECODE_RULE_SET,
       regions: DECODE_FIELD_REGIONS,
       zones: DECODE_FIELD_ZONES,
       slottedRegions: DECODE_SLOTTED_REGIONS,
@@ -689,5 +691,107 @@ describe('DEPOT (§10.5, D)', () => {
       ],
     }).run();
     expect(result.score.blue).toBe(0);
+  });
+});
+
+describe('CONTROL limit (G408)', () => {
+  /**
+   * Wider than a legal robot, so five 4.9 in artifacts fit across its face.
+   * A probe for the rule, not a model of a robot — the same reason `SMALL_ROBOT`
+   * and `TINY_ROBOT` exist above.
+   */
+  const WIDE_ROBOT: RobotConfig = {
+    ...DEFAULT_ROBOT_CONFIG,
+    chassis: { ...DEFAULT_ROBOT_CONFIG.chassis, widthIn: 30 },
+  };
+
+  /** Spaced wider than an artifact so they do not shove each other apart. */
+  const ARTIFACT_ROW = [-11, -5.5, 0, 5.5, 11];
+
+  const held = (pieceId: string, xIn: number, yIn: number): GamePieceSpec => ({
+    pieceId,
+    pieceType: 'P',
+    diameterIn: 4.9,
+    massLb: 0.165,
+    startPositionM: at(xIn, yIn),
+  });
+
+  const hoarding = (count: number) =>
+    decodeMatch({
+      robots: [
+        {
+          config: WIDE_ROBOT,
+          alliance: 'red',
+          // Gently, so the push lasts past MOMENTARY before anything reaches a
+          // wall. A full-throttle robot crosses the field in about two seconds.
+          controller: constantController(createControlInput(0.25, 0, 0)),
+          startPose: { p: at(-62, 0), theta: 0 },
+        },
+      ],
+      pieces: ARTIFACT_ROW.slice(0, count).map((yIn, index) => held(`h${index}`, -48, yIn)),
+    });
+
+  const controlDeltas = (sim: MatchSimulation) =>
+    sim.score.deltas.filter((delta) => delta.ruleId.includes('control-limit'));
+
+  it('charges one MINOR FOUL per artifact over the limit', () => {
+    const sim = hoarding(5);
+    for (let i = 0; i < 2000; i++) sim.step();
+
+    // Five held, limit is three, so two fouls: counts four and five.
+    const ids = controlDeltas(sim).map((delta) => delta.ruleId).sort();
+    expect(ids).toEqual(['red-control-limit-4', 'red-control-limit-5']);
+  });
+
+  it('credits the opponent and leaves the offender total alone', () => {
+    const sim = hoarding(5);
+    for (let i = 0; i < 2000; i++) sim.step();
+
+    for (const delta of controlDeltas(sim)) {
+      expect(delta.alliance).toBe('blue');
+      expect(delta.points).toBe(DECODE_PENALTIES.minorToOpponent.value);
+    }
+    // "a credit of 5 points towards the opponent's MATCH point total" — a
+    // credit, not a deduction, so red's own score is untouched by the foul.
+    expect(controlDeltas(sim).every((delta) => delta.alliance !== 'red')).toBe(true);
+  });
+
+  it('charges nothing for holding exactly the limit', () => {
+    const sim = hoarding(3);
+    for (let i = 0; i < 2000; i++) sim.step();
+    expect(controlDeltas(sim)).toEqual([]);
+  });
+
+  /**
+   * The guard against fining a robot that merely drove through a cluster:
+   * bulldozing and herding look identical, so the rule needs possession that
+   * outlasted MOMENTARY (§16: "fewer than approximately 3 seconds").
+   */
+  it('charges nothing for a momentary sweep through a cluster', () => {
+    const sim = hoarding(5);
+    // 2.5 s of contact, inside the MOMENTARY window.
+    for (let i = 0; i < 500; i++) sim.step();
+
+    expect(sim.events.some((event) => event.kind === 'PiecePossessed')).toBe(true);
+    expect(sim.events.some((event) => event.kind === 'PossessionSustained')).toBe(false);
+    expect(controlDeltas(sim)).toEqual([]);
+  });
+
+  it('reports each count once, cumulatively', () => {
+    const sim = hoarding(5);
+    for (let i = 0; i < 2000; i++) sim.step();
+
+    const counts = sim.events
+      .filter((event) => event.kind === 'PossessionSustained')
+      .map((event) => (event.kind === 'PossessionSustained' ? event.possessedCount : 0));
+
+    expect(counts).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  it('keeps the foul rules out of the scoring rule set', () => {
+    // The manual separates what an alliance earns from what it concedes, and so
+    // does the fixture; `DECODE_RULE_SET` is the join.
+    expect(DECODE_SCORING_RULES.some((rule) => rule.id.includes('control-limit'))).toBe(false);
+    expect(DECODE_RULE_SET.length).toBeGreaterThan(DECODE_SCORING_RULES.length);
   });
 });

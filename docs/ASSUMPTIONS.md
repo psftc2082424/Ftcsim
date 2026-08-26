@@ -1088,10 +1088,18 @@ geometrically identical, and what separates them is intent, which a referee
 judges and a snapshot does not contain. The model therefore over-reports
 possession for a robot that drives through a piece on its way somewhere else.
 
-This matters for any rule counting simultaneous possession (DECODE's G408 caps
-it at 3), which will see occasional phantom possessions from a robot crossing a
-scattered field. It does not affect attribution, where crediting the robot that
-last moved a piece is right whether it meant to or not.
+**How the G408 rules cope with it.** DECODE's CONTROL limit is now assessed
+(`DECODE_FOUL_RULES`), and it triggers on *sustained* possession rather than on
+acquisition. The manual supplies the threshold: G408 measures excessive
+violations as "greater-than-MOMENTARY CONTROL of 4 or more ARTIFACTS", and the
+glossary puts MOMENTARY at "fewer than approximately 3 seconds" (p.185). A robot
+crossing a scattered field does not hold four pieces for three seconds; a robot
+hoarding does. That is a proxy for intent, not the rule as written, and a robot
+that shepherds pieces incidentally for longer than three seconds is still fined
+where a referee would not fine it.
+
+Attribution is unaffected either way: crediting the robot that last moved a
+piece is right whether it meant to or not.
 
 **The three thresholds.** Contact tolerance is set by the resolver, not by
 taste: `PENETRATION_SLOP_M` is 1 mm and correction is damped, so a piece resting
@@ -1159,6 +1167,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | G408's CONTROL limit assessed from sustained possession, and ranking-point criteria measured from a match. §10.14 extended with the MOMENTARY proxy the foul rules use for intent. |
 | 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |
 | 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |
