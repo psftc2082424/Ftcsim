@@ -47,7 +47,14 @@ jobs:
       - name: Build
         run: npm run build
 
+      # `enablement` turns Pages on via the API rather than requiring someone to
+      # visit Settings first. It cannot override the account plan: Pages from a
+      # *private* repository needs GitHub Pro or above, and on a free plan this
+      # step fails with "Your current plan does not support GitHub Pages for
+      # this repository" until the repository is made public.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
