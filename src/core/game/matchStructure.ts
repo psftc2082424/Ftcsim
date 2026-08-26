@@ -24,7 +24,20 @@ export type SubPhaseId = 'ENDGAME';
 /** Any phase a scoring rule can be scoped to. */
 export type PhaseId = PeriodId | SubPhaseId;
 /** Phases plus the states either side of the match. */
-export type MatchState = 'PRE' | PhaseId | 'POST';
+/**
+ * `TRANSITION` is the dead time between periods, and is deliberately its own
+ * state rather than being folded into `PRE`.
+ *
+ * Conflating the two is wrong in a way that silently loses points: DECODE puts
+ * an 8-second gap between AUTO and TELEOP and states that anything meeting
+ * scoring criteria before TELEOP starts is assessed as AUTO (§10.5 A). Treating
+ * that window as "before the match" made every artifact that settled in it
+ * score nothing.
+ *
+ * Which period a transition scores as is a property of the game, so it is read
+ * from `MatchStructure.transitionScoresAs` rather than assumed here.
+ */
+export type MatchState = 'PRE' | PhaseId | 'TRANSITION' | 'POST';
 
 export interface EndgameSubPhase {
   readonly id: 'ENDGAME';
@@ -52,6 +65,14 @@ export interface MatchStructure {
   readonly periods: readonly [AutoPeriod, TeleopPeriod];
   /** Dead time between autonomous and teleop, if the game defines any. */
   readonly transitionSec?: Sourced<number> | undefined;
+  /**
+   * Which period an achievement during the transition is scored as.
+   *
+   * Omitted means the transition scores nothing, which is the safe default: a
+   * game that has not said gets no points rather than points attributed to a
+   * period it never named.
+   */
+  readonly transitionScoresAs?: Sourced<PeriodId> | undefined;
 }
 
 /** A phase and the window of match time it occupies. */
@@ -135,7 +156,7 @@ export function matchStateAt(match: MatchStructure, timeSec: number): MatchState
 
   const auto = autoOf(match);
   if (timeSec < auto.durationSec.value) return 'AUTO';
-  if (timeSec < teleopStartSec(match)) return 'PRE'; // the transition gap
+  if (timeSec < teleopStartSec(match)) return 'TRANSITION';
   return timeSec >= endgameStartSec(match) ? 'ENDGAME' : 'TELEOP';
 }
 
@@ -152,7 +173,26 @@ export function matchStateAt(match: MatchStructure, timeSec: number): MatchState
 export function periodOf(state: MatchState): PeriodId | null {
   if (state === 'AUTO') return 'AUTO';
   if (state === 'TELEOP' || state === 'ENDGAME') return 'TELEOP';
+  // TRANSITION is deliberately not a period. A period *ends* when its clock
+  // does — DECODE assesses LEAVE "at the end of AUTO" (§10.5 E), not at the end
+  // of the settling window that follows it — so end-of-period assessment fires
+  // at AUTO -> TRANSITION. What the transition *scores as* is a separate
+  // question, answered by `scoringStateAt`.
   return null;
+}
+
+/**
+ * The phase a rule should be scoped against at this moment.
+ *
+ * Differs from `matchStateAt` only during a transition, where the clock is in
+ * dead time but the game may still attribute achievements to the period that
+ * just ended. Returns `null` when nothing scores.
+ */
+export function scoringStateAt(match: MatchStructure, timeSec: number): MatchState | null {
+  const state = matchStateAt(match, timeSec);
+  if (state === 'PRE' || state === 'POST') return null;
+  if (state !== 'TRANSITION') return state;
+  return match.transitionScoresAs?.value ?? null;
 }
 
 /**
@@ -164,7 +204,7 @@ export function periodOf(state: MatchState): PeriodId | null {
  */
 export function isWithinPhase(state: MatchState, phase: PhaseId | 'ANY'): boolean {
   if (phase === 'ANY') return state === 'AUTO' || state === 'TELEOP' || state === 'ENDGAME';
-  if (state === 'PRE' || state === 'POST') return false;
+  if (state === 'PRE' || state === 'POST' || state === 'TRANSITION') return false;
   if (phase === 'TELEOP') return state === 'TELEOP' || state === 'ENDGAME';
   return state === phase;
 }

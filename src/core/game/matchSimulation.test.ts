@@ -212,8 +212,8 @@ describe('phase scoping through the whole pipeline', () => {
       .map((e) => (e.kind === 'PhaseChanged' ? `${e.from}->${e.to}` : ''));
 
     expect(transitions).toEqual([
-      'AUTO->PRE',
-      'PRE->TELEOP',
+      'AUTO->TRANSITION',
+      'TRANSITION->TELEOP',
       'TELEOP->ENDGAME',
       'ENDGAME->POST',
     ]);

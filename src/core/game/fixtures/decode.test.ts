@@ -26,6 +26,7 @@ import { scoreBreakdown } from '../effects.js';
 import {
   endgameStartSec,
   matchStateAt,
+  scoringStateAt,
   totalMatchDurationSec,
 } from '../matchStructure.js';
 import { needsReview } from '../sourced.js';
@@ -157,10 +158,33 @@ describe('DECODE match timing', () => {
 
   it('models the 8-second AUTO-to-TELEOP delay', () => {
     expect(matchStateAt(DECODE_MATCH, 29.9)).toBe('AUTO');
-    // The transition gap is not a scoring period.
-    expect(matchStateAt(DECODE_MATCH, 30)).toBe('PRE');
-    expect(matchStateAt(DECODE_MATCH, 37.9)).toBe('PRE');
+    // Its own state, not "before the match" — see the scoring test below.
+    expect(matchStateAt(DECODE_MATCH, 30)).toBe('TRANSITION');
+    expect(matchStateAt(DECODE_MATCH, 37.9)).toBe('TRANSITION');
     expect(matchStateAt(DECODE_MATCH, 38)).toBe('TELEOP');
+  });
+
+  /**
+   * §10.5 A: "ARTIFACTS that meet scoring criteria prior to the start of TELEOP
+   * are assessed as part of AUTO."
+   *
+   * The gap is dead time for the robots but not for the score: an artifact
+   * launched at 0:29 and still rolling at 0:31 scores, and scores as AUTO. The
+   * gap was previously reported as `PRE`, so anything settling in it scored
+   * nothing at all.
+   */
+  it('scores the transition gap as AUTO', () => {
+    expect(DECODE_MATCH.transitionScoresAs?.value).toBe('AUTO');
+    expect(scoringStateAt(DECODE_MATCH, 30)).toBe('AUTO');
+    expect(scoringStateAt(DECODE_MATCH, 37.9)).toBe('AUTO');
+    expect(scoringStateAt(DECODE_MATCH, 38)).toBe('TELEOP');
+  });
+
+  it('scores nothing in a gap the game has not attributed', () => {
+    // The safe default: a structure that does not say gets no points rather
+    // than points attributed to a period it never named.
+    const { transitionScoresAs: _unused, ...silent } = DECODE_MATCH;
+    expect(scoringStateAt(silent, 33)).toBeNull();
   });
 
   /**
@@ -236,13 +260,25 @@ describe('DECODE scoring — ARTIFACTS', () => {
     expect(runner.score.red).toBe(DECODE_POINTS.classifiedTeleop.value);
   });
 
-  it('does not score artifacts during the AUTO-to-TELEOP gap', () => {
-    // The gap is not a scoring phase; §10.5 notes such achievements are subject
-    // to penalties rather than points.
+  /**
+   * §10.5 A: "ARTIFACTS that meet scoring criteria prior to the start of TELEOP
+   * are assessed as part of AUTO."
+   *
+   * An earlier version of this test asserted the gap scored nothing, reading
+   * §10.5's "achievements scored ... during the AUTO-to-TELEOP transition ...
+   * are subject to penalties" as "are worth no points". It says the opposite:
+   * the achievement counts, and a referee may *also* assess a penalty — which
+   * this simulator does not model (ASSUMPTIONS.md §10.13). The 8 seconds exist
+   * precisely so an artifact still in the air at 0:30 lands and scores.
+   */
+  it('scores an artifact settling in the AUTO-to-TELEOP gap as AUTO', () => {
     const runner = newRunner();
     runner.advanceTo(33);
     runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 6600, 'red'));
-    expect(runner.score.red).toBe(0);
+
+    const breakdown = scoreBreakdown(runner.score, 'red');
+    expect(breakdown['red-classified-auto']).toBe(DECODE_POINTS.classifiedAuto.value);
+    expect(breakdown['red-classified-teleop']).toBeUndefined();
   });
 });
 

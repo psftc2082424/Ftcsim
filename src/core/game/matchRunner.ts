@@ -159,12 +159,28 @@ export class MatchRunner {
    * whatever comes next and would never fire.
    */
   private scopeStateFor(event: SimEvent): MatchState {
-    if (event.kind !== 'PhaseChanged') return this.clock.currentState;
+    if (event.kind !== 'PhaseChanged') return this.scoringState();
 
     const from = event.from as MatchState;
     return from === 'AUTO' || from === 'TELEOP' || from === 'ENDGAME'
       ? from
-      : this.clock.currentState;
+      : this.scoringState();
+  }
+
+  /**
+   * The clock's state, except during a transition, which scores as whatever
+   * period the game says it does.
+   *
+   * DECODE's 8-second gap is the case that matters: the manual attributes
+   * anything meeting criteria before TELEOP starts to AUTO (§10.5 A), so an
+   * artifact that finally settles in the gap scores, and scores as AUTO. A game
+   * that declares nothing gets the clock's state, and a transition scores
+   * nothing.
+   */
+  private scoringState(): MatchState {
+    const state = this.clock.currentState;
+    if (state !== 'TRANSITION') return state;
+    return this.options.structure.transitionScoresAs?.value ?? state;
   }
 
   private snapshotContext(event: SimEvent): PredicateContext {

@@ -500,8 +500,8 @@ describe('match clock', () => {
   it('emits a transition only on the tick the phase changes', () => {
     const transitions = phaseTransitions(DECODE_MATCH, DT);
     expect(transitions.map((t) => `${t.from}->${t.to}`)).toEqual([
-      'AUTO->PRE', // the 8 s scoring gap
-      'PRE->TELEOP',
+      'AUTO->TRANSITION', // the 8 s scoring gap
+      'TRANSITION->TELEOP',
       'TELEOP->POST',
     ]);
   });

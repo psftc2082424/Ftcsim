@@ -183,6 +183,18 @@ export const DECODE_MATCH: MatchStructure = {
     83,
     'There is an 8-second delay between AUTO and TELEOP for scoring purposes',
   ),
+  /**
+   * The gap is dead time for the robots but not for the score.
+   *
+   * An artifact launched in the last second of AUTO is still in the air when
+   * the clock hits 0:30, and the manual attributes it to AUTO — which is what
+   * the 8 seconds are for.
+   */
+  transitionScoresAs: explicit(
+    'AUTO',
+    83,
+    'ARTIFACTS that meet scoring criteria prior to the start of TELEOP are assessed as part of AUTO',
+  ),
 };
 
 // ------------------------------------------------------------ point values ---
