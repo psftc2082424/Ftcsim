@@ -46,8 +46,8 @@ import {
 } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
 import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
-import { constantController } from '../../control/scripted.js';
-import { createControlInput } from '../../control/controlInput.js';
+import { ScriptedController, createInputTrace } from '../../control/scripted.js';
+import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { vec2 } from '../../math/vec2.js';
@@ -102,6 +102,18 @@ const idle = (
   startPose: { p: at(xIn, yIn), theta: 0 },
 });
 
+/**
+ * Ticks a `driving` robot holds its command before releasing it — 1.3 s at the
+ * 200 Hz fixed rate, enough to cross about five feet of field.
+ *
+ * A robot commanded for the whole 158 s match ends up pressed against the far
+ * perimeter, and in this placeholder layout the far perimeter is inside the
+ * *opposite* alliance's LAUNCH LINE. LEAVE is assessed on where a robot ends
+ * AUTO (§10.5.3), so that setup would fail for a reason that has nothing to do
+ * with the rule. Releasing mid-field parks the robot in open space instead.
+ */
+const DRIVE_TICKS = 260;
+
 const driving = (
   alliance: 'red' | 'blue',
   xIn: number,
@@ -110,7 +122,12 @@ const driving = (
   config: RobotConfig = DEFAULT_ROBOT_CONFIG,
 ): RobotSpec => ({
   config,
-  controller: constantController(createControlInput(drive.x, drive.y, 0)),
+  controller: new ScriptedController(
+    createInputTrace(`drive-${drive.x}-${drive.y}`, [
+      { tick: 0, input: createControlInput(drive.x, drive.y, 0) },
+      { tick: DRIVE_TICKS, input: NEUTRAL_INPUT },
+    ]),
+  ),
   alliance,
   startPose: { p: at(xIn, yIn), theta: 0 },
 });

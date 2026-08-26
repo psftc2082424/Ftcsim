@@ -128,7 +128,10 @@ describe('determinism — golden state hash', () => {
   });
 
   it('matches the committed golden digest', () => {
-    expect(runGolden()).toBe('fe7b49d5');
+    // Rebaselined when polygon contacts gained a clipped manifold and an
+    // iterated normal solver; the golden trace opens by driving into the
+    // perimeter, so its trajectory legitimately changed.
+    expect(runGolden()).toBe('7721d433');
   });
 
   it('changes when the input trace changes', () => {

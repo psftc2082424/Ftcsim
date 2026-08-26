@@ -4,8 +4,16 @@
  * Convex shapes are separated by the Separating Axis Theorem: two convex shapes
  * are disjoint if and only if some axis exists on which their projections do not
  * overlap. For polygons it suffices to test each edge normal of both shapes; if
- * every axis overlaps, the axis of *least* overlap gives both the contact normal
- * and the penetration depth, which is exactly what the resolver needs.
+ * every axis overlaps, the axis of *least* overlap gives the contact normal and
+ * the penetration depth.
+ *
+ * The axis alone is not enough. A contact also has to say **where** the shapes
+ * touch, because the resolver applies its impulse there and an impulse in the
+ * wrong place produces a torque that does not physically exist. Polygon pairs
+ * therefore produce a *manifold*: the least-overlap face is used as a reference
+ * and the other shape's facing edge is clipped to it, giving one point for a
+ * corner contact and two for a face-on one. `manifoldFrom` records the bug that
+ * made this necessary.
  *
  * Sign convention throughout: the returned `normal` is a unit vector pointing
  * **from A toward B**. Separating the pair means moving B along +normal and A
@@ -16,38 +24,37 @@ import { normalize, sub, vec2, type Vec2 } from '../math/vec2.js';
 import { worldVertices, type Circle, type ConvexPoly, type Obb, type Shape } from './shapes.js';
 import type { Pose } from './body.js';
 
+/** One point of a contact manifold, in world space. */
+export interface ContactPoint {
+  readonly position: Vec2;
+  /** Penetration at this point along the contact normal, always positive. */
+  readonly depth: number;
+}
+
 export interface Contact {
   /** Unit vector from A toward B. */
   readonly normal: Vec2;
-  /** Penetration depth along `normal`, always positive. */
+  /** Deepest penetration in the manifold, along `normal`. Always positive. */
   readonly depth: number;
-  /** Representative world-space contact point. */
-  readonly point: Vec2;
+  /** One point for a corner contact, two for a face-on contact. Never empty. */
+  readonly points: readonly ContactPoint[];
 }
 
 /**
- * Tolerance for treating several vertices as equally deep along the contact
- * normal. Face-on contacts have two corners at the same depth; averaging them
- * puts the contact point in the middle of the touching face instead of at one
- * corner, which stops a robot squaring up against a wall from being given a
- * spurious spin.
+ * Tie-break margin, in metres, for choosing which shape owns the contact normal.
+ *
+ * Two boxes meeting exactly flat report identical separations for A's face and
+ * B's face. Preferring A unless B is shallower by more than this makes the
+ * choice a function of argument order rather than of floating-point noise, which
+ * is what keeps `collide` reproducible.
  */
-const COINCIDENT_DEPTH_TOLERANCE = 1e-9;
+const REFERENCE_FACE_TIE_TOLERANCE = 1e-9;
 
-interface Projection {
-  readonly min: number;
-  readonly max: number;
-}
-
-function project(vertices: readonly Vec2[], axis: Vec2): Projection {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const v of vertices) {
-    const d = v.x * axis.x + v.y * axis.y;
-    if (d < min) min = d;
-    if (d > max) max = d;
-  }
-  return { min, max };
+interface FaceQuery {
+  /** Index of the face with the greatest separation, i.e. the least overlap. */
+  readonly index: number;
+  /** Signed separation on that face. Negative means overlapping. */
+  readonly separation: number;
 }
 
 /** Outward edge normals of a counter-clockwise polygon. */
@@ -63,69 +70,166 @@ function edgeNormals(vertices: readonly Vec2[]): Vec2[] {
 }
 
 /**
- * Average of the vertices furthest along `direction`. Ties within
- * `COINCIDENT_DEPTH_TOLERANCE` are averaged; a single extremal vertex is
- * returned unchanged.
+ * How deeply `incident` reaches past each face of `reference`, keeping the face
+ * it reaches past least.
+ *
+ * A positive result is a separating axis and proves the shapes are disjoint.
  */
-function supportPoint(vertices: readonly Vec2[], direction: Vec2): Vec2 {
-  let best = -Infinity;
-  for (const v of vertices) {
-    const d = v.x * direction.x + v.y * direction.y;
-    if (d > best) best = d;
-  }
+function faceQuery(reference: readonly Vec2[], incident: readonly Vec2[]): FaceQuery {
+  const normals = edgeNormals(reference);
 
-  let sumX = 0;
-  let sumY = 0;
-  let count = 0;
-  for (const v of vertices) {
-    const d = v.x * direction.x + v.y * direction.y;
-    if (d >= best - COINCIDENT_DEPTH_TOLERANCE) {
-      sumX += v.x;
-      sumY += v.y;
-      count++;
+  let bestIndex = 0;
+  let bestSeparation = -Infinity;
+
+  for (let i = 0; i < reference.length; i++) {
+    const normal = normals[i] as Vec2;
+    const origin = reference[i] as Vec2;
+
+    let deepest = Infinity;
+    for (const v of incident) {
+      const distance = (v.x - origin.x) * normal.x + (v.y - origin.y) * normal.y;
+      if (distance < deepest) deepest = distance;
+    }
+
+    if (deepest > bestSeparation) {
+      bestSeparation = deepest;
+      bestIndex = i;
     }
   }
-  return vec2(sumX / count, sumY / count);
+
+  return { index: bestIndex, separation: bestSeparation };
+}
+
+/** The face of `vertices` most opposed to `referenceNormal` — the one in contact. */
+function incidentFaceIndex(vertices: readonly Vec2[], referenceNormal: Vec2): number {
+  const normals = edgeNormals(vertices);
+
+  let bestIndex = 0;
+  let bestDot = Infinity;
+  for (let i = 0; i < normals.length; i++) {
+    const normal = normals[i] as Vec2;
+    const dot = normal.x * referenceNormal.x + normal.y * referenceNormal.y;
+    if (dot < bestDot) {
+      bestDot = dot;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+/**
+ * Clip the segment `p1`–`p2` to the half-plane `dot(normal, p) <= offset`.
+ *
+ * Returns the surviving segment, or `null` when the segment lies wholly outside.
+ * A segment clipped to a half-plane is still a segment, so the caller always
+ * gets two points or nothing.
+ */
+function clipSegmentToPlane(
+  p1: Vec2,
+  p2: Vec2,
+  normal: Vec2,
+  offset: number,
+): readonly [Vec2, Vec2] | null {
+  const d1 = normal.x * p1.x + normal.y * p1.y - offset;
+  const d2 = normal.x * p2.x + normal.y * p2.y - offset;
+
+  if (d1 <= 0 && d2 <= 0) return [p1, p2];
+  if (d1 > 0 && d2 > 0) return null;
+
+  // Exactly one endpoint is outside; slide it back onto the plane.
+  const t = d1 / (d1 - d2);
+  const crossing = vec2(p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t);
+  return d1 <= 0 ? [p1, crossing] : [crossing, p2];
+}
+
+/**
+ * Build the contact manifold for an overlapping polygon pair.
+ *
+ * **Why clipping and not a support point.** This used to return the single
+ * deepest vertex of B along the contact normal, averaging ties. Against the
+ * field perimeter that vertex set is the wall's *entire* inner face, so the
+ * averaged point landed at the middle of the wall — up to 1.8 m from where the
+ * robot actually touched it. The normal impulse then acted through a lever arm
+ * that long, and a robot driving flat into a wall anywhere but the wall's exact
+ * centre was spun and thrown sideways instead of stopped.
+ *
+ * Clipping the incident face to the reference face's extent gives the region the
+ * shapes genuinely share: two points for a face-on contact, symmetric about the
+ * touching face, so their impulses cancel in torque; one point for a corner
+ * contact, which correctly still spins the robot.
+ */
+function manifoldFrom(
+  vertsRef: readonly Vec2[],
+  vertsInc: readonly Vec2[],
+  refIndex: number,
+): { readonly points: ContactPoint[]; readonly normal: Vec2 } | null {
+  const refNormal = edgeNormals(vertsRef)[refIndex] as Vec2;
+  const faceStart = vertsRef[refIndex] as Vec2;
+  const faceEnd = vertsRef[(refIndex + 1) % vertsRef.length] as Vec2;
+
+  const incIndex = incidentFaceIndex(vertsInc, refNormal);
+  const incStart = vertsInc[incIndex] as Vec2;
+  const incEnd = vertsInc[(incIndex + 1) % vertsInc.length] as Vec2;
+
+  const tangent = normalize(sub(faceEnd, faceStart));
+  if (!Number.isFinite(tangent.x) || !Number.isFinite(tangent.y)) return null;
+
+  // Trim the incident face to the strip the reference face spans.
+  const backward = vec2(-tangent.x, -tangent.y);
+  const trimmedAtStart = clipSegmentToPlane(
+    incStart,
+    incEnd,
+    backward,
+    backward.x * faceStart.x + backward.y * faceStart.y,
+  );
+  if (trimmedAtStart === null) return null;
+
+  const clipped = clipSegmentToPlane(
+    trimmedAtStart[0],
+    trimmedAtStart[1],
+    tangent,
+    tangent.x * faceEnd.x + tangent.y * faceEnd.y,
+  );
+  if (clipped === null) return null;
+
+  // Keep only what lies behind the reference face. A corner contact leaves one
+  // endpoint in front of it, and that endpoint is not touching anything.
+  const faceOffset = refNormal.x * faceStart.x + refNormal.y * faceStart.y;
+  const points: ContactPoint[] = [];
+  for (const position of clipped) {
+    const separation = refNormal.x * position.x + refNormal.y * position.y - faceOffset;
+    if (separation > 0) continue;
+    points.push({ position, depth: -separation });
+  }
+
+  if (points.length === 0) return null;
+  return { points, normal: refNormal };
 }
 
 function polyPoly(vertsA: readonly Vec2[], vertsB: readonly Vec2[]): Contact | null {
-  const axes = [...edgeNormals(vertsA), ...edgeNormals(vertsB)];
+  const queryA = faceQuery(vertsA, vertsB);
+  if (queryA.separation > 0) return null;
 
-  let bestDepth = Infinity;
-  let bestAxis: Vec2 | null = null;
+  const queryB = faceQuery(vertsB, vertsA);
+  if (queryB.separation > 0) return null;
 
-  for (const axis of axes) {
-    const pa = project(vertsA, axis);
-    const pb = project(vertsB, axis);
+  // The least-overlap face owns the contact normal. Ties go to A.
+  const useB = queryB.separation > queryA.separation + REFERENCE_FACE_TIE_TOLERANCE;
+  const manifold = useB
+    ? manifoldFrom(vertsB, vertsA, queryB.index)
+    : manifoldFrom(vertsA, vertsB, queryA.index);
+  if (manifold === null) return null;
 
-    // A gap on any axis proves separation; stop immediately.
-    if (pa.max < pb.min || pb.max < pa.min) return null;
+  // A reference normal points away from the shape that owns it, so B's faces
+  // give B→A and have to be reversed to satisfy the A→B convention.
+  const normal = useB ? vec2(-manifold.normal.x, -manifold.normal.y) : manifold.normal;
 
-    // Two ways to separate along this axis. The smaller one also tells us which
-    // side B sits on, so direction comes straight out of the projections.
-    //
-    // Deriving it this way rather than from the two bodies' poses matters: a
-    // static body may carry world-space vertices with its pose left at the
-    // origin, in which case a pose-based test reverses the normal and the
-    // resolver pushes bodies *through* each other instead of apart.
-    const pushPositive = pa.max - pb.min; // B lies on the +axis side of A
-    const pushNegative = pb.max - pa.min; // B lies on the -axis side of A
-
-    const positive = pushPositive < pushNegative;
-    const depth = positive ? pushPositive : pushNegative;
-
-    if (depth < bestDepth) {
-      bestDepth = depth;
-      bestAxis = positive ? axis : vec2(-axis.x, -axis.y);
-    }
+  let depth = 0;
+  for (const point of manifold.points) {
+    if (point.depth > depth) depth = point.depth;
   }
 
-  if (bestAxis === null) return null;
-
-  // The contact sits on B's surface that is deepest into A.
-  const point = supportPoint(vertsB, vec2(-bestAxis.x, -bestAxis.y));
-
-  return { normal: bestAxis, depth: bestDepth, point };
+  return { normal, depth, points: manifold.points };
 }
 
 /** Closest point on a convex polygon's boundary to `p`, plus whether p is inside. */
@@ -183,6 +287,11 @@ function closestOnPoly(
   return { point: best, inside: false, faceNormal: bestFaceNormal, insideDepth: 0 };
 }
 
+/** A circle touches at one point, so its manifold never needs clipping. */
+function singlePoint(normal: Vec2, depth: number, position: Vec2): Contact {
+  return { normal, depth, points: [{ position, depth }] };
+}
+
 /** Circle A against polygon B. Normal points from the circle toward the polygon. */
 function circlePoly(center: Vec2, radius: number, vertsB: readonly Vec2[]): Contact | null {
   const closest = closestOnPoly(vertsB, center);
@@ -190,11 +299,7 @@ function circlePoly(center: Vec2, radius: number, vertsB: readonly Vec2[]): Cont
   if (closest.inside) {
     // Centre is inside the polygon: push out along the nearest face.
     const outward = closest.faceNormal;
-    return {
-      normal: vec2(-outward.x, -outward.y),
-      depth: radius + closest.insideDepth,
-      point: closest.point,
-    };
+    return singlePoint(vec2(-outward.x, -outward.y), radius + closest.insideDepth, closest.point);
   }
 
   const delta = sub(closest.point, center);
@@ -202,11 +307,11 @@ function circlePoly(center: Vec2, radius: number, vertsB: readonly Vec2[]): Cont
   if (distance > radius) return null;
   if (distance === 0) return null;
 
-  return {
-    normal: vec2(delta.x / distance, delta.y / distance),
-    depth: radius - distance,
-    point: closest.point,
-  };
+  return singlePoint(
+    vec2(delta.x / distance, delta.y / distance),
+    radius - distance,
+    closest.point,
+  );
 }
 
 function circleCircle(
@@ -223,12 +328,11 @@ function circleCircle(
   // Concentric circles have no defined normal; nudge along +X deterministically
   // rather than producing NaN.
   const normal = distance === 0 ? vec2(1, 0) : vec2(delta.x / distance, delta.y / distance);
-  const depth = sum - distance;
-  return {
+  return singlePoint(
     normal,
-    depth,
-    point: vec2(centerA.x + normal.x * radiusA, centerA.y + normal.y * radiusA),
-  };
+    sum - distance,
+    vec2(centerA.x + normal.x * radiusA, centerA.y + normal.y * radiusA),
+  );
 }
 
 function polygonOf(shape: Obb | ConvexPoly, pose: Pose): readonly Vec2[] {
@@ -262,7 +366,7 @@ export function collide(shapeA: Shape, poseA: Pose, shapeB: Shape, poseB: Pose):
     return {
       normal: vec2(-flipped.normal.x, -flipped.normal.y),
       depth: flipped.depth,
-      point: flipped.point,
+      points: flipped.points,
     };
   }
 

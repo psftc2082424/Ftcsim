@@ -54,12 +54,32 @@ describe('polygon vs polygon', () => {
     expect(collide(box, at(0, 0), box, { p: gap.p, theta: Math.PI / 4 })).not.toBeNull();
   });
 
-  it('centres the contact point on a face-on overlap', () => {
-    // Two squares meeting flat should contact at the middle of the touching
-    // face, not at one corner — otherwise a robot squaring up to a wall would
-    // be given a spurious spin.
+  it('builds a two-point manifold spanning a face-on overlap', () => {
+    // Two squares meeting flat share a whole face, so the manifold has to hold
+    // both ends of it. A single point anywhere on that face would give a robot
+    // squaring up to a wall a spurious spin.
     const contact = collide(box, at(0, 0), box, at(1.5, 0));
-    expect(contact?.point.y).toBeCloseTo(0, 9);
+    expect(contact?.points).toHaveLength(2);
+
+    const ys = (contact?.points ?? []).map((p) => p.position.y).sort((l, r) => l - r);
+    expect(ys[0]).toBeCloseTo(-1, 9);
+    expect(ys[1]).toBeCloseTo(1, 9);
+
+    // Both ends are equally deep, and the manifold is symmetric about the
+    // shared axis, so the two impulses cancel in torque.
+    for (const point of contact?.points ?? []) {
+      expect(point.position.x).toBeCloseTo(0.5, 9);
+      expect(point.depth).toBeCloseTo(0.5, 9);
+    }
+  });
+
+  it('reduces a corner contact to a single point', () => {
+    // A box rotated 45 degrees pokes one corner into its neighbour. Only that
+    // corner is touching, and a one-point manifold is what lets the impulse
+    // rotate the body — real behaviour that the face-on case must not have.
+    const contact = collide(box, at(0, 0), box, { p: vec2(2.2, 0), theta: Math.PI / 4 });
+    expect(contact?.points).toHaveLength(1);
+    expect(contact?.points[0]?.position.y).toBeCloseTo(0, 9);
   });
 
   it('handles a non-square rectangle', () => {
@@ -82,7 +102,8 @@ describe('circle vs circle', () => {
     const contact = collide(c1, at(0, 0), c1, at(1.5, 0));
     expect(contact?.depth).toBeCloseTo(0.5, 12);
     expect(contact?.normal.x).toBeCloseTo(1, 12);
-    expect(contact?.point.x).toBeCloseTo(1, 12);
+    expect(contact?.points).toHaveLength(1);
+    expect(contact?.points[0]?.position.x).toBeCloseTo(1, 12);
   });
 
   it('produces a finite normal for concentric circles', () => {
@@ -155,8 +176,12 @@ describe('regression — normal orientation must not depend on body pose', () =>
     expect(contact?.normal.x).toBeCloseTo(1, 9);
     // Robot spans to 1.7 + 0.2285 = 1.9285; the wall's near face is at 1.8288.
     expect(contact?.depth).toBeCloseTo(0.0997, 6);
-    // Contact belongs on the wall's near face, not its far face.
-    expect(contact?.point.x).toBeCloseTo(1.8288, 6);
+    // Contact belongs on the wall's near face, not its far face — and it spans
+    // only the width of the robot, not the width of the wall.
+    for (const point of contact?.points ?? []) {
+      expect(point.position.x).toBeCloseTo(1.8288, 6);
+      expect(Math.abs(point.position.y)).toBeCloseTo(0.2285, 6);
+    }
   });
 
   it('agrees with the equivalent pose-centred box', () => {
@@ -169,7 +194,8 @@ describe('regression — normal orientation must not depend on body pose', () =>
 
     expect(a?.normal.x).toBeCloseTo(b?.normal.x ?? 0, 9);
     expect(a?.depth).toBeCloseTo(b?.depth ?? 0, 9);
-    expect(a?.point.x).toBeCloseTo(b?.point.x ?? 0, 9);
+    expect(a?.points).toHaveLength(b?.points.length ?? 0);
+    expect(a?.points[0]?.position.x).toBeCloseTo(b?.points[0]?.position.x ?? 0, 9);
   });
 });
 
