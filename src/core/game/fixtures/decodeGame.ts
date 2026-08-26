@@ -19,6 +19,7 @@
 
 import type { GameDefinition, GamePieceType } from '../gameDefinition.js';
 import { assumed } from '../sourced.js';
+import { ARTIFACT_MASS_LB } from './decodeDimensions.js';
 import {
   DECODE_FOULS_ASSESSED_BY_REFEREE,
   DECODE_HAS_NO_WEIGHT_LIMIT,
@@ -44,31 +45,18 @@ import {
 } from './decodeField.js';
 
 /**
- * ARTIFACT mass.
+ * Piece types with the vendor-published mass attached, so physics has a real
+ * number rather than an estimate.
  *
- * **Not in the manual.** DECODE specifies ARTIFACT diameter (4.9 in ± 0.25) and
- * material (Gopher ResisDent polypropylene) but gives no weight, and physics
- * needs one. 0.3 lb is an estimate for a hollow 5 in polypropylene ball of the
- * kind described; it is not measured and not cited.
- *
- * It matters: piece mass sets how far an artifact travels when a robot strikes
- * it, so every "did it reach the goal" outcome depends on this number. Replacing
- * it with a weighed value is the single highest-value correction to this
- * fixture.
+ * See `ARTIFACT_MASS_LB` for where 0.165 lb comes from and why it is `inferred`
+ * rather than `explicit`: the Competition Manual names the part, AndyMark
+ * publishes its weight.
  */
-export const ARTIFACT_ESTIMATED_MASS_LB = assumed(
-  0.3,
-  'The DECODE manual gives ARTIFACT diameter and material but no mass. This is an ' +
-    'estimate for a hollow 5 in polypropylene ball, not a measurement. Piece mass ' +
-    'determines how far a struck artifact travels, so scoring outcomes depend on it.',
-);
-
-/** Piece types with the estimated mass attached, so physics has something to use. */
 export const DECODE_PIECE_TYPES: readonly GamePieceType[] = DECODE_PIECES.map((piece) => ({
   id: piece.id,
   label: piece.label,
   diameterIn: piece.diameterIn,
-  massLb: ARTIFACT_ESTIMATED_MASS_LB,
+  massLb: ARTIFACT_MASS_LB,
   count: piece.count,
 }));
 

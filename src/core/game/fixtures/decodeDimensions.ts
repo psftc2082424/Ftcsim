@@ -1,9 +1,12 @@
 /**
  * DECODE dimensions, transcribed from the Competition Manual (Team Update 32).
  *
- * Every value here is read from the manual with a page citation and a verbatim
- * quote. Nothing is estimated. This module deliberately contains **sizes only,
- * never positions** — see `decodeField.ts` for why that split exists.
+ * Every value here is read from a document with a citation and a verbatim quote.
+ * Nothing is estimated. Almost all of it is the manual; the one exception is
+ * ARTIFACT mass, which the manual omits and the vendor publishes for the part
+ * number the manual names — see `ARTIFACT_MASS_LB`. This module deliberately
+ * contains **sizes only, never positions** — see `decodeField.ts` for why that
+ * split exists.
  *
  * ── The manual's own accuracy statement (§9.1, p.59) ───────────────────────
  *
@@ -22,7 +25,7 @@
  * rather than assumed away, and it is why `ARENA_DIMENSION_TOLERANCE_IN` exists.
  */
 
-import { explicit, type Sourced } from '../sourced.js';
+import { explicit, inferred, type Sourced } from '../sourced.js';
 
 /**
  * Default tolerance on every dimension in this file, per §9.1.
@@ -230,12 +233,44 @@ export const ARTIFACT = {
  * am-3376a_green) and material — "Gopher ResisDent polypropylene" — but no
  * weight. Searching the manual for a mass figure returns nothing.
  *
- * This is recorded as a fact about the source, so that the estimate used in
- * `decodeGame.ts` is understood as filling a genuine gap rather than as a
- * failure to look. Resolving it needs either the AndyMark product spec for
- * am-3376a or a weighed artifact.
+ * Recorded as a fact about the source, so that `ARTIFACT_MASS_LB` reads as
+ * filling a genuine gap rather than as a failure to look in the right place.
  */
 export const ARTIFACT_MASS_NOT_IN_MANUAL = true;
+
+/**
+ * ARTIFACT mass, from the vendor's specification for the part the manual names.
+ *
+ * ── Why this is `inferred` and not `explicit` ──────────────────────────────
+ *
+ * `explicit` in this codebase means the *Competition Manual* says so, and it
+ * does not. What the manual does is name the part: §9.9 cites `am-3376a_purple`
+ * and `am-3376a_green`. AndyMark publishes that part's specification, and the
+ * chain manual → part number → vendor spec is a deduction, so `inferred` is the
+ * honest level. The quote and URL are here for anyone who wants to check it.
+ *
+ * ── Why it matters more than most numbers in this file ─────────────────────
+ *
+ * This is the only ARTIFACT property that reaches the physics. Piece mass sets
+ * how far an artifact travels when a robot strikes it, and with no piece damping
+ * (ASSUMPTIONS.md §5.5) a struck artifact slides until it meets something. Every
+ * "did it reach the goal" outcome depends on it.
+ *
+ * It replaced an estimate of 0.3 lb, which was 82 % too heavy. As a sanity
+ * check the published figure is the physically plausible one: 0.165 lb (75 g)
+ * spread over the 0.051 m² surface of a 5 in sphere at polypropylene's
+ * 905 kg/m³ implies a 1.6 mm wall, which is an ordinary moulding for a play
+ * ball. The old estimate implied 3 mm.
+ */
+export const ARTIFACT_MASS_LB: Sourced<number> = inferred(
+  0.165,
+  'Not in the Competition Manual. The manual names the part (§9.9, p.73: part numbers ' +
+    'am-3376a_purple and am-3376a_green) and AndyMark publishes its specification as ' +
+    '"Diameter: 5 in." and "Weight: 0.165 lbs." at ' +
+    'https://andymark.com/products/ftc-25-26-am-3376a (retrieved 2026-08-26). The value ' +
+    'comes from the vendor, and treating it as the value the manual intends is the inference.',
+  73,
+);
 
 // -------------------------------------------------------------- AprilTags ---
 
@@ -279,6 +314,7 @@ export const DECODE_DIMENSIONS = {
   goal: GOAL,
   classifier: CLASSIFIER,
   artifact: ARTIFACT,
+  artifactMassLb: ARTIFACT_MASS_LB,
   aprilTags: APRIL_TAGS,
   obelisk: OBELISK,
 } as const;

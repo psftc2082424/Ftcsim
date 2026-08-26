@@ -592,11 +592,13 @@ describe('running DECODE from the GameDefinition alone', () => {
     expect(sim.matchState).toBe('AUTO');
   });
 
-  it('supplies a mass for artifacts even though the manual gives none', () => {
+  it('supplies a cited mass for artifacts even though the manual gives none', () => {
     const artifact = DECODE_GAME.pieces[0];
-    expect(artifact?.massLb?.value).toBeGreaterThan(0);
-    // Flagged as an estimate, not passed off as a manual figure.
-    expect(artifact?.massLb?.confidence).toBe('assumed');
+    expect(artifact?.massLb?.value).toBe(0.165);
+    // Sourced from the vendor spec for the part §9.9 names, so `inferred`
+    // rather than `explicit` — and no longer an estimate.
+    expect(artifact?.massLb?.confidence).toBe('inferred');
+    expect(artifact?.massLb?.note ?? '').toContain('am-3376a');
   });
 });
 
