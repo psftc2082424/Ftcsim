@@ -1,0 +1,64 @@
+# Build the simulator and publish it to GitHub Pages.
+#
+# The build job runs the repository's own scripts rather than reimplementing
+# them here: `verify` is typecheck + ESLint + the full Vitest suite, and it runs
+# before `build` so a broken commit never reaches the published site.
+#
+# Deployment uses the artifact flow (`upload-pages-artifact` / `deploy-pages`)
+# rather than pushing to a `gh-pages` branch, so the repository history stays
+# free of build output and Jekyll never runs over `dist/`.
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # So the site can be republished without an empty commit.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deployment finish; queue at most one more behind it.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # package.json requires >= 20.
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # typecheck + lint + tests, exactly as run locally.
+      - name: Verify
+        run: npm run verify
+
+      - name: Build
+        run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
