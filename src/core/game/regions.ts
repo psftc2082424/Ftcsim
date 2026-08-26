@@ -169,6 +169,19 @@ export function createRectZone(spec: RectSpec): FieldZone {
   return region;
 }
 
+/**
+ * Zone from explicit world-space vertices.
+ *
+ * Not every zone is a rectangle. DECODE's LAUNCH ZONES are triangles bounded by
+ * tape and the field perimeter (§9.3), and approximating one with a box changes
+ * which robots are inside it — which is a scoring difference, not a cosmetic
+ * one.
+ */
+export function createPolyZone(id: string, verticesIn: readonly Vec2[]): FieldZone {
+  const { slotCount: _unused, ...region } = createPolyRegion(id, verticesIn);
+  return region;
+}
+
 // ------------------------------------------------------------- membership ---
 
 /**

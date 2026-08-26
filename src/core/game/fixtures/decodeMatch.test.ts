@@ -112,6 +112,46 @@ const idle = (
  * AUTO (§10.5.3), so that setup would fail for a reason that has nothing to do
  * with the rule. Releasing mid-field parks the robot in open space instead.
  */
+/**
+ * Legal ROBOT starting positions, per G304 (p.102).
+ *
+ * G304 requires a ROBOT to be "over a LAUNCH LINE", "touching its own
+ * ALLIANCE's GOAL or the FIELD perimeter", and "fully contained on its own
+ * ALLIANCE's side of the FIELD". Now that the LAUNCH ZONES are built from §9.3
+ * instead of guessed, those requirements bite: a robot placed anywhere
+ * convenient has usually already LEFT before the MATCH starts, which makes a
+ * LEAVE test assert nothing.
+ *
+ * The GOAL-side LAUNCH ZONE is a triangle whose base is the whole GOAL-side
+ * wall, so `y = 63` puts an 18 in robot against that wall, and `|x| = 30` keeps
+ * it inside both the triangle and its own half.
+ */
+const START_ON_LAUNCH_LINE = { red: [-30, 63], blue: [30, 63] } as const;
+
+/** A second legal start on the same wall, far enough not to touch the first. */
+const SECOND_START_ON_LAUNCH_LINE = { red: [-55, 63], blue: [55, 63] } as const;
+
+/**
+ * Toward the audience, which is how a robot leaves the GOAL-side LAUNCH ZONE.
+ *
+ * Headings are zero in these fixtures, so leaving the GOAL wall is a strafe:
+ * body +y is the robot's left, and the robot's left at heading zero is world
+ * +Y, so -1 drives toward -Y.
+ */
+const TOWARD_AUDIENCE = { x: 0, y: -1 } as const;
+
+/**
+ * Mid-field, clear of both LAUNCH ZONES and of every scoring zone.
+ *
+ * The GOAL-side triangle covers `y >= |x|`, and the audience-side one covers
+ * `y <= -48`; this sits between them.
+ */
+const CLEAR_OF_LAUNCH_LINES = [-20, -20] as const;
+const CLEAR_OF_LAUNCH_LINES_2 = [20, -20] as const;
+
+/** Inside the audience-side LAUNCH ZONE — the one that belongs to no alliance. */
+const ON_AUDIENCE_LAUNCH_ZONE = [0, -63] as const;
+
 const DRIVE_TICKS = 260;
 
 const driving = (
@@ -143,7 +183,7 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
     slottedRegions: DECODE_SLOTTED_REGIONS,
     slotAssignment: slots.assign,
     variables: { motif: DECODE_MOTIFS.GPP.pattern },
-    robots: [idle('red', -60, 20)],
+    robots: [idle('red', ...START_ON_LAUNCH_LINE.red)],
     ...patch,
   });
 }
@@ -193,7 +233,7 @@ describe('LEAVE (§10.5, E)', () => {
   /** A robot that departs its LAUNCH LINE zone during AUTO scores LEAVE. */
   it('awards LEAVE when a robot exits the launch line in AUTO', () => {
     const result = decodeMatch({
-      robots: [driving('red', -60, 20, { x: 1, y: 0 })],
+      robots: [driving('red', ...START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE)],
     }).run();
 
     expect(result.score.red).toBe(DECODE_POINTS.leaveAuto.value);
@@ -202,19 +242,24 @@ describe('LEAVE (§10.5, E)', () => {
 
   it('awards LEAVE once per robot, up to two robots', () => {
     const result = decodeMatch({
-      robots: [driving('red', -60, 10, { x: 1, y: 0 }), driving('red', -60, 34, { x: 1, y: 0 })],
+      robots: [
+        driving('red', ...START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE),
+        driving('red', ...SECOND_START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE),
+      ],
     }).run();
 
     expect(result.score.red).toBe(2 * DECODE_POINTS.leaveAuto.value);
   });
 
   it('does not award LEAVE for a robot that stays put', () => {
-    expect(decodeMatch({ robots: [idle('red', -60, 20)] }).run().score.red).toBe(0);
+    expect(
+      decodeMatch({ robots: [idle('red', ...START_ON_LAUNCH_LINE.red)] }).run().score.red,
+    ).toBe(0);
   });
 
   it('credits the alliance that owns the robot', () => {
     const result = decodeMatch({
-      robots: [driving('blue', 60, 20, { x: -1, y: 0 })],
+      robots: [driving('blue', ...START_ON_LAUNCH_LINE.blue, TOWARD_AUDIENCE)],
     }).run();
 
     expect(result.score.blue).toBe(DECODE_POINTS.leaveAuto.value);
@@ -283,36 +328,39 @@ describe('LEAVE (§10.5, E and §10.5.3)', () => {
    * "To qualify for LEAVE points, a ROBOT must move such that it is no longer
    * over any LAUNCH LINE at the end of AUTO." (p.87)
    *
-   * A final position, not a crossing — and "any" LAUNCH LINE, because the
-   * LAUNCH ZONES belong to the FIELD rather than to an alliance (§9.3). The
-   * placeholder layout puts the red line over x -70..-46, y -4..44 and the blue
-   * one mirrored; see the layout caveat at the top of this file.
+   * A final position, not a crossing — and "any" LAUNCH LINE, because there are
+   * two LAUNCH ZONES and both belong to the FIELD rather than to an alliance
+   * (§9.3). Their outlines come from the manual's TILE extents, so these cases
+   * are about the real geometry rather than a placeholder.
    */
   it('awards LEAVE to a robot clear of every LAUNCH LINE at the end of AUTO', () => {
-    const result = decodeMatch({ robots: [idle('red', 0, 0)] }).run();
+    const result = decodeMatch({ robots: [idle('red', ...CLEAR_OF_LAUNCH_LINES)] }).run();
     expect(pointsFrom(result, '-leave')).toBe(DECODE_POINTS.leaveAuto.value);
   });
 
   it('awards LEAVE once per robot', () => {
     const result = decodeMatch({
-      robots: [idle('red', 0, 0), idle('red', 0, 20)],
+      robots: [
+        idle('red', ...CLEAR_OF_LAUNCH_LINES),
+        idle('red', ...CLEAR_OF_LAUNCH_LINES_2),
+      ],
     }).run();
     expect(pointsFrom(result, '-leave')).toBe(2 * DECODE_POINTS.leaveAuto.value);
   });
 
   it('withholds LEAVE from a robot still on its own LAUNCH LINE', () => {
-    const result = decodeMatch({ robots: [idle('red', -58, 20)] }).run();
+    const result = decodeMatch({ robots: [idle('red', ...START_ON_LAUNCH_LINE.red)] }).run();
     expect(pointsFrom(result, '-leave')).toBe(0);
   });
 
-  /** "any LAUNCH LINE" includes the other alliance's. */
-  it('withholds LEAVE from a red robot parked on the blue LAUNCH LINE', () => {
-    const result = decodeMatch({ robots: [idle('red', 58, 20)] }).run();
+  /** "any LAUNCH LINE" includes the one at the other end of the field. */
+  it('withholds LEAVE from a red robot parked on the audience LAUNCH ZONE', () => {
+    const result = decodeMatch({ robots: [idle('red', ...ON_AUDIENCE_LAUNCH_ZONE)] }).run();
     expect(pointsFrom(result, '-leave')).toBe(0);
   });
 
   it('assesses LEAVE at the end of AUTO, not at the end of the match', () => {
-    const result = decodeMatch({ robots: [idle('red', 0, 0)] }).run();
+    const result = decodeMatch({ robots: [idle('red', ...CLEAR_OF_LAUNCH_LINES)] }).run();
     const leave = result.score.deltas.filter((d) => d.ruleId.includes('-leave'));
 
     expect(leave).toHaveLength(1);
@@ -442,7 +490,10 @@ describe('DECODE match determinism', () => {
   const build = () =>
     decodeMatch({
       seed: 2026,
-      robots: [driving('red', -60, 20, { x: 1, y: 0 }), idle('blue', 60, -60, SMALL_ROBOT)],
+      robots: [
+        driving('red', ...START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE),
+        idle('blue', 60, -60, SMALL_ROBOT),
+      ],
       pieces: [
         {
           pieceId: 'a1',
@@ -515,7 +566,7 @@ describe('running DECODE from the GameDefinition alone', () => {
 
     const slots = createRampSlotAssignment();
     const result = simulationFromDefinition(DECODE_GAME, {
-      robots: [driving('red', -60, 20, { x: 1, y: 0 })],
+      robots: [driving('red', ...START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE)],
       slotAssignment: slots.assign,
     }).run();
 

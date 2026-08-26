@@ -2,33 +2,50 @@
  * DECODE field layout.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- *  SIZES are sourced. POSITIONS are not.
+ *  EVERY SIZE IS SOURCED. SOME POSITIONS ARE, AND THE REST ARE MARKED.
  *
- *  Every extent below comes from `decodeDimensions.ts`, transcribed from the
- *  Competition Manual with page citations. The BASE ZONE really is 18 in
- *  square; the DEPOT really is 30 in long; the LAUNCH ZONES really are 2×1 and
- *  6×3 TILES.
+ *  Extents come from `decodeDimensions.ts`, transcribed with page citations.
+ *  Positions divide into three groups, and the difference matters because only
+ *  the first two can be trusted:
  *
- *  Where each element *sits* on the field is still invented. §9.4 defines TILE
- *  coordinates in Figures 9-4 and 9-5, but those are images — the manual
- *  publishes no coordinate table, and §9.1 names the 3D CAD model as the
- *  official representation. So the layout below places correctly-sized elements
- *  at guessed locations.
+ *   1. **Derived from the manual.** The two LAUNCH ZONES and the alliance
+ *      halves. §9.3 gives each LAUNCH ZONE's side, shape and TILE extent, and
+ *      G402 splits the FIELD into three columns per alliance. Six TILES is the
+ *      whole field, so those figures fix real coordinates rather than describe
+ *      a size to place later.
  *
- *  Consequence: distances between elements are wrong, so cycle times and "did
- *  it reach the goal" outcomes are not predictive. Sizes, and therefore every
- *  "is it inside" judgement once positioned, are right.
+ *   2. **Inferred, and labelled.** The world frame (`DECODE_FIELD_ORIENTATION`)
+ *      and the LAUNCH ZONE vertices (`DECODE_LAUNCH_ZONE_SHAPE`). Each is read
+ *      off several quoted statements together; neither is written down as such.
+ *
+ *   3. **Still invented.** Everything in `LAYOUT`: the GOAL and its RAMP, the
+ *      DEPOT, BASE, LOADING ZONE, SECRET TUNNEL and GATE. §9.4 defines TILE
+ *      coordinates in Figures 9-4 and 9-5, which are images, and §9.1 names the
+ *      3D CAD model as the official representation. Correctly-sized elements at
+ *      guessed places.
+ *
+ *  Consequence of group 3: distances between those elements are wrong, so cycle
+ *  times and "did it reach the goal" outcomes are not predictive. Every "is it
+ *  inside" judgement is right relative to the geometry given, and becomes right
+ *  absolutely once the coordinates are supplied.
  *
  *  To finish: read positions off the field CAD or the Event FIELD Setup Guide
- *  and replace `LAYOUT` below. Region ids are the contract with `decode.ts` and
- *  must not change.
+ *  and replace `LAYOUT`. Region ids are the contract with `decode.ts` and must
+ *  not change.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { assumed, type Sourced } from '../sourced.js';
-import { createRectRegion, createRectZone, type FieldRegion, type FieldZone } from '../regions.js';
+import { assumed, inferred, type Sourced } from '../sourced.js';
+import {
+  createPolyZone,
+  createRectRegion,
+  createRectZone,
+  type FieldRegion,
+  type FieldZone,
+} from '../regions.js';
 import { DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT } from './decode.js';
-import { CLASSIFIER, FIELD, GOAL, ZONES } from './decodeDimensions.js';
+import { vec2, type Vec2 } from '../../math/vec2.js';
+import { CLASSIFIER, FIELD, GOAL, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 
 /**
  * Provenance marker for the *positions* in this file.
@@ -38,14 +55,54 @@ import { CLASSIFIER, FIELD, GOAL, ZONES } from './decodeDimensions.js';
  * invented and a future change cannot quietly promote it.
  */
 export const DECODE_LAYOUT_PROVENANCE: Sourced<string> = assumed(
-  'positions-invented',
-  'Element SIZES are transcribed from the Competition Manual (see decodeDimensions.ts). ' +
-    'Element POSITIONS are invented: §9.4 defines TILE coordinates only in figures, and ' +
-    '§9.1 names the 3D CAD model as the official representation. Distances between ' +
-    'elements are therefore wrong, so cycle times and reachability are not predictive.',
+  'goal-cluster-positions-invented',
+  'Element SIZES are transcribed from the Competition Manual (see decodeDimensions.ts), ' +
+    'and the LAUNCH ZONES and alliance halves are now built from §9.3 and G402 rather ' +
+    'than guessed. What remains invented is where the GOAL cluster sits: the RAMP, ' +
+    'OVERFLOW, DEPOT, BASE, LOADING ZONE, SECRET TUNNEL and GATE. §9.4 defines TILE ' +
+    'coordinates only in figures, and §9.1 names the 3D CAD model as the official ' +
+    'representation. Distances among those elements are therefore wrong, so cycle times ' +
+    'and reachability are not predictive.',
 );
 
 const HALF_FIELD_IN = FIELD.sideIn.value / 2;
+const TILE_IN = FIELD.tileSideIn.value;
+
+/**
+ * The DECODE world frame, and why it is oriented this way.
+ *
+ * The world origin is the field centre, +X right and +Y up, as
+ * `field/fieldTemplate.ts` defines for every season. What DECODE adds is which
+ * physical direction each axis points, and the manual settles it in three
+ * statements:
+ *
+ *   - §9.5, p.64: "The FIELD is oriented such that the red ALLIANCE AREA is
+ *     located on the left from the primary audience viewing direction."
+ *   - §9.6, p.64: the OBELISK sits "centered on the GOAL-side of the FIELD,
+ *     just outside of the FIELD perimeter" — so the GOAL side is one edge, and
+ *     §9.3 places the other LAUNCH ZONE on "the audience side".
+ *   - G402, p.103: "FIELD columns A, B, C constitute the blue side of the
+ *     FIELD, and columns D, E, F ... constitute the red side" — six columns
+ *     across, three per alliance.
+ *
+ * Facing the field from the audience you look along +Y, so your left is -X.
+ * Red is therefore -X and blue +X, and the audience/GOAL axis is Y with the
+ * audience at -Y. That makes the alliance split the line x = 0, matching the
+ * three-columns-each division G402 describes.
+ *
+ * This is `inferred` rather than `explicit`: each statement is quoted, but
+ * turning "left from the audience" into a signed axis is a reading of them
+ * together rather than something the manual writes down.
+ */
+export const DECODE_FIELD_ORIENTATION: Sourced<string> = inferred(
+  'audience at -Y, GOAL at +Y, red at -X, blue at +X',
+  'Composed from §9.5 (red ALLIANCE AREA is on the left from the primary audience ' +
+    'viewing direction), §9.6 (the OBELISK is centred on the GOAL side, just outside the ' +
+    'perimeter), and G402 (columns A-C are blue, D-F are red). Facing the field from the ' +
+    'audience you look along +Y, so left is -X. The manual states each part; the axis ' +
+    'assignment is the reading of them together.',
+  64,
+);
 
 /** Red occupies -X, blue +X. The world origin is the field centre. */
 const SIDE = { red: -1, blue: 1 } as const;
@@ -104,20 +161,6 @@ const LAYOUT = {
     widthIn: ZONES.baseZoneSideIn.value,
     lengthIn: ZONES.baseZoneSideIn.value,
   },
-  /**
-   * LAUNCH LINE, approximated as a rectangle.
-   *
-   * The real LAUNCH ZONES are triangular and belong to the FIELD rather than to
-   * an alliance (§9.3): 2×1 TILES on the audience side, 6×3 on the GOAL side.
-   * LEAVE is assessed against being "over any LAUNCH LINE" (§10.5.3), so this
-   * stands in for the lines a robot starts on. Recorded as an approximation.
-   */
-  launchLine: {
-    centerXIn: 58,
-    centerYIn: 20,
-    widthIn: FIELD.tileSideIn.value,
-    lengthIn: FIELD.tileSideIn.value * 2,
-  },
   /** 23 in square (§9.3), adjacent to the ALLIANCE AREA. */
   loading: {
     centerXIn: 58,
@@ -140,6 +183,101 @@ const LAYOUT = {
     lengthIn: ZONES.gateZoneLengthIn.value,
   },
 } as const satisfies Record<string, Placement>;
+
+// ------------------------------------------------------------ LAUNCH ZONES ---
+
+/**
+ * The two LAUNCH ZONES, which the manual does place well enough to build.
+ *
+ * §9.3, p.62 — quoted in `decodeDimensions.ts` — says there are exactly two,
+ * that they are triangular, that they are bounded by LAUNCH LINES and the FIELD
+ * perimeter, and how large each is in TILES:
+ *
+ *   "There are 2 LAUNCH ZONES: the LAUNCH ZONE on the audience side of the
+ *    FIELD spans a section 2 TILES wide and 1 TILE deep and the LAUNCH ZONE on
+ *    the GOAL side of the FIELD spans a section 6 TILES wide by 3 TILES deep."
+ *
+ * That is a great deal more than the rest of this file gets. The count, the
+ * ownership (they belong to the FIELD, not to an alliance), the shape, the side
+ * each sits on and both extents are all stated outright. Six tiles is the whole
+ * field width, so the GOAL-side zone's base *is* the GOAL-side wall.
+ *
+ * ── What is still a reading ────────────────────────────────────────────────
+ *
+ * The manual gives the bounding section, not the three vertices. Two things are
+ * therefore inferred, and marked as such:
+ *
+ *   - Each triangle is isosceles with its base on the perimeter and its apex
+ *     pointing into the field. "Bounded by LAUNCH LINES and the FIELD
+ *     perimeter" makes the perimeter one side, and both zones share the same
+ *     2:1 base-to-depth ratio (144×72 and 48×24), which a pair of independently
+ *     shaped triangles would not.
+ *   - The audience-side zone is centred on its wall. It belongs to the FIELD
+ *     rather than to an alliance, so an off-centre placement would favour one.
+ *
+ * Figure 9-2 shows the true outline, but a figure is an image and this file
+ * transcribes text.
+ */
+export const DECODE_LAUNCH_ZONE_SHAPE: Sourced<string> = inferred(
+  'isosceles, base on the perimeter, apex toward the field centre',
+  '§9.3 states the count, the triangular shape, the side and the TILE extent of both ' +
+    'LAUNCH ZONES, but gives vertices only in Figure 9-2. Isosceles-with-apex-inward is ' +
+    'read from "bounded by LAUNCH LINES and the FIELD perimeter" plus the 2:1 ' +
+    'base-to-depth ratio both zones share; the audience zone is centred because the ' +
+    'LAUNCH ZONES belong to the FIELD rather than to an alliance.',
+  62,
+);
+
+/** Triangle with `baseWidthIn` on the wall at `wallY`, apex `depthIn` inward. */
+function launchTriangle(wallY: number, baseWidthIn: number, depthIn: number): readonly Vec2[] {
+  const halfBase = baseWidthIn / 2;
+  const inward = wallY > 0 ? -1 : 1;
+  const apex = vec2(0, wallY + inward * depthIn);
+
+  // Counter-clockwise, as `createPoly` requires.
+  return inward > 0
+    ? [vec2(-halfBase, wallY), vec2(halfBase, wallY), apex]
+    : [vec2(-halfBase, wallY), apex, vec2(halfBase, wallY)];
+}
+
+const AUDIENCE_LAUNCH_ZONE = launchTriangle(
+  -HALF_FIELD_IN,
+  LAUNCH_ZONES.audienceWidthTiles.value * TILE_IN,
+  LAUNCH_ZONES.audienceDepthTiles.value * TILE_IN,
+);
+
+const GOAL_LAUNCH_ZONE = launchTriangle(
+  HALF_FIELD_IN,
+  LAUNCH_ZONES.goalSideWidthTiles.value * TILE_IN,
+  LAUNCH_ZONES.goalSideDepthTiles.value * TILE_IN,
+);
+
+// ----------------------------------------------------------- alliance sides ---
+
+/**
+ * Each alliance's half of the field, which G402 defines outright.
+ *
+ * "During AUTO, FIELD columns A, B, C constitute the blue side of the FIELD,
+ *  and columns D, E, F (Figure 9-5) constitute the red side of the FIELD."
+ *  (G402, p.103)
+ *
+ * Six columns across a 144 in field is three TILES each, so the boundary is the
+ * centre line. The column *letters* map to sides via the orientation reading
+ * above; the three-and-three split itself is stated.
+ *
+ * Present as zones because G402 and G304.C both ask whether a robot is
+ * *completely* within a side, and support fraction is exactly that question.
+ */
+const ALLIANCE_SIDE_WIDTH_IN = HALF_FIELD_IN;
+
+function allianceSide(alliance: 'red' | 'blue'): Placement {
+  return {
+    centerXIn: (SIDE[alliance] * ALLIANCE_SIDE_WIDTH_IN) / 2,
+    centerYIn: 0,
+    widthIn: ALLIANCE_SIDE_WIDTH_IN,
+    lengthIn: FIELD.sideIn.value,
+  };
+}
 
 function mirrored(placement: Placement, alliance: 'red' | 'blue'): Placement {
   return { ...placement, centerXIn: placement.centerXIn * SIDE[alliance] };
@@ -169,8 +307,11 @@ export const DECODE_FIELD_REGIONS: readonly FieldRegion[] = [
 export const DECODE_FIELD_ZONES: readonly FieldZone[] = [
   zone(DECODE_ZONES.redBase, mirrored(LAYOUT.base, 'red')),
   zone(DECODE_ZONES.blueBase, mirrored(LAYOUT.base, 'blue')),
-  zone(DECODE_ZONES.redLaunchLine, mirrored(LAYOUT.launchLine, 'red')),
-  zone(DECODE_ZONES.blueLaunchLine, mirrored(LAYOUT.launchLine, 'blue')),
+  // Two zones, not two per alliance: LAUNCH ZONES belong to the FIELD (§9.3).
+  createPolyZone(DECODE_ZONES.audienceLaunchZone, AUDIENCE_LAUNCH_ZONE),
+  createPolyZone(DECODE_ZONES.goalLaunchZone, GOAL_LAUNCH_ZONE),
+  zone(DECODE_ZONES.redSide, allianceSide('red')),
+  zone(DECODE_ZONES.blueSide, allianceSide('blue')),
 ];
 
 /** Ordered regions and their slot counts, for pre-declaring slots at match start. */
@@ -227,9 +368,16 @@ export function createRampSlotAssignment(): {
   };
 }
 
-/** Field bounds check, so a placeholder layout cannot silently sit off-field. */
+/**
+ * Field bounds check, so a placeholder layout cannot silently sit off-field.
+ *
+ * Covers the derived geometry as well as the guessed rectangles: the LAUNCH
+ * ZONE triangles are built from FIELD extents, so an arithmetic slip there
+ * would put a vertex outside the perimeter rather than merely in the wrong
+ * place.
+ */
 export function layoutFitsField(): boolean {
-  return Object.values(LAYOUT).every((placement) => {
+  const rectanglesFit = Object.values(LAYOUT).every((placement) => {
     const halfW = placement.widthIn / 2;
     const halfL = placement.lengthIn / 2;
     return (
@@ -237,4 +385,16 @@ export function layoutFitsField(): boolean {
       Math.abs(placement.centerYIn) + halfL <= HALF_FIELD_IN
     );
   });
+
+  const trianglesFit = [...AUDIENCE_LAUNCH_ZONE, ...GOAL_LAUNCH_ZONE].every(
+    (v) => Math.abs(v.x) <= HALF_FIELD_IN && Math.abs(v.y) <= HALF_FIELD_IN,
+  );
+
+  return rectanglesFit && trianglesFit;
 }
+
+/** The LAUNCH ZONE outlines, in inches, for tests and for the renderer. */
+export const DECODE_LAUNCH_ZONE_OUTLINES = {
+  audience: AUDIENCE_LAUNCH_ZONE,
+  goalSide: GOAL_LAUNCH_ZONE,
+} as const;

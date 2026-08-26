@@ -296,7 +296,27 @@ describe('DECODE provenance', () => {
   /** The layout gap is the largest one in this fixture; it must be in the ledger. */
   it('lists the invented field positions as an assumption', () => {
     const ledger = assumptionLedger(DECODE_GAME);
-    expect(ledger.some((e) => e.value === 'positions-invented')).toBe(true);
+    expect(ledger.some((e) => e.value === 'goal-cluster-positions-invented')).toBe(true);
+  });
+
+  /**
+   * The LAUNCH ZONES and the world frame are *read* from the manual rather than
+   * guessed, so they must not appear in the assumption ledger — but they are
+   * inferences rather than quotations, so they must still be visible as sourced
+   * values a reviewer can check.
+   */
+  it('carries the derived geometry as inferred, not assumed', () => {
+    const derived = collectProvenance(DECODE_GAME).filter(
+      (e) =>
+        e.value === 'audience at -Y, GOAL at +Y, red at -X, blue at +X' ||
+        e.value === 'isosceles, base on the perimeter, apex toward the field centre',
+    );
+
+    expect(derived).toHaveLength(2);
+    for (const entry of derived) expect(entry.confidence).toBe('inferred');
+    expect(assumptionLedger(DECODE_GAME).map((e) => e.value)).not.toContain(
+      'audience at -Y, GOAL at +Y, red at -X, blue at +X',
+    );
   });
 
   it('carries the ranking-point thresholds as sourced values', () => {

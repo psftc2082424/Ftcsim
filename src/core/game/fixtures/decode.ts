@@ -139,8 +139,15 @@ export const DECODE_REGIONS = {
 export const DECODE_ZONES = {
   redBase: 'red-base',
   blueBase: 'blue-base',
-  redLaunchLine: 'red-launch-line',
-  blueLaunchLine: 'blue-launch-line',
+  /**
+   * The two LAUNCH ZONES are FIELD property, not an alliance's (§9.3), so they
+   * are named for the side of the field they sit on rather than for a colour.
+   */
+  audienceLaunchZone: 'audience-launch-zone',
+  goalLaunchZone: 'goal-launch-zone',
+  /** Each alliance's half, which G402 defines as three FIELD columns each. */
+  redSide: 'red-side',
+  blueSide: 'blue-side',
 } as const;
 
 /**
@@ -160,7 +167,7 @@ export const DECODE_ZONES = {
  * means giving the DEPOT a zone as well as a region, which needs the positions
  * this layout does not yet have.
  */
-export const ALL_LAUNCH_LINE_ZONE_IDS = `${DECODE_ZONES.redLaunchLine},${DECODE_ZONES.blueLaunchLine}`;
+export const ALL_LAUNCH_LINE_ZONE_IDS = `${DECODE_ZONES.audienceLaunchZone},${DECODE_ZONES.goalLaunchZone}`;
 
 /**
  * BASE ZONE side, re-exported from the transcribed dimensions.

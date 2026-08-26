@@ -369,21 +369,22 @@ describe('DECODE scoring — ROBOT criteria', () => {
    */
   it('withholds LEAVE from a robot that returned to a LAUNCH LINE', () => {
     const runner = newRunner();
-    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 50, 1));
-    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 100));
-    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 150, 1));
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 50, 1));
+    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 100));
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 150, 1));
     runner.ingest(robotAssessed('r1', 'red', 200));
 
     expect(runner.score.red).toBe(0);
   });
 
   /**
-   * "no longer over **any** LAUNCH LINE" — the lines belong to the FIELD, not
-   * to an alliance (§9.3), so sitting on the opponent's line disqualifies too.
+   * "no longer over **any** LAUNCH LINE" — there are two LAUNCH ZONES and both
+   * belong to the FIELD rather than to an alliance (§9.3), so a red robot
+   * parked on the audience-side one has not left either.
    */
   it('withholds LEAVE from a robot sitting on the other LAUNCH LINE', () => {
     const runner = newRunner();
-    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.blueLaunchLine, 50, 1));
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.audienceLaunchZone, 50, 1));
     runner.ingest(robotAssessed('r1', 'red', 200));
 
     expect(runner.score.red).toBe(0);
@@ -393,7 +394,7 @@ describe('DECODE scoring — ROBOT criteria', () => {
   it('withholds LEAVE from a robot only partly over a LAUNCH LINE', () => {
     const runner = newRunner();
     runner.ingest(
-      robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 50, 0.25),
+      robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 50, 0.25),
     );
     runner.ingest(robotAssessed('r1', 'red', 200));
 
@@ -696,10 +697,10 @@ describe('DECODE — full match end to end', () => {
     runner.advanceTo(1);
     // Both robots start on the launch line and drive off it: 2 x 3 = 6, awarded
     // at the end-of-AUTO assessment rather than at the crossing (§10.5.3).
-    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 10, 1));
-    runner.ingest(robotZone('RobotEnteredZone', 'r2', 'red', DECODE_ZONES.redLaunchLine, 10, 1));
-    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 200));
-    runner.ingest(robotZone('RobotExitedZone', 'r2', 'red', DECODE_ZONES.redLaunchLine, 220));
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 10, 1));
+    runner.ingest(robotZone('RobotEnteredZone', 'r2', 'red', DECODE_ZONES.goalLaunchZone, 10, 1));
+    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 200));
+    runner.ingest(robotZone('RobotExitedZone', 'r2', 'red', DECODE_ZONES.goalLaunchZone, 220));
 
     // Three CLASSIFIED artifacts landing in ramp slots 0-2: 3 x 3 = 9.
     ['G', 'P', 'P'].forEach((type, slot) => {
@@ -761,7 +762,7 @@ describe('DECODE — full match end to end', () => {
     const play = (): number => {
       const runner = newRunner('PGP');
       runner.advanceTo(1);
-      runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 200));
+      runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 200));
       ['P', 'G', 'P'].forEach((type, slot) => {
         runner.ingest(enteredRegion(`a${slot}`, type, DECODE_REGIONS.redRamp, 300 + slot, 'red'));
         runner.ingest(cameToRest(`a${slot}`, type, [DECODE_REGIONS.redRamp], 400 + slot, slot));
@@ -780,7 +781,7 @@ describe('DECODE — full match end to end', () => {
   it('produces an auditable breakdown that sums to the score', () => {
     const runner = newRunner();
     runner.advanceTo(1);
-    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 200));
+    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 200));
     runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 300, 'red'));
     runner.ingest(robotAssessed('r1', 'red', 5900));
     runner.runToCompletion();
