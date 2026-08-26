@@ -210,6 +210,41 @@ robot pays the same absolute resistance. Making it load-dependent would be a
 friction coefficient, which §2.1 excludes. The consequence is that the
 strafe/forward ratio does not vary with robot mass.
 
+### 2.2.1 Arc driving is slower, and both reasons are emergent
+
+| | |
+|---|---|
+| **Behaviour** | Forward speed while turning settles near `v_free / (1 + |turn|)` |
+| **Confidence** | **Derived** — no constant, no correction |
+| **Location** | `src/core/drive/mecanumKinematics.ts`, asserted in `arcDrive.test.ts` |
+
+Commanding forward and turn together is visibly slower than driving straight.
+Investigated in full — `ControlInput` through mixing, saturation, wheel speeds,
+motor torque, wheel forces and the body wrench — and no implementation error
+exists. Two effects account for it exactly.
+
+**Saturation, which is most of it.** `commandToWheels(1, 0, t)` asks `1 + t` of
+the outside wheels, and a duty cycle cannot exceed 1. `saturate` divides all
+four by that peak so the commanded direction survives (PRODUCT_SPEC.md §6),
+scaling the forward component to `1 / (1 + t)`. Each motor settles where its own
+torque reaches zero, so its wheel settles at `duty x v_free` and the chassis at
+the *mean* of the saturated duties times free speed. Clipping wheels
+individually instead would curve a robot that asked to go straight.
+
+**The centripetal term, which is the remaining few percent.** A robot on a
+circular path needs a force toward the centre, and its wheels are the only
+source. A mecanum makes lateral force by running wheels at unequal speeds, so an
+arcing robot **crabs**: it carries a small body-frame `v_y` that nothing
+commanded. In the body frame the steady state is `Fx = -m w vy` and
+`Fy = m w vx`; the second fixes `v_y` with no free parameter, and the first
+costs the small extra forward speed. Measured against the prediction to three
+decimals for turn commands of 0.25, 0.5 and 1.
+
+**Not a defect, and deliberately not corrected.** The wheel speeds reproduce the
+chassis velocity through the forward kinematics to nine decimals at every turn
+command tested, which is the check that would fail first if duties were paired
+to the wrong wheels or a torque were evaluated at the wrong speed.
+
 ### 2.3 External transmission efficiency `DRIVETRAIN_EFFICIENCY`
 
 | | |
@@ -1245,6 +1280,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §2.2.1 recording the arc-driving investigation: the slowdown is command saturation plus the centripetal crab, both emergent, no correction applied. |
 | 2026-08-26 | Added §10.15 (OVERFLOW as a capacity outcome). The invented OVERFLOW region is gone, and `regionContents` now holds piece ids once each rather than piece types twice. |
 | 2026-08-26 | Added §5.8 (multi-pass contact resolution, perimeter thickness), which closes the §5.6 defect: a piece pinned between a robot and a wall now stays in play. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | G408's CONTROL limit assessed from sustained possession, and ranking-point criteria measured from a match. §10.14 extended with the MOMENTARY proxy the foul rules use for intent. |
