@@ -89,6 +89,17 @@ export interface ScoringRule {
   readonly oncePerPiece?: boolean | undefined;
   /** Cap on total awards from this rule in a match. */
   readonly maxAwards?: number | undefined;
+  /**
+   * Ranking-point criteria this rule's awards count toward.
+   *
+   * FTC ranking points are measured over *subsets* of a match score — DECODE's
+   * MOVEMENT RP is "combined LEAVE + BASE points", its GOAL RP "the number of
+   * ARTIFACTS scored through the SQUARE" — and nothing in a score breakdown says
+   * which awards belong to which subset. Naming the criteria here puts that
+   * where the rule is, so `rankingPointTotals` can measure them without the
+   * engine matching rule ids by shape or knowing what a RAMP is.
+   */
+  readonly contributesTo?: readonly string[] | undefined;
 }
 
 /**

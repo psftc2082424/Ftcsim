@@ -24,6 +24,7 @@
 
 import { z } from 'zod';
 import type { Objective, ScoringRule } from '../core/game/scoring.js';
+import { SIM_EVENT_KINDS } from '../core/game/events.js';
 import type { MatchStructure } from '../core/game/matchStructure.js';
 import type { Confidence } from '../core/game/sourced.js';
 
@@ -96,14 +97,38 @@ const phaseScopeSchema = z.enum(['AUTO', 'TELEOP', 'ENDGAME', 'ANY']);
 
 const filterValueSchema = z.union([z.string().max(200), z.number().finite(), z.boolean()]);
 
-const simEventKindSchema = z.enum([
-  'PieceEnteredRegion',
-  'PieceReleasedBy',
-  'PieceCameToRest',
-  'RobotOverlapsZone',
-  'RobotHeightExceeded',
-  'MechanismStateChanged',
-]);
+/**
+ * Taken from the event model itself, never restated.
+ *
+ * This was a hand-written copy and it drifted: it lacked `RobotAssessed` and
+ * `PhaseChanged`, which is to say it rejected every end-of-period rule DECODE
+ * has — LEAVE, BASE and all 36 PATTERN rules. Deriving it means a new event kind
+ * reaches definitions the moment it exists.
+ */
+const simEventKindSchema = z.enum(SIM_EVENT_KINDS);
+
+/**
+ * A field on an event payload, addressed the way `readEventField` reads it.
+ *
+ * Dotted, because events carry arrays and objects: DECODE's DEPOT rule filters
+ * on `regionIds.0`, "the innermost region this piece is resting in". A bare
+ * identifier rejected that. Still conservative — segments are identifiers or
+ * array indices, and nothing here reaches code.
+ */
+const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+const eventFieldPath = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(
+    /^[a-zA-Z][a-zA-Z0-9_-]*(\.[a-zA-Z0-9_-]+)*$/,
+    'Event field paths are dot-separated identifiers or indices.',
+  )
+  .refine(
+    (path) => path.split('.').every((segment) => !UNSAFE_PATH_SEGMENTS.has(segment)),
+    'Event field paths may not walk the prototype chain.',
+  );
 
 export const predicateRefSchema = z.object({
   predicateId: identifier,
@@ -116,7 +141,7 @@ export const scoringRuleSchema = z.object({
   phase: phaseScopeSchema,
   trigger: z.object({
     event: simEventKindSchema,
-    filters: z.array(z.object({ field: identifier, equals: filterValueSchema })),
+    filters: z.array(z.object({ field: eventFieldPath, equals: filterValueSchema })),
   }),
   condition: predicateRefSchema.optional(),
   award: z.object({
@@ -125,6 +150,7 @@ export const scoringRuleSchema = z.object({
   }),
   oncePerPiece: z.boolean().optional(),
   maxAwards: z.number().int().positive().max(10_000).optional(),
+  contributesTo: z.array(identifier).max(16).optional(),
 });
 
 const capabilityKindSchema = z.enum([

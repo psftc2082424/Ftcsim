@@ -21,6 +21,7 @@ import {
 import {
   collectProvenance,
   definitionErrors,
+  rankingPointTotals,
   rankingPointsFor,
   totalStagedPieces,
   validateGameDefinition,
@@ -29,7 +30,7 @@ import { DECODE_GAME } from './decodeGame.js';
 import { MatchRunner } from '../matchRunner.js';
 import { createDefaultRegistry } from '../predicates.js';
 import { validateRuleSet } from '../rulesEngine.js';
-import { scoreBreakdown } from '../effects.js';
+import { scoreBreakdown, type ScoreState } from '../effects.js';
 import {
   endgameStartSec,
   matchStateAt,
@@ -791,5 +792,127 @@ describe('DECODE — full match end to end', () => {
     expect(summed).toBe(runner.score.red);
     expect(breakdown['red-leave']).toBe(3);
     expect(breakdown['red-classified-auto']).toBe(3);
+  });
+});
+
+/**
+ * Ranking points, measured from a match rather than supplied by hand.
+ *
+ * `rankingPointsFor` has always done the arithmetic, but its `totals` came from
+ * the caller — nothing turned a finished match into the per-criterion figures
+ * Table 10-3 is compared against. `rankingPointTotals` closes that, and it does
+ * it from data: each rule names the criteria it feeds, so the engine never
+ * matches an id or knows what a RAMP is.
+ */
+describe('ranking-point measurement (Tables 10-2 and 10-3)', () => {
+  const scoreOf = (deltas: readonly { ruleId: string; points: number }[]): ScoreState => ({
+    red: deltas.reduce((sum, d) => sum + d.points, 0),
+    blue: 0,
+    deltas: deltas.map((d) => ({
+      alliance: 'red' as const,
+      points: d.points,
+      ruleId: d.ruleId,
+      label: d.ruleId,
+      tick: 0,
+    })),
+  });
+
+  it('measures MOVEMENT in points, as the manual words it', () => {
+    // "Combined LEAVE + BASE points earned at or above threshold" (p.88).
+    const totals = rankingPointTotals(
+      DECODE_GAME,
+      scoreOf([
+        { ruleId: 'red-leave', points: 3 },
+        { ruleId: 'red-base-full', points: 10 },
+        { ruleId: 'red-base-bonus', points: 10 },
+      ]),
+      'red',
+    );
+
+    expect(totals['movement']).toBe(23);
+  });
+
+  it('measures GOAL as a count of artifacts, not as points', () => {
+    // "The number of ARTIFACTS scored through the SQUARE" (p.88). Reading it as
+    // points would treat one CLASSIFIED artifact as three.
+    const totals = rankingPointTotals(
+      DECODE_GAME,
+      scoreOf([
+        { ruleId: 'red-classified-auto', points: 3 },
+        { ruleId: 'red-classified-teleop', points: 3 },
+        { ruleId: 'red-overflow-teleop', points: 1 },
+      ]),
+      'red',
+    );
+
+    expect(totals['goal']).toBe(3);
+  });
+
+  it('measures PATTERN in points', () => {
+    const totals = rankingPointTotals(
+      DECODE_GAME,
+      scoreOf([
+        { ruleId: 'red-pattern-auto-0', points: 2 },
+        { ruleId: 'red-pattern-teleop-0', points: 2 },
+      ]),
+      'red',
+    );
+
+    expect(totals['pattern']).toBe(4);
+  });
+
+  it('keeps DEPOT out of every criterion, because no RP counts it', () => {
+    const totals = rankingPointTotals(DECODE_GAME, scoreOf([{ ruleId: 'red-depot', points: 1 }]), 'red');
+    expect(totals).toEqual({});
+  });
+
+  it('measures each alliance separately', () => {
+    const score: ScoreState = {
+      red: 3,
+      blue: 10,
+      deltas: [
+        { alliance: 'red', points: 3, ruleId: 'red-leave', label: '', tick: 0 },
+        { alliance: 'blue', points: 10, ruleId: 'blue-base-full', label: '', tick: 0 },
+      ],
+    };
+
+    expect(rankingPointTotals(DECODE_GAME, score, 'red')['movement']).toBe(3);
+    expect(rankingPointTotals(DECODE_GAME, score, 'blue')['movement']).toBe(10);
+  });
+
+  /**
+   * An unmeasured criterion is absent rather than zero, so `rankingPointsFor`
+   * can tell "scored nothing" from "nobody measured this".
+   */
+  it('omits a criterion nothing contributed to', () => {
+    const totals = rankingPointTotals(DECODE_GAME, scoreOf([{ ruleId: 'red-leave', points: 3 }]), 'red');
+
+    expect(totals['movement']).toBe(3);
+    expect('goal' in totals).toBe(false);
+    expect('pattern' in totals).toBe(false);
+  });
+
+  it('feeds straight into the threshold comparison', () => {
+    const totals = rankingPointTotals(
+      DECODE_GAME,
+      scoreOf([
+        { ruleId: 'red-leave', points: 3 },
+        { ruleId: 'red-base-full', points: 10 },
+        { ruleId: 'red-base-bonus', points: 10 },
+      ]),
+      'red',
+    );
+
+    // MOVEMENT threshold is 16 at other events and 21 at championships; 23
+    // clears both, so the RP lands either way.
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'other', totals)).toBe(1);
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'firstChampionship', totals)).toBe(1);
+  });
+
+  it('names every criterion at least one rule contributes to', () => {
+    const named = new Set(DECODE_SCORING_RULES.flatMap((rule) => rule.contributesTo ?? []));
+    for (const criterion of DECODE_RANKING_POINT_RULES.criteria) {
+      expect(named.has(criterion.id), criterion.id).toBe(true);
+    }
   });
 });

@@ -28,6 +28,7 @@ import { validateRegions, type FieldRegion, type FieldZone } from './regions.js'
 import { totalMatchDurationSec, type MatchStructure } from './matchStructure.js';
 import type { PredicateRegistry } from './predicates.js';
 import type { Objective, ScoringRule, FilterValue } from './scoring.js';
+import type { ScoreState } from './effects.js';
 import type { Confidence, Sourced } from './sourced.js';
 import type { RobotConfig } from '../robot/robotConfig.js';
 
@@ -140,6 +141,17 @@ export interface RankingPointCriterion {
   /** Ranking points awarded when the threshold is met. */
   readonly award: Sourced<number>;
   readonly thresholdByTier: Readonly<Record<string, Sourced<number>>>;
+  /**
+   * What the threshold counts. Defaults to `points`.
+   *
+   * Not every criterion is measured in points, and reading one as the other is
+   * off by a factor of the point value. DECODE's MOVEMENT and PATTERN RPs are
+   * "points earned at or above threshold", but its GOAL RP is "the number of
+   * ARTIFACTS scored through the SQUARE" — a count, which is why its threshold
+   * of 67 exceeds the 36 artifacts a field holds: artifacts recirculate through
+   * the SECRET TUNNEL and can be scored more than once.
+   */
+  readonly quantity?: 'points' | 'awards' | undefined;
 }
 
 /** Ranking points a season awards, both for outcome and for performance. */
@@ -209,6 +221,55 @@ export interface GameDefinition {
 
   /** Per-match values, e.g. a randomised pattern selection. */
   readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
+}
+
+/**
+ * Measure each ranking-point criterion from a finished match.
+ *
+ * Walks the score breakdown, maps every award back to the rule that made it, and
+ * accumulates into whichever criteria that rule declares it contributes to. A
+ * criterion measured in `awards` counts how many fired; one measured in `points`
+ * sums them.
+ *
+ * Season-agnostic: the association between rules and criteria is data on the
+ * rules, so this function never matches an id or knows what a RAMP is. The
+ * result feeds straight into `rankingPointsFor`.
+ *
+ * A criterion no rule contributes to is **absent** from the result rather than
+ * zero, which `rankingPointsFor` treats as "not measured". Reporting a real zero
+ * for something nobody tried to measure would quietly claim the alliance failed
+ * a criterion the definition never wired up.
+ */
+export function rankingPointTotals(
+  definition: GameDefinition,
+  score: ScoreState,
+  alliance: 'red' | 'blue',
+): Readonly<Record<string, number>> {
+  const criterionById = new Map<string, RankingPointCriterion>();
+  for (const criterion of definition.rankingPoints?.criteria ?? []) {
+    criterionById.set(criterion.id, criterion);
+  }
+  if (criterionById.size === 0) return {};
+
+  const contributions = new Map<string, readonly string[]>();
+  for (const rule of definition.rules) {
+    if (rule.contributesTo !== undefined) contributions.set(rule.id, rule.contributesTo);
+  }
+
+  const totals: Record<string, number> = {};
+  for (const delta of score.deltas) {
+    if (delta.alliance !== alliance) continue;
+
+    for (const criterionId of contributions.get(delta.ruleId) ?? []) {
+      const criterion = criterionById.get(criterionId);
+      if (criterion === undefined) continue;
+
+      const amount = criterion.quantity === 'awards' ? 1 : delta.points;
+      totals[criterionId] = (totals[criterionId] ?? 0) + amount;
+    }
+  }
+
+  return totals;
 }
 
 /**

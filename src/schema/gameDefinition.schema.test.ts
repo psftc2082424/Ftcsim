@@ -6,6 +6,8 @@ import {
   safeParseScoringRule,
 } from './gameDefinition.schema.js';
 import { FTC_CONVENTIONAL_MATCH } from '../core/game/matchStructure.js';
+import { SIM_EVENT_KINDS } from '../core/game/events.js';
+import { DECODE_SCORING_RULES } from '../core/game/fixtures/decode.js';
 import { explicit } from '../core/game/sourced.js';
 
 /** Round-trip through JSON, which is how a definition will actually arrive. */
@@ -212,5 +214,55 @@ describe('provenance gating', () => {
       };
       expect(safeParseScoringRule(asJson(rule)).ok, confidence).toBe(true);
     }
+  });
+});
+
+/**
+ * The validator has to be able to express the definitions this repository
+ * already ships, or it is validating something else.
+ *
+ * It could not. `simEventKindSchema` was a hand-written copy of the event union
+ * that had drifted out of date, and the filter field was a bare identifier where
+ * `readEventField` reads dotted paths. Between them they rejected 46 of DECODE's
+ * 54 rules — every end-of-period rule the game has. This is the guard.
+ */
+describe('regression — the schema accepts the shipped DECODE rule set', () => {
+  it('parses every DECODE scoring rule', () => {
+    const rejected = DECODE_SCORING_RULES.filter((rule) => !safeParseScoringRule(rule).ok).map(
+      (rule) => rule.id,
+    );
+
+    expect(rejected).toEqual([]);
+    expect(DECODE_SCORING_RULES.length).toBeGreaterThan(50);
+  });
+
+  it('accepts every event kind the engine can emit', () => {
+    for (const kind of SIM_EVENT_KINDS) {
+      const rule = {
+        id: 'probe',
+        label: 'probe',
+        phase: 'ANY',
+        trigger: { event: kind, filters: [] },
+        award: { points: explicit(1), alliance: 'owner' },
+      };
+      expect(safeParseScoringRule(rule).ok, kind).toBe(true);
+    }
+  });
+
+  it('accepts a dotted event field path and still rejects nonsense', () => {
+    const withField = (field: string) => ({
+      id: 'probe',
+      label: 'probe',
+      phase: 'ANY' as const,
+      trigger: { event: 'PieceCameToRest' as const, filters: [{ field, equals: 'x' }] },
+      award: { points: explicit(1), alliance: 'owner' as const },
+    });
+
+    expect(safeParseScoringRule(withField('regionIds.0')).ok).toBe(true);
+    expect(safeParseScoringRule(withField('pieceType')).ok).toBe(true);
+    expect(safeParseScoringRule(withField('a..b')).ok).toBe(false);
+    // A generated definition must not be able to address the prototype chain.
+    expect(safeParseScoringRule(withField('constructor.prototype')).ok).toBe(false);
+    expect(safeParseScoringRule(withField('__proto__')).ok).toBe(false);
   });
 });

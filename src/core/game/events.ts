@@ -15,19 +15,32 @@
  * deterministically from an event log alone.
  */
 
-export type SimEventKind =
-  | 'PieceEnteredRegion'
-  | 'PieceExitedRegion'
-  | 'PiecePossessed'
-  | 'PieceReleasedBy'
-  | 'PieceCameToRest'
-  | 'RobotEnteredZone'
-  | 'RobotExitedZone'
-  | 'RobotOverlapsZone'
-  | 'RobotHeightExceeded'
-  | 'MechanismStateChanged'
-  | 'RobotAssessed'
-  | 'PhaseChanged';
+/**
+ * Every event kind, as data.
+ *
+ * The union is derived from this array rather than written alongside it, so a
+ * new event kind cannot be added to one and forgotten in the other. That
+ * mattered: the schema in `schema/gameDefinition.schema.ts` kept its own hand
+ * written copy of this list, drifted, and ended up rejecting 46 of the 54 rules
+ * the DECODE fixture ships — a validator that could not express the definitions
+ * this repository already runs.
+ */
+export const SIM_EVENT_KINDS = [
+  'PieceEnteredRegion',
+  'PieceExitedRegion',
+  'PiecePossessed',
+  'PieceReleasedBy',
+  'PieceCameToRest',
+  'RobotEnteredZone',
+  'RobotExitedZone',
+  'RobotOverlapsZone',
+  'RobotHeightExceeded',
+  'MechanismStateChanged',
+  'RobotAssessed',
+  'PhaseChanged',
+] as const;
+
+export type SimEventKind = (typeof SIM_EVENT_KINDS)[number];
 
 export type Alliance = 'red' | 'blue';
 
@@ -193,6 +206,10 @@ export function readEventField(event: SimEvent, path: string): unknown {
 
   for (const segment of segments) {
     if (current === null || typeof current !== 'object') return undefined;
+    // A definition is data, and in Phase 4 it is generated. Own properties only:
+    // a path that walked the prototype chain would read something no event
+    // carries, and the schema rejecting it is not a reason for this to trust it.
+    if (!Object.hasOwn(current, segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current;

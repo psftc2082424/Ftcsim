@@ -353,27 +353,53 @@ export const DECODE_RP_THRESHOLD_STABILITY = explicit(
  * G417, G418, G431). Those are referee judgement, and the simulator has no
  * referee. See ASSUMPTIONS.md §10.13.
  */
+/**
+ * Ranking-point criterion ids, named once.
+ *
+ * Rules tag themselves with these through `contributesTo`, and the criteria
+ * below are keyed by them. A typo in either place would silently measure
+ * nothing, so both sides read the same constant.
+ */
+export const DECODE_RP_CRITERIA = {
+  movement: 'movement',
+  goal: 'goal',
+  pattern: 'pattern',
+} as const;
+
 export const DECODE_RANKING_POINT_RULES: RankingPointRules = {
   win: DECODE_RANKING_POINTS.win,
   tie: DECODE_RANKING_POINTS.tie,
   criteria: [
     {
-      id: 'movement',
+      id: DECODE_RP_CRITERIA.movement,
       label: 'MOVEMENT RP - combined LEAVE + BASE points',
       award: DECODE_RANKING_POINTS.movement,
       thresholdByTier: tierMap('movement'),
+      // "Combined LEAVE + BASE points earned at or above threshold" (p.88).
+      quantity: 'points',
     },
     {
-      id: 'goal',
+      id: DECODE_RP_CRITERIA.goal,
       label: 'GOAL RP - ARTIFACTS scored through the SQUARE',
       award: DECODE_RANKING_POINTS.goal,
       thresholdByTier: tierMap('goal'),
+      /**
+       * "The **number of** ARTIFACTS scored through the SQUARE" (p.88) — a
+       * count, not points. The thresholds prove it cannot be points *or* a
+       * count of distinct artifacts: 67 exceeds the 36 a field holds, because
+       * artifacts recirculate through the SECRET TUNNEL and can be scored
+       * again. Both CLASSIFIED and OVERFLOW pass through the SQUARE, so both
+       * contribute (§10.5.1).
+       */
+      quantity: 'awards',
     },
     {
-      id: 'pattern',
+      id: DECODE_RP_CRITERIA.pattern,
       label: 'PATTERN RP - PATTERN points',
       award: DECODE_RANKING_POINTS.pattern,
       thresholdByTier: tierMap('pattern'),
+      // "PATTERN points earned at or above threshold" (p.88).
+      quantity: 'points',
     },
   ],
 };
@@ -594,6 +620,7 @@ function patternRules({ alliance, rampRegion, phase }: RampRuleSpec): ScoringRul
 
   return Array.from({ length: RAMP_SLOT_COUNT.value }, (_unused, slotIndex) => ({
     id: `${alliance}-pattern-${phase.toLowerCase()}-${slotIndex}`,
+    contributesTo: [DECODE_RP_CRITERIA.pattern],
     label: `${alliance} PATTERN slot ${slotIndex + 1} (${phase})`,
     phase,
     trigger: {
@@ -627,6 +654,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
     return [
       {
         id: `${alliance}-classified-auto`,
+        contributesTo: [DECODE_RP_CRITERIA.goal],
         label: `${alliance} CLASSIFIED (AUTO)`,
         phase: 'AUTO' as const,
         trigger: {
@@ -638,6 +666,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
       {
         id: `${alliance}-classified-teleop`,
+        contributesTo: [DECODE_RP_CRITERIA.goal],
         label: `${alliance} CLASSIFIED (TELEOP)`,
         phase: 'TELEOP' as const,
         trigger: {
@@ -649,6 +678,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
       {
         id: `${alliance}-overflow-auto`,
+        contributesTo: [DECODE_RP_CRITERIA.goal],
         label: `${alliance} OVERFLOW (AUTO)`,
         phase: 'AUTO' as const,
         trigger: {
@@ -660,6 +690,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
       {
         id: `${alliance}-overflow-teleop`,
+        contributesTo: [DECODE_RP_CRITERIA.goal],
         label: `${alliance} OVERFLOW (TELEOP)`,
         phase: 'TELEOP' as const,
         trigger: {
@@ -700,6 +731,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       // is *not*, which is what `RobotAssessed` exists for.
       {
         id: `${alliance}-leave`,
+        contributesTo: [DECODE_RP_CRITERIA.movement],
         label: `${alliance} LEAVE`,
         phase: 'AUTO' as const,
         trigger: {
@@ -740,6 +772,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       // makes `robotPartiallyInZone` false, so a robot cannot collect both.
       {
         id: `${alliance}-base-full`,
+        contributesTo: [DECODE_RP_CRITERIA.movement],
         label: `${alliance} fully returned to BASE`,
         phase: 'TELEOP' as const,
         trigger: {
@@ -752,6 +785,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
       {
         id: `${alliance}-base-partial`,
+        contributesTo: [DECODE_RP_CRITERIA.movement],
         label: `${alliance} partially returned to BASE`,
         phase: 'TELEOP' as const,
         trigger: {
@@ -764,6 +798,7 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
       {
         id: `${alliance}-base-bonus`,
+        contributesTo: [DECODE_RP_CRITERIA.movement],
         label: `${alliance} bonus: both ROBOTS fully returned to BASE`,
         phase: 'TELEOP' as const,
         trigger: {
