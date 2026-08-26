@@ -39,6 +39,7 @@ import type { ScoringRule, FilterValue } from './scoring.js';
 import type { Effect, ScoreState } from './effects.js';
 import type { FieldTemplate } from '../field/fieldTemplate.js';
 import type { SimEvent } from './events.js';
+import type { GameDefinition } from './gameDefinition.js';
 
 /**
  * How a game assigns ordered slots within a region.
@@ -57,18 +58,18 @@ export interface MatchSimulationOptions {
   readonly zones: readonly FieldZone[];
 
   readonly robots: readonly RobotSpec[];
-  readonly pieces?: readonly GamePieceSpec[];
-  readonly field?: FieldTemplate;
+  readonly pieces?: readonly GamePieceSpec[] | undefined;
+  readonly field?: FieldTemplate | undefined;
 
-  readonly registry?: PredicateRegistry;
+  readonly registry?: PredicateRegistry | undefined;
   /** Per-match values a game needs, e.g. a randomised pattern. */
-  readonly variables?: Readonly<Record<string, FilterValue>>;
-  readonly effectsForRule?: Readonly<Record<string, readonly Effect[]>>;
-  readonly slotAssignment?: SlotAssignment;
-  readonly attribution?: PieceAttribution;
+  readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
+  readonly effectsForRule?: Readonly<Record<string, readonly Effect[]>> | undefined;
+  readonly slotAssignment?: SlotAssignment | undefined;
+  readonly attribution?: PieceAttribution | undefined;
   /** Ordered regions to pre-declare, so slots exist before anything lands. */
-  readonly slottedRegions?: Readonly<Record<string, number>>;
-  readonly seed?: number;
+  readonly slottedRegions?: Readonly<Record<string, number>> | undefined;
+  readonly seed?: number | undefined;
 }
 
 export interface MatchResult {
@@ -214,6 +215,57 @@ export class MatchSimulation {
     const next = periodOf(matchStateAt(this.structure, (tick + 1) * DT_SECONDS));
     return now !== null && now !== next;
   }
+}
+
+/** What a caller supplies on top of a season definition to run one match. */
+export interface MatchSetup {
+  readonly robots: readonly RobotSpec[];
+  readonly pieces?: readonly GamePieceSpec[] | undefined;
+  readonly field?: FieldTemplate | undefined;
+  readonly registry?: PredicateRegistry | undefined;
+  readonly slotAssignment?: SlotAssignment | undefined;
+  readonly attribution?: PieceAttribution | undefined;
+  /** Overrides the definition's defaults, e.g. this match's randomised motif. */
+  readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
+  readonly effectsForRule?: Readonly<Record<string, readonly Effect[]>> | undefined;
+  readonly seed?: number | undefined;
+}
+
+/**
+ * Build a match from a season definition plus the setup for one match.
+ *
+ * This is the shape the architecture's central claim takes in code: a season is
+ * data, and running it takes no season-specific wiring. Everything about the
+ * game — timing, geometry, rules, slots, defaults — comes off the definition,
+ * and the caller supplies only what varies per match.
+ *
+ * Validate the definition first (`validateGameDefinition`); this trusts what it
+ * is given.
+ */
+export function simulationFromDefinition(
+  definition: GameDefinition,
+  setup: MatchSetup,
+): MatchSimulation {
+  return new MatchSimulation({
+    structure: definition.match,
+    rules: definition.rules,
+    regions: definition.regions,
+    zones: definition.zones,
+    slottedRegions: definition.slottedRegions,
+
+    robots: setup.robots,
+    pieces: setup.pieces,
+    field: setup.field,
+    registry: setup.registry,
+    slotAssignment: setup.slotAssignment,
+    attribution: setup.attribution,
+    effectsForRule: setup.effectsForRule,
+    seed: setup.seed,
+
+    // A match's own variables win over the definition's defaults: the motif is
+    // drawn per match, so a definition can only carry a placeholder.
+    variables: { ...definition.variables, ...setup.variables },
+  });
 }
 
 function totalTicks(structure: MatchStructure): number {

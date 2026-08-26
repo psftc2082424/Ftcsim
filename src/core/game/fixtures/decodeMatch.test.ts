@@ -16,7 +16,13 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { MatchSimulation, type MatchSimulationOptions } from '../matchSimulation.js';
+import {
+  MatchSimulation,
+  simulationFromDefinition,
+  type MatchSimulationOptions,
+} from '../matchSimulation.js';
+import { definitionErrors, validateGameDefinition } from '../gameDefinition.js';
+import { DECODE_GAME } from './decodeGame.js';
 import { validateRuleSet } from '../rulesEngine.js';
 import { createDefaultRegistry } from '../predicates.js';
 import { validateRegions } from '../regions.js';
@@ -413,5 +419,53 @@ describe('DECODE has no endgame', () => {
     expect(states.has('ENDGAME')).toBe(false);
     expect(states.has('AUTO')).toBe(true);
     expect(states.has('TELEOP')).toBe(true);
+  });
+});
+
+describe('running DECODE from the GameDefinition alone', () => {
+  /**
+   * The architecture's central claim, exercised: adding a season means writing a
+   * GameDefinition, and running it takes no season-specific wiring. Everything
+   * below comes off `DECODE_GAME`; the caller supplies only what varies per
+   * match.
+   */
+  it('validates and runs a match with no season-specific setup', () => {
+    expect(definitionErrors(validateGameDefinition(DECODE_GAME, createDefaultRegistry()))).toEqual(
+      [],
+    );
+
+    const slots = createRampSlotAssignment();
+    const result = simulationFromDefinition(DECODE_GAME, {
+      robots: [driving('red', -64, 20, { x: 1, y: 0 })],
+      slotAssignment: slots.assign,
+    }).run();
+
+    expect(result.finalState).toBe('POST');
+    expect(result.score.red).toBe(DECODE_POINTS.leaveAuto.value);
+  });
+
+  it('takes match timing, geometry and rules from the definition', () => {
+    const sim = simulationFromDefinition(DECODE_GAME, { robots: [idle('red', 0, 0)] });
+
+    expect(sim.detector.occupancyOfRobot('0', DECODE_ZONES.redBase)).toBe('outside');
+    expect(sim.runner.matchState).toBe('AUTO');
+  });
+
+  it('lets a match override the definition default motif', () => {
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      robots: [idle('red', 0, 0)],
+      variables: { motif: DECODE_MOTIFS.PGP.pattern },
+    });
+
+    // The draw is per match, so a definition can only carry a placeholder.
+    expect(DECODE_GAME.variables?.['motif']).toBe(DECODE_MOTIFS.GPP.pattern);
+    expect(sim.matchState).toBe('AUTO');
+  });
+
+  it('supplies a mass for artifacts even though the manual gives none', () => {
+    const artifact = DECODE_GAME.pieces[0];
+    expect(artifact?.massLb?.value).toBeGreaterThan(0);
+    // Flagged as an estimate, not passed off as a manual figure.
+    expect(artifact?.massLb?.confidence).toBe('assumed');
   });
 });

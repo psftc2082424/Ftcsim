@@ -727,13 +727,15 @@ Field geometry is the significant gap: DECODE regions currently exist as *ids*
 that events reference, not as placed shapes. Scoring is correct; spatial
 detection of when a piece enters a region is not yet implemented.
 
-**Largely addressed.** `regions.ts` gives regions and zones placed geometry;
-`membershipDetector.ts` turns changes in that membership into the existing
-`PieceEnteredRegion` / `RobotEnteredZone` events; and `SimWorld` now carries game
-pieces as circle bodies that appear in the world snapshot. What remains is the
-join: nothing yet maps a snapshot onto detector observations each tick, so the
-detector's input is still synthetic in tests. That mapping belongs above both
-layers, since `sim` may not import `game`.
+**Closed for the pipeline; open for the data.** `regions.ts` places geometry,
+`membershipDetector.ts` turns membership changes into events, `SimWorld` carries
+pieces as bodies, and `observation.ts` maps a snapshot onto detector
+observations each tick. `MatchSimulation` runs the whole chain, so a score now
+derives from a robot physically pushing a piece into a region.
+
+What remains is not the pipeline but the *coordinates*: DECODE's field element
+positions are still invented (§10.9). The engine applies DECODE's rules
+correctly to whatever geometry it is given; it is given a placeholder.
 
 ### 10.6 Robot zone occupancy by corner sampling
 
@@ -805,6 +807,54 @@ a shared constant is the obvious fix if a third caller appears.
 `supportFraction` is the real measured value, so a future consumer wanting finer
 resolution is not stuck with a representative number invented to fit.
 
+### 10.9 DECODE field element positions are invented
+
+| | |
+|---|---|
+| **Status** | **Placeholder**, marked in code and asserted by test |
+| **Location** | `src/core/game/fixtures/decodeField.ts` |
+
+Every coordinate in the DECODE layout is made up. The Competition Manual names
+the field CAD as authoritative and marks illustration dimensions as nominal, so
+there is nothing to transcribe. `DECODE_LAYOUT_PROVENANCE` records this as an
+`assumed` value and a test asserts it stays that way.
+
+**What this does and does not invalidate.** The rules, point values, timings and
+piece counts are transcribed and cited; the end-to-end scores in
+`decodeMatch.test.ts` verify the engine applies those rules correctly to the
+positions it was given. They are not predictions of a real match. Region ids are
+the contract between layout and rules, so correcting the coordinates changes no
+rule.
+
+### 10.10 ARTIFACT mass is estimated
+
+| | |
+|---|---|
+| **Value** | `0.3 lb` |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/game/fixtures/decodeGame.ts` (`ARTIFACT_ESTIMATED_MASS_LB`) |
+
+DECODE specifies ARTIFACT diameter (4.9 in ± 0.25) and material, but no weight,
+and the physics needs one. This is an estimate for a hollow 5 in polypropylene
+ball.
+
+**Why it matters more than it looks.** Piece mass sets how far an artifact
+travels when a robot strikes it, and with no piece damping (§5.5) a struck
+artifact slides until it meets a wall. Every "did it reach the goal" outcome
+therefore depends on this number. It is the single highest-value correction to
+the DECODE fixture.
+
+### 10.11 The assumption ledger for a game is derived
+
+`gameDefinition.ts` walks a `GameDefinition` and reports every `Sourced` value
+that is not `explicit`. ARCHITECTURE.md §6.1 promised the ledger would be a
+projection over the definition rather than a document that drifts; that is now
+true in code, and `provenanceSummary()` reports how much of a season is
+transcribed versus estimated.
+
+This section still records assumptions in the *engine*. Assumptions in a
+*season* live in the definition and are read out of it.
+
 ---
 
 ## 11. Revision log
@@ -819,4 +869,5 @@ resolution is not stuck with a representative number invented to fit.
 | 2026-08-25 | Added §10.6 (corner-sampled zone occupancy) as region geometry landed; §10.5 updated to record that regions now have placed shapes but nothing emits events from them yet. |
 | 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
+| 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
