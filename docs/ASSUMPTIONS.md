@@ -1041,7 +1041,57 @@ a shared constant is the obvious fix if a third caller appears.
 `supportFraction` is the real measured value, so a future consumer wanting finer
 resolution is not stuck with a representative number invented to fit.
 
-### 10.9 DECODE field element positions are invented
+### 10.9 DECODE field element positions — transcribed, except the GOAL cluster
+
+| | |
+|---|---|
+| **Status** | Placed from the Event FIELD Setup Guide, except GOAL/RAMP/DEPOT |
+| **Location** | `src/core/game/fixtures/decodeTiles.ts`, `decodeField.ts` |
+
+Every coordinate in this layout used to be made up, because the Competition
+Manual publishes no coordinate table: §9.4 defines TILE coordinates in Figures
+9-4 and 9-5, which are images, and §9.1 names the CAD model as the official
+representation.
+
+The **Event FIELD Setup Guide** publishes the same grid *in text* and places
+almost every element against it — "The red BASE ZONE is on TILE B2", "SPIKE
+MARKS are placed on TILE pairs A4/B4, A3/B3, and A2/B2, each spanning TILE seam
+V", "16.75 in. away from the inside of TILE seam V". Those are transcriptions.
+
+**Now sourced:** both LAUNCH LINES, the six SPIKE MARKS, the BASE ZONES, GATE
+ZONES, LOADING ZONES and SECRET TUNNEL ZONES.
+
+**The orientation, and how it was settled.** §9.5 puts the red ALLIANCE AREA on
+the audience's left; G402 puts blue in columns A-C. Both hold only if column A
+is the audience's *right*, so the lettering runs right to left. Two independent
+checks confirm it: the guide's "TILE intersection X3" lands on the field centre
+and "X1" one TILE in from the audience wall, which is exactly where it puts each
+LAUNCH LINE apex.
+
+**A confirmation worth recording.** The LAUNCH ZONE outline was `inferred` from
+§9.3 as isosceles with its apex toward the centre. The guide describes the same
+shape directly — a "V" from the back corners to the centre point — so it is now
+`explicit`. The earlier inference was right.
+
+**A conflict, decided and recorded.** The guide's colour labels put the red BASE
+ZONE and red SECRET TUNNEL in columns A-B, contradicting G402 *and* its own GATE
+ZONE labels. The Competition Manual wins as the rules document, and the cost of
+being wrong is bounded: the guide states the field is "symmetrical from right to
+left", so a mistaken assignment mirrors the colours and changes no distance,
+shape or rule. `DECODE_SETUP_GUIDE_COLOUR_CONFLICT` carries it.
+
+**Still not transcribed: the GOAL, RAMP and DEPOT.** The guide installs them by
+figure. They are *constrained* rather than invented — the GATE ZONE fixes the
+CLASSIFIER's low end at the side wall on seam 3, the SECRET TUNNEL is "bounded
+by ... the GOAL assembly" at its far end, and the GOAL brackets slip over the
+perimeter — so the GOAL is in the back corner with the RAMP climbing to it. How
+far along that wall is the remaining freedom, and the full-field CAD (am-5700)
+would settle it. `GOAL_CLUSTER_PROVENANCE` records this as `inferred`.
+
+**Consequence.** Distances to the GOAL are approximate, so cycle times are not
+yet predictive. Everything else is placed where the field places it.
+
+### 10.9.1 Superseded: positions were invented
 
 | | |
 |---|---|
@@ -1280,6 +1330,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Field layout transcribed from the Event FIELD Setup Guide: TILE grid, both LAUNCH LINES, SPIKE MARKS, BASE, GATE, LOADING and SECRET TUNNEL ZONES. §10.9 rewritten; only the GOAL cluster remains untranscribed. |
 | 2026-08-26 | Added §2.2.1 recording the arc-driving investigation: the slowdown is command saturation plus the centripetal crab, both emergent, no correction applied. |
 | 2026-08-26 | Added §10.15 (OVERFLOW as a capacity outcome). The invented OVERFLOW region is gone, and `regionContents` now holds piece ids once each rather than piece types twice. |
 | 2026-08-26 | Added §5.8 (multi-pass contact resolution, perimeter thickness), which closes the §5.6 defect: a piece pinned between a robot and a wall now stays in play. Phase 1 golden digest rebaselined. |

@@ -308,7 +308,7 @@ describe('DECODE provenance', () => {
   /** The layout gap is the largest one in this fixture; it must be in the ledger. */
   it('lists the invented field positions as an assumption', () => {
     const ledger = assumptionLedger(DECODE_GAME);
-    expect(ledger.some((e) => e.value === 'goal-cluster-positions-invented')).toBe(true);
+    expect(ledger.some((e) => e.value === 'goal-cluster-positions-inferred')).toBe(true);
   });
 
   /**
@@ -318,17 +318,28 @@ describe('DECODE provenance', () => {
    * values a reviewer can check.
    */
   it('carries the derived geometry as inferred, not assumed', () => {
-    const derived = collectProvenance(DECODE_GAME).filter(
-      (e) =>
-        e.value === 'audience at -Y, GOAL at +Y, red at -X, blue at +X' ||
-        e.value === 'isosceles, base on the perimeter, apex toward the field centre',
+    const frame = collectProvenance(DECODE_GAME).filter(
+      (e) => e.value === 'audience at -Y, GOAL at +Y, red at -X, blue at +X',
     );
 
-    expect(derived).toHaveLength(2);
-    for (const entry of derived) expect(entry.confidence).toBe('inferred');
+    expect(frame.length).toBeGreaterThan(0);
+    for (const entry of frame) expect(entry.confidence).toBe('inferred');
     expect(assumptionLedger(DECODE_GAME).map((e) => e.value)).not.toContain(
       'audience at -Y, GOAL at +Y, red at -X, blue at +X',
     );
+  });
+
+  /**
+   * The setup guide moved the LAUNCH ZONE outline from a reading of §9.3 to a
+   * quotation, so it must have left the ledger for the right reason.
+   */
+  it('carries the LAUNCH ZONE outline as transcribed', () => {
+    const outline = collectProvenance(DECODE_GAME).filter(
+      (e) => e.value === 'isosceles, base on the perimeter, apex toward the field centre',
+    );
+
+    expect(outline.length).toBeGreaterThan(0);
+    for (const entry of outline) expect(entry.confidence).toBe('explicit');
   });
 
   it('carries the ranking-point thresholds as sourced values', () => {

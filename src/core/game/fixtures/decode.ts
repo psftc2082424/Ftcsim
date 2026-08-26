@@ -169,7 +169,35 @@ export const DECODE_ZONES = {
   /** Each alliance's half, which G402 defines as three FIELD columns each. */
   redSide: 'red-side',
   blueSide: 'blue-side',
+  /**
+   * Zones the setup guide places by TILE and the rules describe but do not yet
+   * score against. Present because they are part of a correct FIELD, and
+   * because a rule that needs one should find it rather than need a layout
+   * change: LOADING ZONE and SECRET TUNNEL ZONE are alliance property (§9.3),
+   * and the GATE ZONE bounds where a ROBOT may operate a GATE (G417).
+   */
+  redLoadingZone: 'red-loading-zone',
+  blueLoadingZone: 'blue-loading-zone',
+  redGateZone: 'red-gate-zone',
+  blueGateZone: 'blue-gate-zone',
+  redSecretTunnel: 'red-secret-tunnel',
+  blueSecretTunnel: 'blue-secret-tunnel',
 } as const;
+
+/**
+ * Region id for one of an alliance's three SPIKE MARKS.
+ *
+ * Ordered audience side inward, matching how §10.3.1 reads the staging: index 0
+ * is Near, 1 Middle, 2 Far.
+ */
+export function spikeMarkId(alliance: 'red' | 'blue', index: number): string {
+  return `${alliance}-spike-${index}`;
+}
+
+/** The three SPIKE MARK ids for an alliance, Near to Far. */
+export function spikeMarkIds(alliance: 'red' | 'blue'): readonly string[] {
+  return [0, 1, 2].map((index) => spikeMarkId(alliance, index));
+}
 
 /**
  * Every zone LEAVE is assessed against, comma-separated for `robotNotInZone`.

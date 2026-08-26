@@ -11,13 +11,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   DECODE_FIELD_ORIENTATION,
+  DECODE_FIELD_REGIONS,
   DECODE_FIELD_ZONES,
   DECODE_LAUNCH_ZONE_OUTLINES,
   DECODE_LAUNCH_ZONE_SHAPE,
   layoutFitsField,
 } from './decodeField.js';
-import { DECODE_ZONES } from './decode.js';
-import { FIELD, LAUNCH_ZONES } from './decodeDimensions.js';
+import { DECODE_REGIONS, DECODE_ZONES, spikeMarkIds } from './decode.js';
+import { FIELD, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
+import {
+  horizontalSeamYIn,
+  rowCenterYIn,
+  tileBounds,
+  verticalSeamXIn,
+} from './decodeTiles.js';
 import { robotSupportFraction, shapeContainsPoint, type FieldZone } from '../regions.js';
 import { createObb } from '../../physics/shapes.js';
 import { inchesToMeters } from '../../units/convert.js';
@@ -205,10 +212,153 @@ describe('alliance halves come from G402', () => {
 });
 
 describe('provenance of the derived geometry', () => {
-  it('marks the frame and the triangle layout as inferred, not stated', () => {
+  /**
+   * The world frame is still read from several statements together, so it stays
+   * `inferred`. The LAUNCH ZONE outline is not: the Event FIELD Setup Guide
+   * describes the shape directly, and it landed exactly where the earlier
+   * inference from §9.3 had put it.
+   */
+  it('marks the frame as inferred and the triangle layout as transcribed', () => {
     expect(DECODE_FIELD_ORIENTATION.confidence).toBe('inferred');
-    expect(DECODE_LAUNCH_ZONE_SHAPE.confidence).toBe('inferred');
     expect(DECODE_FIELD_ORIENTATION.note).toMatch(/§9\.5/);
-    expect(DECODE_LAUNCH_ZONE_SHAPE.sourcePage).toBe(62);
+
+    expect(DECODE_LAUNCH_ZONE_SHAPE.confidence).toBe('explicit');
+    expect(DECODE_LAUNCH_ZONE_SHAPE.sourceQuote ?? '').toMatch(/A6, B5, C4, D4, E5, and F6/);
+  });
+});
+
+/**
+ * Elements the Event FIELD Setup Guide places against the TILE grid.
+ *
+ * Each case restates the guide's instruction and checks the built geometry
+ * against it. These were invented coordinates until the guide arrived, so what
+ * they guard is that a transcription stayed a transcription.
+ */
+describe('element placement comes from the setup guide', () => {
+  const shapeById = (id: string) => {
+    const found =
+      DECODE_FIELD_ZONES.find((z) => z.id === id) ?? DECODE_FIELD_REGIONS.find((r) => r.id === id);
+    if (found === undefined) throw new Error(`no region or zone "${id}"`);
+    return found;
+  };
+
+  const centreIn = (id: string): readonly [number, number] => {
+    const { centerM } = shapeById(id);
+    return [centerM.x / inchesToMeters(1), centerM.y / inchesToMeters(1)];
+  };
+
+  /**
+   * "The red BASE ZONE is on TILE B2 and the blue is on TILE E2 ... lined up
+   * with tape adjacent to the TILE seams W and 1" — an 18 in square in the
+   * corner of its TILE. Colours follow G402's columns, not the guide's labels.
+   */
+  it('tucks each BASE ZONE into the corner of its TILE', () => {
+    const blue = centreIn(DECODE_ZONES.blueBase);
+    const red = centreIn(DECODE_ZONES.redBase);
+    const half = ZONES.baseZoneSideIn.value / 2;
+
+    // Hard against seam W and seam 1 respectively.
+    expect(blue[0]).toBeCloseTo(verticalSeamXIn('W') + half, 6);
+    expect(blue[1]).toBeCloseTo(horizontalSeamYIn(1) + half, 6);
+
+    // And the mirror, since the guide says the field is symmetric left to right.
+    expect(red[0]).toBeCloseTo(-blue[0], 6);
+    expect(red[1]).toBeCloseTo(blue[1], 6);
+
+    // Standing on the TILES the guide names.
+    const b2 = tileBounds('B', 2);
+    expect(blue[0]).toBeGreaterThan(b2.minXIn);
+    expect(blue[0]).toBeLessThan(b2.maxXIn);
+  });
+
+  /**
+   * "SPIKE MARKS are placed on TILE pairs A4/B4, A3/B3, and A2/B2, each
+   * spanning TILE seam V ... along the centerline of a TILE."
+   */
+  it('straddles each SPIKE MARK across the seam on a row centreline', () => {
+    for (const alliance of ['red', 'blue'] as const) {
+      const seamX = alliance === 'blue' ? verticalSeamXIn('V') : verticalSeamXIn('Z');
+      const ids = spikeMarkIds(alliance);
+      expect(ids).toHaveLength(3);
+
+      const ys = ids.map((id) => {
+        const [x, y] = centreIn(id);
+        expect(x).toBeCloseTo(seamX, 6);
+        return y;
+      });
+
+      // Rows 2, 3 and 4: Near (audience), Middle, Far (GOAL side).
+      expect(ys[0]).toBeCloseTo(rowCenterYIn(2), 6);
+      expect(ys[1]).toBeCloseTo(rowCenterYIn(3), 6);
+      expect(ys[2]).toBeCloseTo(rowCenterYIn(4), 6);
+      // Read from the middle of the FIELD outward, so Near is nearest -Y.
+      expect(ys[0]).toBeLessThan(ys[2] as number);
+    }
+  });
+
+  it('mirrors the six SPIKE MARKS across the centre line', () => {
+    for (let i = 0; i < 3; i++) {
+      const blue = centreIn(spikeMarkIds('blue')[i] as string);
+      const red = centreIn(spikeMarkIds('red')[i] as string);
+      expect(red[0]).toBeCloseTo(-blue[0], 6);
+      expect(red[1]).toBeCloseTo(blue[1], 6);
+    }
+  });
+
+  /**
+   * "their ends start at TILE seams V and Z and run toward the nearest
+   * perimeter wall and parallel and adjacent to nearby TILE seam 3."
+   */
+  it('runs each GATE ZONE from its seam to the wall on seam 3', () => {
+    const [x, y] = centreIn(DECODE_ZONES.blueGateZone);
+    expect(y).toBeCloseTo(horizontalSeamYIn(3), 6);
+    expect(x).toBeCloseTo(verticalSeamXIn('V') + ZONES.gateZoneLengthIn.value / 2, 6);
+    // Toward the wall, not toward the centre.
+    expect(x).toBeGreaterThan(verticalSeamXIn('V'));
+  });
+
+  /** "LOADING ZONES are in TILES A1 and F1, in the corners on the audience side." */
+  it('anchors each LOADING ZONE in its audience-side corner', () => {
+    const [x, y] = centreIn(DECODE_ZONES.blueLoadingZone);
+    const half = ZONES.loadingZoneSideIn.value / 2;
+
+    expect(x).toBeCloseTo(HALF_FIELD_IN - half, 6);
+    expect(y).toBeCloseTo(-HALF_FIELD_IN + half, 6);
+  });
+
+  /**
+   * "on TILES A2 and A3 spanning from TILE seam 1 to 3 ... 16.75 in. away from
+   * the inside of TILE seam V."
+   */
+  it('offsets each SECRET TUNNEL from its seam and spans seams 1 to 3', () => {
+    const [x, y] = centreIn(DECODE_ZONES.blueSecretTunnel);
+
+    expect(x - ZONES.secretTunnelWidthIn.value / 2).toBeCloseTo(verticalSeamXIn('V') + 16.75, 6);
+    expect(y).toBeCloseTo((horizontalSeamYIn(1) + horizontalSeamYIn(3)) / 2, 6);
+  });
+
+  /** Everything stays on the field, including the elements added here. */
+  it('keeps every element inside the perimeter', () => {
+    expect(layoutFitsField()).toBe(true);
+
+    for (const shaped of [...DECODE_FIELD_REGIONS, ...DECODE_FIELD_ZONES]) {
+      if (shaped.shape.kind === 'circle') continue;
+      for (const vertex of shaped.shape.vertices) {
+        expect(Math.abs(vertex.x)).toBeLessThanOrEqual(inchesToMeters(HALF_FIELD_IN) + 1e-9);
+        expect(Math.abs(vertex.y)).toBeLessThanOrEqual(inchesToMeters(HALF_FIELD_IN) + 1e-9);
+      }
+    }
+  });
+
+  /** The DEPOT is tape in front of the GOAL, not underneath the RAMP. */
+  it('keeps the DEPOT clear of the RAMP', () => {
+    const depot = shapeById(DECODE_REGIONS.redDepot);
+    const ramp = shapeById(DECODE_REGIONS.redRamp);
+    if (depot.shape.kind === 'circle' || ramp.shape.kind === 'circle') return;
+
+    const overlaps = depot.shape.vertices.some((v) =>
+      shapeContainsPoint(ramp.shape, ramp.centerM, v),
+    );
+    expect(overlaps).toBe(false);
   });
 });

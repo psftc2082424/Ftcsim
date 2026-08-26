@@ -51,7 +51,8 @@ import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
-import { inchesToMeters } from '../../units/convert.js';
+import { inchesToMeters, metersToInches } from '../../units/convert.js';
+import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
 
 const at = (xIn: number, yIn: number) => vec2(inchesToMeters(xIn), inchesToMeters(yIn));
@@ -154,6 +155,20 @@ const CLEAR_OF_LAUNCH_LINES_2 = [20, -20] as const;
 /** Inside the audience-side LAUNCH ZONE — the one that belongs to no alliance. */
 const ON_AUDIENCE_LAUNCH_ZONE = [0, -63] as const;
 
+/**
+ * Where an element actually is, in inches, read off the built layout.
+ *
+ * The setup guide's TILE references decide these now, so a test that hard-coded
+ * a coordinate would pin a placeholder rather than the FIELD. Asking the fixture
+ * keeps every case below correct when the last invented positions are replaced.
+ */
+const centreOf = (id: string): readonly [number, number] => {
+  const shaped =
+    DECODE_FIELD_ZONES.find((z) => z.id === id) ?? DECODE_FIELD_REGIONS.find((r) => r.id === id);
+  if (shaped === undefined) throw new Error(`no region or zone "${id}"`);
+  return [metersToInches(meters(shaped.centerM.x)), metersToInches(meters(shaped.centerM.y))];
+};
+
 const DRIVE_TICKS = 260;
 
 const driving = (
@@ -191,9 +206,15 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
 }
 
 describe('DECODE definition integrity', () => {
-  it('is honest that the layout is a placeholder', () => {
+  /**
+   * The layout was entirely invented; the Event FIELD Setup Guide placed most
+   * of it. What is left is the GOAL cluster, and the note has to keep saying so
+   * rather than quietly implying the whole field is now sourced.
+   */
+  it('is honest about which positions are still not transcribed', () => {
     expect(DECODE_LAYOUT_PROVENANCE.confidence).toBe('assumed');
-    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/invented/i);
+    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/GOAL cluster/);
+    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/Setup Guide/);
   });
 
   it('keeps every placed element inside the field', () => {
@@ -418,7 +439,7 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
    * note about what "fully returned to BASE" means for a full-size robot.
    */
   const inBase = (alliance: 'red' | 'blue') =>
-    idle(alliance, alliance === 'red' ? -60 : 60, -60, SMALL_ROBOT);
+    idle(alliance, ...centreOf(alliance === 'red' ? DECODE_ZONES.redBase : DECODE_ZONES.blueBase), SMALL_ROBOT);
 
   it('awards a full BASE return for a robot finishing inside', () => {
     const result = decodeMatch({ robots: [inBase('red')] }).run();
@@ -430,7 +451,10 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
     // Base spans -69..-51 in. Two 8 in robots at -65 and -55 are each entirely
     // inside it with a gap between them.
     const result = decodeMatch({
-      robots: [idle('red', -65, -60, TINY_ROBOT), idle('red', -55, -60, TINY_ROBOT)],
+      robots: [
+        idle('red', centreOf(DECODE_ZONES.redBase)[0] - 5, centreOf(DECODE_ZONES.redBase)[1], TINY_ROBOT),
+        idle('red', centreOf(DECODE_ZONES.redBase)[0] + 5, centreOf(DECODE_ZONES.redBase)[1], TINY_ROBOT),
+      ],
     }).run();
 
     // 10 + 10 for the robots, plus the 10 bonus for both being fully in.
@@ -442,7 +466,12 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
 
   it('awards a partial return for a robot only half inside', () => {
     // Straddling the -51 in edge of the base zone.
-    const result = decodeMatch({ robots: [idle('red', -51, -60, SMALL_ROBOT)] }).run();
+    // Straddling the zone edge: half in, half out.
+    const result = decodeMatch({
+      robots: [
+        idle('red', centreOf(DECODE_ZONES.redBase)[0] + 9, centreOf(DECODE_ZONES.redBase)[1], SMALL_ROBOT),
+      ],
+    }).run();
     expect(pointsFrom(result, '-base')).toBe(DECODE_POINTS.basePartial.value);
     expect(pointsFrom(result, '-base')).toBe(5);
   });
@@ -450,7 +479,11 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
   it('awards no bonus when only one robot is fully in', () => {
     const result = decodeMatch({
       // One entirely inside, one straddling the -51 in edge.
-      robots: [idle('red', -60, -60, TINY_ROBOT), idle('red', -50, -60, TINY_ROBOT)],
+      robots: [
+        idle('red', ...centreOf(DECODE_ZONES.redBase), TINY_ROBOT),
+        // Straddling the edge, so it returns partially rather than fully.
+        idle('red', centreOf(DECODE_ZONES.redBase)[0] + 9, centreOf(DECODE_ZONES.redBase)[1], TINY_ROBOT),
+      ],
     }).run();
 
     // One full (10) plus one partial (5); no bonus.
@@ -487,7 +520,7 @@ describe('PATTERN (§10.5.2)', () => {
       diameterIn: 5,
       massLb: 0.3,
       // Spread along the ramp, which spans y -27..27 at x -52.
-      startPositionM: at(-50, -12 + i * 8),
+      startPositionM: at(centreOf(DECODE_REGIONS.redRamp)[0], centreOf(DECODE_REGIONS.redRamp)[1] - 16 + i * 8),
     }));
 
     const slots = createRampSlotAssignment();
@@ -533,7 +566,7 @@ describe('DECODE match determinism', () => {
       seed: 2026,
       robots: [
         driving('red', ...START_ON_LAUNCH_LINE.red, TOWARD_AUDIENCE),
-        idle('blue', 60, -60, SMALL_ROBOT),
+        idle('blue', ...centreOf(DECODE_ZONES.blueBase), SMALL_ROBOT),
       ],
       pieces: [
         {
@@ -541,7 +574,7 @@ describe('DECODE match determinism', () => {
           pieceType: 'P',
           diameterIn: 5,
           massLb: 0.3,
-          startPositionM: at(-50, 20),
+          startPositionM: at(0, 20),
         },
       ],
     });
@@ -659,7 +692,7 @@ describe('DEPOT (§10.5, D)', () => {
           pieceType: 'P',
           diameterIn: 5,
           massLb: 0.3,
-          startPositionM: at(-40, -40),
+          startPositionM: at(...centreOf(DECODE_REGIONS.redDepot)),
         },
       ],
     }).run();
@@ -674,8 +707,8 @@ describe('DEPOT (§10.5, D)', () => {
     const result = decodeMatch({
       robots: [idle('red', 0, 0)],
       pieces: [
-        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -40) },
-        { pieceId: 'd2', pieceType: 'G', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -36) },
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(...centreOf(DECODE_REGIONS.redDepot)) },
+        { pieceId: 'd2', pieceType: 'G', diameterIn: 5, massLb: 0.3, startPositionM: at(centreOf(DECODE_REGIONS.redDepot)[0], centreOf(DECODE_REGIONS.redDepot)[1] + 6) },
       ],
     }).run();
 
@@ -687,7 +720,7 @@ describe('DEPOT (§10.5, D)', () => {
     const result = decodeMatch({
       robots: [idle('red', 0, 0)],
       pieces: [
-        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -40) },
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(...centreOf(DECODE_REGIONS.redDepot)) },
       ],
     }).run();
     expect(result.score.blue).toBe(0);
