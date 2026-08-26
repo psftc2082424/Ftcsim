@@ -35,7 +35,15 @@ export interface PredicateContext {
    * piece type id, or `null` when empty.
    */
   readonly regionSlots: Readonly<Record<string, readonly (string | null)[]>>;
-  /** Pieces currently at rest in each region, by region id. */
+  /**
+   * Ids of the pieces currently in each region, by region id.
+   *
+   * **The event's own piece is already counted.** `MatchRunner` applies an event
+   * to world state before evaluating rules against it, so a predicate reading
+   * this during a `PieceEnteredRegion` sees the arriving piece included. That is
+   * what lets a capacity question be asked directly — "does the region still
+   * hold at most nine, now that this one is in it?" — instead of off by one.
+   */
   readonly regionContents: Readonly<Record<string, readonly string[]>>;
   /** Arbitrary per-match values a game needs, e.g. the randomised motif. */
   readonly variables: Readonly<Record<string, FilterValue>>;
@@ -197,6 +205,27 @@ export function createDefaultRegistry(): PredicateRegistry {
     const regionId = readString(params, 'regionId');
     const count = readNumber(params, 'count');
     return (context.regionContents[regionId]?.length ?? 0) >= count;
+  });
+
+  /**
+   * A region holds no more than `count` pieces — it is within capacity.
+   *
+   * Exists as an exact complement to `regionHoldsMoreThan` so a game can split
+   * one arrival into two outcomes without either rule doing arithmetic on the
+   * capacity. DECODE needs it: an ARTIFACT entering a full RAMP is OVERFLOW
+   * rather than CLASSIFIED (§9.8.2), and both are the same arrival.
+   */
+  registry.register('regionHoldsAtMost', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const count = readNumber(params, 'count');
+    return (context.regionContents[regionId]?.length ?? 0) <= count;
+  });
+
+  /** A region holds more than `count` pieces — it is over capacity. */
+  registry.register('regionHoldsMoreThan', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const count = readNumber(params, 'count');
+    return (context.regionContents[regionId]?.length ?? 0) > count;
   });
 
   /** The triggering robot is entirely supported inside a zone. */

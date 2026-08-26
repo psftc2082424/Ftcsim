@@ -59,7 +59,7 @@ export const DECODE_LAYOUT_PROVENANCE: Sourced<string> = assumed(
   'Element SIZES are transcribed from the Competition Manual (see decodeDimensions.ts), ' +
     'and the LAUNCH ZONES and alliance halves are now built from §9.3 and G402 rather ' +
     'than guessed. What remains invented is where the GOAL cluster sits: the RAMP, ' +
-    'OVERFLOW, DEPOT, BASE, LOADING ZONE, SECRET TUNNEL and GATE. §9.4 defines TILE ' +
+    'DEPOT, BASE, LOADING ZONE, SECRET TUNNEL and GATE. §9.4 defines TILE ' +
     'coordinates only in figures, and §9.1 names the 3D CAD model as the official ' +
     'representation. Distances among those elements are therefore wrong, so cycle times ' +
     'and reachability are not predictive.',
@@ -130,18 +130,6 @@ const LAYOUT = {
     centerYIn: 0,
     widthIn: GOAL.footprintIn.value,
     lengthIn: 54,
-  },
-  /**
-   * OVERFLOW has no geometry of its own in the manual — it is a *state*, not a
-   * place: an artifact overflows when it passes the SQUARE without transitioning
-   * directly to the RAMP (§10.5.1). Modelled as a region only because the
-   * current detector decides scoring by position. See the note below.
-   */
-  overflow: {
-    centerXIn: 52,
-    centerYIn: 40,
-    widthIn: GOAL.footprintIn.value,
-    lengthIn: 20,
   },
   /**
    * The DEPOT is 30 in of tape spanning the GOAL's front face (§9.3). Given a
@@ -298,8 +286,6 @@ function zone(id: string, placement: Placement): FieldZone {
 export const DECODE_FIELD_REGIONS: readonly FieldRegion[] = [
   region(DECODE_REGIONS.redRamp, mirrored(LAYOUT.ramp, 'red'), RAMP_SLOT_COUNT.value),
   region(DECODE_REGIONS.blueRamp, mirrored(LAYOUT.ramp, 'blue'), RAMP_SLOT_COUNT.value),
-  region(DECODE_REGIONS.redOverflow, mirrored(LAYOUT.overflow, 'red')),
-  region(DECODE_REGIONS.blueOverflow, mirrored(LAYOUT.overflow, 'blue')),
   region(DECODE_REGIONS.redDepot, mirrored(LAYOUT.depot, 'red')),
   region(DECODE_REGIONS.blueDepot, mirrored(LAYOUT.depot, 'blue')),
 ];

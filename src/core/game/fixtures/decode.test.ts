@@ -232,10 +232,52 @@ describe('DECODE scoring — ARTIFACTS', () => {
     expect(runner.score.red).toBe(DECODE_POINTS.classifiedAuto.value);
   });
 
-  it('awards 1 for an OVERFLOW artifact', () => {
+  /**
+   * §9.8.2: "The RAMP can fit up to 9 CLASSIFIED ARTIFACTS before newly entered
+   * ARTIFACTS will OVERFLOW." Both outcomes are the same arrival, told apart by
+   * whether the RAMP still had room — OVERFLOW is a state, not a place.
+   */
+  it('awards 1 for an artifact arriving at a full RAMP', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'P', DECODE_REGIONS.redOverflow, 10, 'red'));
-    expect(runner.score.red).toBe(DECODE_POINTS.overflowAuto.value);
+    for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
+      runner.ingest(enteredRegion(`fill${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+    }
+    const afterFilling = runner.score.red;
+    expect(afterFilling).toBe(RAMP_SLOT_COUNT.value * DECODE_POINTS.classifiedAuto.value);
+
+    runner.ingest(enteredRegion('spill', 'P', DECODE_REGIONS.redRamp, 100, 'red'));
+    expect(runner.score.red - afterFilling).toBe(DECODE_POINTS.overflowAuto.value);
+  });
+
+  it('awards CLASSIFIED, not OVERFLOW, for the ninth artifact', () => {
+    const runner = newRunner();
+    for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
+      runner.ingest(enteredRegion(`fill${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+    }
+
+    const overflowAwards = runner.score.deltas.filter((delta) =>
+      delta.ruleId.includes('overflow'),
+    );
+    expect(overflowAwards).toEqual([]);
+  });
+
+  /** One arrival cannot be both, whichever side of capacity it lands on. */
+  it('never awards CLASSIFIED and OVERFLOW for the same artifact', () => {
+    const runner = newRunner();
+    for (let i = 0; i <= RAMP_SLOT_COUNT.value + 2; i++) {
+      runner.ingest(enteredRegion(`a${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+    }
+
+    const byPiece = new Map<string, number>();
+    for (const delta of runner.score.deltas) {
+      if (!delta.ruleId.includes('classified') && !delta.ruleId.includes('overflow')) continue;
+      byPiece.set(delta.ruleId, (byPiece.get(delta.ruleId) ?? 0) + 1);
+    }
+
+    const classified = runner.score.deltas.filter((d) => d.ruleId.includes('classified')).length;
+    const overflowed = runner.score.deltas.filter((d) => d.ruleId.includes('overflow')).length;
+    expect(classified).toBe(RAMP_SLOT_COUNT.value);
+    expect(overflowed).toBe(3);
   });
 
   /** §10.5.1: a piece scores once, however many times it re-enters. */
@@ -729,8 +771,16 @@ describe('DECODE — full match end to end', () => {
       runner.ingest(cameToRest(`b${slot}`, type, [DECODE_REGIONS.redRamp], 8100 + slot, slot));
     });
 
-    // One OVERFLOW: 1.
-    runner.ingest(enteredRegion('c1', 'P', DECODE_REGIONS.redOverflow, 8200, 'red'));
+    // The RAMP now holds five. Four more fill it to its nine-artifact capacity:
+    // 4 x 3 = 12. They only *enter* — no slot is claimed, so PATTERN below still
+    // reads the five that came to rest.
+    const alreadyOnRamp = 5;
+    for (let i = alreadyOnRamp; i < RAMP_SLOT_COUNT.value; i++) {
+      runner.ingest(enteredRegion(`f${i}`, 'P', DECODE_REGIONS.redRamp, 8150 + i, 'red'));
+    }
+
+    // The tenth arrival finds the RAMP full, so it OVERFLOWS instead: 1 (§9.8.2).
+    runner.ingest(enteredRegion('c1', 'P', DECODE_REGIONS.redRamp, 8200, 'red'));
 
     // Two artifacts in the DEPOT: 2 x 1 = 2.
     runner.ingest(cameToRest('d1', 'G', [DECODE_REGIONS.redDepot], 8300));
@@ -752,8 +802,8 @@ describe('DECODE — full match end to end', () => {
       .reduce((sum, [, points]) => sum + points, 0);
     expect(teleopPattern).toBe(10);
 
-    // 21 (auto) + 6 classified + 1 overflow + 2 depot + 30 base + 10 pattern.
-    expect(runner.score.red).toBe(21 + 6 + 1 + 2 + 30 + 10);
+    // 21 (auto) + 6 + 12 classified + 1 overflow + 2 depot + 30 base + 10 pattern.
+    expect(runner.score.red).toBe(21 + 6 + 12 + 1 + 2 + 30 + 10);
     expect(runner.score.blue).toBe(0);
     expect(runner.isFinished).toBe(true);
   });
@@ -914,5 +964,68 @@ describe('ranking-point measurement (Tables 10-2 and 10-3)', () => {
     for (const criterion of DECODE_RANKING_POINT_RULES.criteria) {
       expect(named.has(criterion.id), criterion.id).toBe(true);
     }
+  });
+});
+
+/**
+ * Region membership bookkeeping, which capacity rules depend on being right.
+ *
+ * `regionContents` was a list of piece *types*, appended to on both entering a
+ * region and coming to rest in it. Nothing read more than its length, so nothing
+ * noticed until OVERFLOW became a capacity question — at which point five
+ * artifacts on a nine-slot RAMP read as ten.
+ */
+describe('regression — region contents count pieces, once each', () => {
+  const rampCount = (runner: MatchRunner): number =>
+    (runner.regionContents[DECODE_REGIONS.redRamp] ?? []).length;
+
+  it('counts a piece once however it got there', () => {
+    const runner = newRunner();
+    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
+    expect(rampCount(runner)).toBe(1);
+
+    // Coming to rest in the region it already entered is the same piece.
+    runner.ingest(cameToRest('a1', 'G', [DECODE_REGIONS.redRamp], 20, 0));
+    expect(rampCount(runner)).toBe(1);
+
+    // And re-entering it is still the same piece.
+    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 30, 'red'));
+    expect(rampCount(runner)).toBe(1);
+  });
+
+  it('distinguishes pieces that share a type', () => {
+    const runner = newRunner();
+    for (const id of ['a1', 'a2', 'a3']) {
+      runner.ingest(enteredRegion(id, 'P', DECODE_REGIONS.redRamp, 10, 'red'));
+    }
+    expect(rampCount(runner)).toBe(3);
+  });
+
+  it('holds ids, so a piece can be removed by id', () => {
+    const runner = newRunner();
+    runner.ingest(enteredRegion('a1', 'P', DECODE_REGIONS.redRamp, 10, 'red'));
+    runner.ingest(enteredRegion('a2', 'P', DECODE_REGIONS.redRamp, 11, 'red'));
+
+    expect(runner.regionContents[DECODE_REGIONS.redRamp]).toEqual(['a1', 'a2']);
+
+    runner.ingest({
+      kind: 'PieceExitedRegion',
+      tick: 20,
+      timeSec: 20 * DT,
+      pieceId: 'a1',
+      pieceType: 'P',
+      regionId: DECODE_REGIONS.redRamp,
+    });
+    expect(runner.regionContents[DECODE_REGIONS.redRamp]).toEqual(['a2']);
+  });
+
+  /** The capacity question the OVERFLOW rules ask, at the boundary. */
+  it('reads the RAMP as full only once nine artifacts are on it', () => {
+    const runner = newRunner();
+    for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
+      runner.ingest(enteredRegion(`a${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+      runner.ingest(cameToRest(`a${i}`, 'P', [DECODE_REGIONS.redRamp], 100 + i, i));
+    }
+    expect(rampCount(runner)).toBe(RAMP_SLOT_COUNT.value);
   });
 });

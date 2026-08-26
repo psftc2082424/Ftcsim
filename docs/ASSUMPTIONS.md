@@ -1104,6 +1104,40 @@ placed at the base of the GOAL — and its position is exactly what §10.9 says 
 missing. Adding a zone at an invented position would replace a visible gap with
 an invisible one. Fix this together with the layout, not before it.
 
+### 10.15 OVERFLOW is a capacity outcome, and the skip case is not modelled
+
+| | |
+|---|---|
+| **Model** | CLASSIFIED and OVERFLOW are one arrival at the RAMP, split by capacity |
+| **Confidence** | **EXPLICIT** for the capacity rule; the skip case is **not modelled** |
+| **Location** | `src/core/game/fixtures/decode.ts` (`RAMP_ARRIVAL`) |
+
+The glossary makes both outcomes properties of a single arrival: CLASSIFIED is
+"an ARTIFACT that passes through the SQUARE and transitions directly to the
+RAMP", OVERFLOW is "an ARTIFACT that passes through the SQUARE but does not meet
+CLASSIFIED criteria", and §9.8.2 gives the criterion — "The RAMP can fit up to 9
+CLASSIFIED ARTIFACTS before newly entered ARTIFACTS will OVERFLOW."
+
+**What was wrong.** OVERFLOW was a second region with invented coordinates, so
+an artifact scored it by reaching a made-up patch of floor, and a tenth artifact
+arriving at a full RAMP still scored CLASSIFIED because nothing checked
+capacity. Both rules now trigger on the same arrival and are told apart by
+whether the RAMP still had room, which *deletes* a set of invented coordinates
+rather than adding any.
+
+**Not modelled.** §9.8.2 also says an artifact "LAUNCHED into the GOAL at a high
+velocity or with significant spin may skip over the 9th open CLASSIFIER slot and
+count as OVERFLOW", and calls that normal FIELD operation rather than a fault.
+That outcome is stochastic and depends on a launch this simulator cannot yet
+make, so a full RAMP is the only route to OVERFLOW here. The consequence is
+that OVERFLOW is under-reported relative to a real match.
+
+**A bug this exposed.** `regionContents` held piece *types* and was appended to
+both when a piece entered a region and when it came to rest there, so a region
+appeared to hold twice what it did and `consumePiece` searched a list of colours
+for an id. Nothing read more than its length, so nothing noticed until a rule
+asked about capacity. It now holds piece ids, once each.
+
 ### 10.14 Possession is decided from contact and motion, not intent
 
 | | |
@@ -1211,6 +1245,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §10.15 (OVERFLOW as a capacity outcome). The invented OVERFLOW region is gone, and `regionContents` now holds piece ids once each rather than piece types twice. |
 | 2026-08-26 | Added §5.8 (multi-pass contact resolution, perimeter thickness), which closes the §5.6 defect: a piece pinned between a robot and a wall now stays in play. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | G408's CONTROL limit assessed from sustained possession, and ranking-point criteria measured from a match. §10.14 extended with the MOMENTARY proxy the foul rules use for intent. |
 | 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |

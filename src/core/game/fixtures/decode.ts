@@ -130,11 +130,32 @@ export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
 export const DECODE_REGIONS = {
   redRamp: 'red-ramp',
   blueRamp: 'blue-ramp',
-  redOverflow: 'red-overflow',
-  blueOverflow: 'blue-overflow',
   redDepot: 'red-depot',
   blueDepot: 'blue-depot',
 } as const;
+
+/**
+ * Why there is no OVERFLOW region.
+ *
+ * The glossary makes both outcomes properties of one arrival: CLASSIFIED is "an
+ * ARTIFACT that passes through the SQUARE and transitions directly to the RAMP",
+ * OVERFLOW is "an ARTIFACT that passes through the SQUARE but does not meet
+ * CLASSIFIED criteria", and §9.8.2 gives the criterion — "The RAMP can fit up to
+ * 9 CLASSIFIED ARTIFACTS before newly entered ARTIFACTS will OVERFLOW."
+ *
+ * OVERFLOW is therefore a *state*, not a place. It used to be modelled as a
+ * second region with invented coordinates, which meant two things were wrong at
+ * once: an artifact scored OVERFLOW by reaching a made-up patch of floor, and a
+ * tenth artifact reaching a full RAMP still scored CLASSIFIED. Both rules now
+ * trigger on the same arrival and are told apart by capacity, which deletes a
+ * set of invented coordinates rather than adding any.
+ *
+ * **Not modelled:** §9.8.2 also says an artifact "LAUNCHED into the GOAL at a
+ * high velocity or with significant spin may skip over the 9th open CLASSIFIER
+ * slot and count as OVERFLOW". That is stochastic and depends on a launch this
+ * simulator cannot yet make. Recorded in ASSUMPTIONS.md §10.15.
+ */
+export const RAMP_ARRIVAL = 'classified-or-overflow-by-capacity';
 
 export const DECODE_ZONES = {
   redBase: 'red-base',
@@ -646,60 +667,53 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
   // --- ARTIFACT scoring, §10.5.1 -------------------------------------------
   ...(['red', 'blue'] as const).flatMap((alliance) => {
     const ramp = alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp;
-    const overflow =
-      alliance === 'red' ? DECODE_REGIONS.redOverflow : DECODE_REGIONS.blueOverflow;
     const depot = alliance === 'red' ? DECODE_REGIONS.redDepot : DECODE_REGIONS.blueDepot;
     const base = alliance === 'red' ? DECODE_ZONES.redBase : DECODE_ZONES.blueBase;
 
     return [
-      {
-        id: `${alliance}-classified-auto`,
-        contributesTo: [DECODE_RP_CRITERIA.goal],
-        label: `${alliance} CLASSIFIED (AUTO)`,
-        phase: 'AUTO' as const,
-        trigger: {
+      // CLASSIFIED and OVERFLOW are the same arrival, told apart by whether the
+      // RAMP still had room. See `RAMP_ARRIVAL` below for why they are not two
+      // places.
+      ...(['AUTO', 'TELEOP'] as const).flatMap((phase) => {
+        const classified =
+          phase === 'AUTO' ? DECODE_POINTS.classifiedAuto : DECODE_POINTS.classifiedTeleop;
+        const overflowed =
+          phase === 'AUTO' ? DECODE_POINTS.overflowAuto : DECODE_POINTS.overflowTeleop;
+
+        const arrival = {
           event: 'PieceEnteredRegion' as const,
           filters: [{ field: 'regionId', equals: ramp }],
-        },
-        award: { points: DECODE_POINTS.classifiedAuto, alliance },
-        oncePerPiece: true,
-      },
-      {
-        id: `${alliance}-classified-teleop`,
-        contributesTo: [DECODE_RP_CRITERIA.goal],
-        label: `${alliance} CLASSIFIED (TELEOP)`,
-        phase: 'TELEOP' as const,
-        trigger: {
-          event: 'PieceEnteredRegion' as const,
-          filters: [{ field: 'regionId', equals: ramp }],
-        },
-        award: { points: DECODE_POINTS.classifiedTeleop, alliance },
-        oncePerPiece: true,
-      },
-      {
-        id: `${alliance}-overflow-auto`,
-        contributesTo: [DECODE_RP_CRITERIA.goal],
-        label: `${alliance} OVERFLOW (AUTO)`,
-        phase: 'AUTO' as const,
-        trigger: {
-          event: 'PieceEnteredRegion' as const,
-          filters: [{ field: 'regionId', equals: overflow }],
-        },
-        award: { points: DECODE_POINTS.overflowAuto, alliance },
-        oncePerPiece: true,
-      },
-      {
-        id: `${alliance}-overflow-teleop`,
-        contributesTo: [DECODE_RP_CRITERIA.goal],
-        label: `${alliance} OVERFLOW (TELEOP)`,
-        phase: 'TELEOP' as const,
-        trigger: {
-          event: 'PieceEnteredRegion' as const,
-          filters: [{ field: 'regionId', equals: overflow }],
-        },
-        award: { points: DECODE_POINTS.overflowTeleop, alliance },
-        oncePerPiece: true,
-      },
+        };
+
+        return [
+          {
+            id: `${alliance}-classified-${phase.toLowerCase()}`,
+            contributesTo: [DECODE_RP_CRITERIA.goal],
+            label: `${alliance} CLASSIFIED (${phase})`,
+            phase,
+            trigger: arrival,
+            condition: {
+              predicateId: 'regionHoldsAtMost',
+              params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
+            },
+            award: { points: classified, alliance },
+            oncePerPiece: true,
+          },
+          {
+            id: `${alliance}-overflow-${phase.toLowerCase()}`,
+            contributesTo: [DECODE_RP_CRITERIA.goal],
+            label: `${alliance} OVERFLOW (${phase})`,
+            phase,
+            trigger: arrival,
+            condition: {
+              predicateId: 'regionHoldsMoreThan',
+              params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
+            },
+            award: { points: overflowed, alliance },
+            oncePerPiece: true,
+          },
+        ];
+      }),
 
       // --- DEPOT, assessed at the end of TELEOP (§10.5, D) -----------------
       {

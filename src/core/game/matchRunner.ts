@@ -81,6 +81,17 @@ export class MatchRunner {
     return this.clock.currentState;
   }
 
+  /**
+   * Ids of the pieces the runner believes are in each region.
+   *
+   * Read-only, and exposed because it is the state capacity rules are decided
+   * against — a wrong count here is a wrong score, and asserting it directly is
+   * cheaper than inferring it from awards.
+   */
+  get regionContents(): Readonly<Record<string, readonly string[]>> {
+    return this.world.regionContents;
+  }
+
   get isFinished(): boolean {
     return this.clock.isFinished;
   }
@@ -198,15 +209,15 @@ export class MatchRunner {
   private applyEventToWorld(event: SimEvent): void {
     switch (event.kind) {
       case 'PieceEnteredRegion':
-        this.addToRegion(event.regionId, event.pieceType);
+        this.addToRegion(event.regionId, event.pieceId);
         break;
 
       case 'PieceExitedRegion':
-        this.removeFromRegion(event.regionId, event.pieceType);
+        this.removeFromRegion(event.regionId, event.pieceId);
         break;
 
       case 'PieceCameToRest':
-        for (const regionId of event.regionIds) this.addToRegion(regionId, event.pieceType);
+        for (const regionId of event.regionIds) this.addToRegion(regionId, event.pieceId);
         // A resting piece may occupy an ordered slot, which is what pattern
         // scoring reads.
         if (event.slotIndex !== undefined && event.regionIds.length > 0) {
@@ -224,6 +235,10 @@ export class MatchRunner {
         this.clearZoneOccupancy(event.zoneId, event.robotId);
         break;
 
+      // Facts about who is holding what; they move no piece and enter no zone,
+      // so world state is unchanged and only rules care.
+      case 'PiecePossessed':
+      case 'PossessionSustained':
       case 'PieceReleasedBy':
       case 'RobotHeightExceeded':
       case 'MechanismStateChanged':
@@ -264,14 +279,25 @@ export class MatchRunner {
     }
   }
 
-  private addToRegion(regionId: string, value: string): void {
-    (this.world.regionContents[regionId] ??= []).push(value);
+  /**
+   * Record a piece as being in a region.
+   *
+   * Keyed by **piece id**, and idempotent. Both matter, and both used to be
+   * wrong: contents held `pieceType`, so `consumePiece` searched a list of
+   * colours for an id and never matched, and a piece was added once on entering
+   * a region and again on coming to rest there — so the region appeared to hold
+   * twice what it did. Nothing noticed until a rule asked about capacity, at
+   * which point five artifacts on a nine-slot RAMP read as ten and overflowed.
+   */
+  private addToRegion(regionId: string, pieceId: string): void {
+    const contents = (this.world.regionContents[regionId] ??= []);
+    if (!contents.includes(pieceId)) contents.push(pieceId);
   }
 
-  private removeFromRegion(regionId: string, value: string): void {
+  private removeFromRegion(regionId: string, pieceId: string): void {
     const contents = this.world.regionContents[regionId];
     if (contents === undefined) return;
-    const index = contents.indexOf(value);
+    const index = contents.indexOf(pieceId);
     if (index >= 0) contents.splice(index, 1);
   }
 
