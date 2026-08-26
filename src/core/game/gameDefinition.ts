@@ -120,6 +120,17 @@ export interface GameDefinition {
   /** Foul values, where the season publishes them. */
   readonly penalties?: PenaltyValues | undefined;
 
+  /**
+   * Provenance statements that belong to the definition rather than to a value.
+   *
+   * Some of what a manual tells you is not a number: that element positions are
+   * published only in a CAD model, that a game sets no weight limit, that a
+   * threshold is provisional. Those are exactly the facts a reviewer needs and
+   * exactly the ones a per-field `Sourced` cannot hold, so they go here and the
+   * assumption ledger picks them up with everything else.
+   */
+  readonly provenanceNotes?: readonly Sourced<unknown>[] | undefined;
+
   /** Per-match values, e.g. a randomised pattern selection. */
   readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
 }
@@ -374,11 +385,11 @@ export function collectProvenance(definition: GameDefinition): readonly LedgerEn
 
   const walk = (node: unknown, path: string): void => {
     if (node === null || typeof node !== 'object') return;
-    // Geometry holds large vertex arrays and cyclic-free but bulky shapes; the
-    // guard also stops a shared object being reported twice.
-    if (seen.has(node)) return;
-    seen.add(node);
 
+    // A `Sourced` is checked *before* the visited guard, so a value shared
+    // between fields is reported at every path that uses it. DECODE's two
+    // ARTIFACT types share one estimated mass; reporting it once would have let
+    // a reviewer think only one piece type was estimated.
     if (isSourced(node)) {
       entries.push({
         path,
@@ -391,6 +402,11 @@ export function collectProvenance(definition: GameDefinition): readonly LedgerEn
       });
       return;
     }
+
+    // Geometry holds large vertex arrays and bulky shapes, and the same region
+    // object can appear under several keys; the guard keeps the walk bounded.
+    if (seen.has(node)) return;
+    seen.add(node);
 
     if (Array.isArray(node)) {
       node.forEach((item, index) => walk(item, `${path}[${index}]`));

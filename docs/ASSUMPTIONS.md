@@ -895,6 +895,14 @@ transcribed versus estimated.
 This section still records assumptions in the *engine*. Assumptions in a
 *season* live in the definition and are read out of it.
 
+**Two corrections the DECODE transcription forced.** The walker deduplicated
+shared `Sourced` objects, so a value used by several fields was reported once —
+DECODE's two ARTIFACT types share one estimated mass, and the ledger read as
+though only one piece type was estimated. And a fact that belongs to the
+definition rather than to any single field had nowhere to live, so the largest
+gap in the fixture — the invented layout — appeared only in a source comment.
+`provenanceNotes` now carries such statements, and both are asserted by test.
+
 ### 10.12 The DEPOT tape is a LAUNCH LINE, and is not modelled as one
 
 | | |
@@ -966,6 +974,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
 | 2026-08-25 | Competition Manual (Team Update 32) supplied and treated as authoritative. Every DECODE dimension it publishes transcribed into `decodeDimensions.ts` with a page number and verbatim quote; `decodeField.ts` rebuilt on those extents. §10.9 narrowed from "the layout is invented" to "the positions are invented"; §10.10 narrowed to record that ARTIFACT mass is confirmed absent from the manual rather than merely unfound. |
 | 2026-08-25 | RP thresholds (Table 10-3) and penalty values (Table 10-4) transcribed, closing the last `unresolved` value in the DECODE definition; §10.5 table rewritten and §10.13 added for what refereeing judgement puts out of reach. |
+| 2026-08-25 | Assumption ledger corrected: shared `Sourced` values are now reported at every path that uses them, and `provenanceNotes` carries statements that belong to a definition rather than to one field — so the invented layout and the estimated mass on both piece types now appear in `assumptionLedger(DECODE_GAME)`. |
 | 2026-08-25 | LEAVE and BASE corrected against §10.5.3: both are assessed on a robot's final position, and LEAVE checks every LAUNCH LINE rather than the alliance's own. Added §10.12 for the DEPOT tape, which the manual makes a LAUNCH LINE and which this model cannot yet treat as one. |
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |

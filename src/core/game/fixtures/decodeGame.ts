@@ -20,6 +20,8 @@
 import type { GameDefinition, GamePieceType } from '../gameDefinition.js';
 import { assumed } from '../sourced.js';
 import {
+  DECODE_FOULS_ASSESSED_BY_REFEREE,
+  DECODE_HAS_NO_WEIGHT_LIMIT,
   DECODE_MATCH,
   DECODE_MOTIFS,
   DECODE_OBJECTIVES,
@@ -27,11 +29,13 @@ import {
   DECODE_PIECES,
   DECODE_RANKING_POINT_RULES,
   DECODE_ROBOT_CONSTRAINTS,
+  DECODE_RP_THRESHOLD_STABILITY,
   DECODE_SCORING_RULES,
 } from './decode.js';
 import {
   DECODE_FIELD_REGIONS,
   DECODE_FIELD_ZONES,
+  DECODE_LAYOUT_PROVENANCE,
   DECODE_SLOTTED_REGIONS,
 } from './decodeField.js';
 
@@ -97,6 +101,18 @@ export const DECODE_GAME: GameDefinition = {
   // spares a caller from hard-coding Table 10-3.
   rankingPoints: DECODE_RANKING_POINT_RULES,
   penalties: DECODE_PENALTIES,
+
+  // What the manual says that is not a number. The layout note is the largest
+  // remaining gap in this fixture, and putting it here is what makes it show up
+  // in `assumptionLedger(DECODE_GAME)` alongside the estimated mass rather than
+  // only in a comment someone has to find.
+  provenanceNotes: [
+    DECODE_LAYOUT_PROVENANCE,
+    DECODE_DEFAULT_MOTIF,
+    DECODE_HAS_NO_WEIGHT_LIMIT,
+    DECODE_RP_THRESHOLD_STABILITY,
+    DECODE_FOULS_ASSESSED_BY_REFEREE,
+  ],
 
   variables: { motif: DECODE_DEFAULT_MOTIF.value },
 };

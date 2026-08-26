@@ -281,6 +281,24 @@ describe('DECODE provenance', () => {
     expect(unknowns.map((e) => e.path)).toEqual([]);
   });
 
+  /**
+   * A `Sourced` shared between fields must be reported at every path that uses
+   * it. DECODE's two ARTIFACT types share one estimated mass, and the walker
+   * once deduped it — so the ledger showed a single estimated mass and read as
+   * though only one piece type was affected.
+   */
+  it('reports a shared value at every path that uses it', () => {
+    const masses = collectProvenance(DECODE_GAME).filter((e) => e.path.endsWith('massLb'));
+    expect(masses).toHaveLength(DECODE_GAME.pieces.length);
+    expect(new Set(masses.map((e) => e.value))).toEqual(new Set([0.3]));
+  });
+
+  /** The layout gap is the largest one in this fixture; it must be in the ledger. */
+  it('lists the invented field positions as an assumption', () => {
+    const ledger = assumptionLedger(DECODE_GAME);
+    expect(ledger.some((e) => e.value === 'positions-invented')).toBe(true);
+  });
+
   it('carries the ranking-point thresholds as sourced values', () => {
     const paths = collectProvenance(DECODE_GAME)
       .filter((e) => e.path.startsWith('rankingPoints'))
