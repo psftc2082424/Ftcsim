@@ -125,9 +125,13 @@ export class MatchRunner {
    * This is what makes end-of-period assessment ordinary: LEAVE, BASE, DEPOT and
    * PATTERN are rules triggered by `PhaseChanged`, not engine special cases.
    */
-  step(): void {
+  step(): SimEvent | null {
     const transition = this.clock.advance();
     if (transition !== null) this.ingest(transition);
+    // Returned as well as ingested so a caller keeping an event log sees the
+    // transitions the runner generates internally, rather than having to
+    // reconstruct them from the structure.
+    return transition;
   }
 
   /** Run to the end of the match. */

@@ -85,8 +85,8 @@ export const PIECE_ENTITY_ID_BASE = 100;
 export interface RobotSpec {
   readonly config: RobotConfig;
   readonly controller: Controller;
-  readonly alliance?: Alliance;
-  readonly startPose?: Pose;
+  readonly alliance?: Alliance | undefined;
+  readonly startPose?: Pose | undefined;
 }
 
 /**
@@ -103,7 +103,7 @@ export interface GamePieceSpec {
   readonly pieceType: string;
   readonly diameterIn: number;
   readonly massLb: number;
-  readonly startPositionM?: Vec2;
+  readonly startPositionM?: Vec2 | undefined;
   /** Centre height above the floor. Defaults to resting on its own radius. */
   readonly heightM?: number;
 }
@@ -115,11 +115,11 @@ export interface SimWorldOptions {
    */
   readonly robots: readonly RobotSpec[];
   /** Game pieces on the field. Optional: a bare drivetrain world has none. */
-  readonly pieces?: readonly GamePieceSpec[];
-  readonly field?: FieldTemplate;
-  readonly battery?: BatteryConfig;
-  readonly traction?: TractionModel;
-  readonly seed?: number;
+  readonly pieces?: readonly GamePieceSpec[] | undefined;
+  readonly field?: FieldTemplate | undefined;
+  readonly battery?: BatteryConfig | undefined;
+  readonly traction?: TractionModel | undefined;
+  readonly seed?: number | undefined;
 }
 
 interface SimRobot {

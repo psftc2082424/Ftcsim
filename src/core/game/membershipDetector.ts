@@ -191,6 +191,80 @@ export class RegionMembershipDetector {
     return [...events].sort(compareEvents);
   }
 
+  /**
+   * Restate current occupancy as events, without diffing.
+   *
+   * Games routinely assess a position *at the end of a period* — DECODE awards
+   * BASE on where robots finished, not on the moment they arrived. A transition
+   * detector cannot express that on its own: the arrival may have happened
+   * ninety seconds earlier, and by the boundary there is nothing left to
+   * transition.
+   *
+   * So the caller asks for the current state to be restated as facts on the tick
+   * a period ends, and an end-of-period rule triggers on those. This stays
+   * season-agnostic: it says "here is where everything is", and the
+   * GameDefinition decides whether that matters.
+   *
+   * `RobotOverlapsZone` is used rather than `RobotEnteredZone` because nothing is
+   * entering — the robot is already there, which is precisely the fact being
+   * reported.
+   */
+  restateOccupancy(tick: number): readonly SimEvent[] {
+    const timeSec = tick * this.dtSec;
+    const events: SimEvent[] = [];
+
+    for (const [robotId, state] of this.robots) {
+      for (const [zoneId, presence] of state.occupancy) {
+        events.push({
+          kind: 'RobotOverlapsZone',
+          tick,
+          timeSec,
+          robotId,
+          alliance: state.alliance,
+          zoneId,
+          supportFraction: presence.fraction,
+        });
+      }
+    }
+
+    return [...events].sort(compareEvents);
+  }
+
+  /**
+   * Report every piece currently at rest in a region as `PieceCameToRest`.
+   *
+   * Several games assess scoring only once pieces settle, and ordered-slot
+   * scoring needs a slot index that no position alone provides. The caller
+   * supplies the slot assignment because which slot a piece occupies is a
+   * property of the game's region, not of the geometry.
+   */
+  restateRestingPieces(
+    tick: number,
+    slotOf?: (pieceId: string, regionId: string) => number | undefined,
+  ): readonly SimEvent[] {
+    const timeSec = tick * this.dtSec;
+    const events: SimEvent[] = [];
+
+    for (const [pieceId, state] of this.pieces) {
+      if (state.regionIds.length === 0) continue;
+
+      const primary = state.regionIds[0] as string;
+      const slotIndex = slotOf?.(pieceId, primary);
+
+      events.push({
+        kind: 'PieceCameToRest',
+        tick,
+        timeSec,
+        pieceId,
+        pieceType: state.pieceType,
+        regionIds: state.regionIds,
+        slotIndex,
+      });
+    }
+
+    return [...events].sort(compareEvents);
+  }
+
   /** Forget everything. The next `update` treats every object as newly arrived. */
   reset(): void {
     this.pieces = new Map();

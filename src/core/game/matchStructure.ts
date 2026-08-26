@@ -140,6 +140,22 @@ export function matchStateAt(match: MatchStructure, timeSec: number): MatchState
 }
 
 /**
+ * The *period* a state belongs to, as distinct from the phase.
+ *
+ * `ENDGAME` belongs to `TELEOP`, because it is a sub-phase inside it. The
+ * distinction matters for end-of-period assessment: crossing TELEOP → ENDGAME
+ * does **not** end teleop, so a rule assessing "where the robot finished" must
+ * not fire there. Teleop ends only when the period does, at ENDGAME → POST.
+ *
+ * Returns `null` outside the match.
+ */
+export function periodOf(state: MatchState): PeriodId | null {
+  if (state === 'AUTO') return 'AUTO';
+  if (state === 'TELEOP' || state === 'ENDGAME') return 'TELEOP';
+  return null;
+}
+
+/**
  * Whether a rule scoped to `phase` applies at this match state.
  *
  * The asymmetry that matters: **endgame counts as teleop**, because it is part

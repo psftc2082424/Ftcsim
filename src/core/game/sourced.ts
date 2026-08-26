@@ -21,6 +21,15 @@ export interface Sourced<T> {
   readonly confidence: Confidence;
   /** Page of the source document the value was read from. */
   readonly sourcePage?: number | undefined;
+  /**
+   * Rule or section identifier, e.g. `R104`, `G414`, `S10.5.3`.
+   *
+   * FTC manuals are cited by rule far more often than by page, and a rule number
+   * survives a re-paginated revision where a page number does not. Kept separate
+   * from `sourcePage` rather than overloading it, because they are different
+   * kinds of reference and a citation may have either, both or neither.
+   */
+  readonly sourceRule?: string | undefined;
   /** Short verbatim quote supporting the value. */
   readonly sourceQuote?: string | undefined;
   /** Why this confidence level, especially for `assumed` and `unknown`. */
@@ -30,6 +39,11 @@ export interface Sourced<T> {
 /** Stated directly by the manual. */
 export function explicit<T>(value: T, sourcePage?: number, sourceQuote?: string): Sourced<T> {
   return { value, confidence: 'explicit', sourcePage, sourceQuote };
+}
+
+/** Stated directly by the manual, cited by rule or section rather than page. */
+export function explicitRule<T>(value: T, sourceRule: string, sourceQuote?: string): Sourced<T> {
+  return { value, confidence: 'explicit', sourceRule, sourceQuote };
 }
 
 /** Deduced from a diagram or from surrounding text, not stated outright. */
@@ -73,6 +87,7 @@ export function valueOf<T>(sourced: Sourced<T>): T {
  */
 export function describeSource<T>(sourced: Sourced<T>): string {
   const parts: string[] = [sourced.confidence];
+  if (sourced.sourceRule !== undefined) parts.push(sourced.sourceRule);
   if (sourced.sourcePage !== undefined) parts.push(`p.${sourced.sourcePage}`);
   if (sourced.note !== undefined) parts.push(sourced.note);
   return parts.join(' — ');

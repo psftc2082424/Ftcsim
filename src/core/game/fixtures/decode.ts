@@ -23,7 +23,7 @@
  *    rather than 150 s.
  */
 
-import { assumed, explicit, unresolved } from '../sourced.js';
+import { assumed, explicit, explicitRule, unresolved } from '../sourced.js';
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
 
@@ -195,9 +195,9 @@ export const DECODE_RANKING_POINTS = {
 // ------------------------------------------------------------ robot limits ---
 
 export const DECODE_ROBOT_CONSTRAINTS = {
-  startingCubeIn: explicit(
+  startingCubeIn: explicitRule(
     18,
-    'R104' as unknown as number extends never ? never : number,
+    'R104',
     'within an 18 in. wide, by 18 in. long, by 18 in. high volume',
   ),
   maxExpandedHeightIn: explicit(
