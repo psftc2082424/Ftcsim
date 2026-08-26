@@ -33,6 +33,7 @@ import { matchStateAt, periodOf, type MatchState, type MatchStructure } from './
 import { MatchRunner } from './matchRunner.js';
 import { RegionMembershipDetector } from './membershipDetector.js';
 import { observationFrom, type PieceAttribution } from './observation.js';
+import { PossessionTracker, attributionFrom, type PossessionOptions } from './possession.js';
 import { createDefaultRegistry, type PredicateRegistry } from './predicates.js';
 import type { FieldRegion, FieldZone } from './regions.js';
 import type { ScoringRule, FilterValue } from './scoring.js';
@@ -66,7 +67,16 @@ export interface MatchSimulationOptions {
   readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
   readonly effectsForRule?: Readonly<Record<string, readonly Effect[]>> | undefined;
   readonly slotAssignment?: SlotAssignment | undefined;
+  /**
+   * Overrides the built-in possession tracker.
+   *
+   * The default credits a piece to whichever robot last pushed it, decided from
+   * the snapshot (`possession.ts`). A caller supplying its own attribution —
+   * a test asserting a specific credit, say — replaces that entirely.
+   */
   readonly attribution?: PieceAttribution | undefined;
+  /** Tuning for the built-in possession tracker. Ignored if `attribution` is set. */
+  readonly possession?: PossessionOptions | undefined;
   /** Ordered regions to pre-declare, so slots exist before anything lands. */
   readonly slottedRegions?: Readonly<Record<string, number>> | undefined;
   readonly seed?: number | undefined;
@@ -84,8 +94,10 @@ export class MatchSimulation {
   readonly world: SimWorld;
   readonly runner: MatchRunner;
   readonly detector: RegionMembershipDetector;
+  readonly possession: PossessionTracker;
 
   private readonly options: MatchSimulationOptions;
+  private readonly attribution: PieceAttribution;
   private readonly structure: MatchStructure;
   private readonly eventLog: SimEvent[] = [];
 
@@ -99,6 +111,9 @@ export class MatchSimulation {
       field: options.field,
       seed: options.seed,
     });
+
+    this.possession = new PossessionTracker(options.possession);
+    this.attribution = options.attribution ?? attributionFrom(this.possession);
 
     this.detector = new RegionMembershipDetector({
       regions: options.regions,
@@ -121,7 +136,7 @@ export class MatchSimulation {
 
     // Pieces and robots start where the game placed them. Priming means the
     // starting layout is a baseline, not a flurry of scoring events on tick 0.
-    this.detector.prime(observationFrom(this.world.snapshot(), { attribution: options.attribution }));
+    this.detector.prime(observationFrom(this.world.snapshot(), { attribution: this.attribution }));
   }
 
   get score(): ScoreState {
@@ -146,6 +161,8 @@ export class MatchSimulation {
    * Order matters and is the reason this class exists:
    *
    *   1. Physics moves the world.
+   *   1b. Possession is decided from the new snapshot, so attribution is
+   *      current before anything asks who is responsible for a piece.
    *   2. The snapshot becomes observations, and membership changes become
    *      events. These are ingested while the clock still reads the *current*
    *      phase, so a piece scored in the last moment of AUTO scores as AUTO.
@@ -157,9 +174,14 @@ export class MatchSimulation {
   step(): void {
     this.world.step();
 
-    const observation = observationFrom(this.world.snapshot(), {
-      attribution: this.options.attribution,
-    });
+    const snapshot = this.world.snapshot();
+
+    // Possession first: a piece that enters a region on the same tick it is
+    // pushed must be credited to the robot that pushed it, so the tracker has
+    // to have seen this tick before the observation asks it who is responsible.
+    this.ingestAll(this.possession.update(snapshot, this.world.tick));
+
+    const observation = observationFrom(snapshot, { attribution: this.attribution });
     this.ingestAll(this.detector.update(observation, this.world.tick));
 
     if (this.endsAPeriod(this.world.tick)) {
@@ -228,6 +250,7 @@ export interface MatchSetup {
   readonly registry?: PredicateRegistry | undefined;
   readonly slotAssignment?: SlotAssignment | undefined;
   readonly attribution?: PieceAttribution | undefined;
+  readonly possession?: PossessionOptions | undefined;
   /** Overrides the definition's defaults, e.g. this match's randomised motif. */
   readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
   readonly effectsForRule?: Readonly<Record<string, readonly Effect[]>> | undefined;
@@ -262,6 +285,7 @@ export function simulationFromDefinition(
     registry: setup.registry,
     slotAssignment: setup.slotAssignment,
     attribution: setup.attribution,
+    possession: setup.possession,
     effectsForRule: setup.effectsForRule,
     seed: setup.seed,
 

@@ -1060,6 +1060,49 @@ placed at the base of the GOAL — and its position is exactly what §10.9 says 
 missing. Adding a zone at an invented position would replace a visible gap with
 an invisible one. Fix this together with the layout, not before it.
 
+### 10.14 Possession is decided from contact and motion, not intent
+
+| | |
+|---|---|
+| **Model** | A robot possesses a piece when it is touching it and driving into it |
+| **Values** | `DEFAULT_CONTACT_TOLERANCE_M = 0.005`, `DEFAULT_MIN_PUSH_SPEED_MPS = 0.05`, `DEFAULT_RELEASE_GRACE_TICKS = 10` |
+| **Confidence** | **ASSUMED** (the thresholds; the *shape* follows the manual) |
+| **Location** | `src/core/game/possession.ts` |
+
+DECODE defines CONTROL in its glossary (p.183): "an action by a ROBOT in which
+the SCORING ELEMENT is fully supported by or stuck in, on, or under the ROBOT or
+it intentionally pushes a SCORING ELEMENT to a desired location or in a preferred
+direction (i.e., herding)", with case B given as "the ROBOT is moving the
+SCORING ELEMENT in a preferred direction with a flat or concave face of the
+ROBOT".
+
+Case B is what the model implements, and it is the only case a Phase 2 robot can
+reach: nothing in the simulator can carry a piece, so "fully supported by the
+ROBOT" cannot arise until an intake mechanism does more than consume ports.
+
+**The gap, precisely.** The same glossary excludes "bulldozing" — inadvertent
+contact with a piece in the robot's path — and "deflecting". Deflecting is
+excluded here too, because a robot that is not driving into the piece does not
+possess it. **Bulldozing is not**, and cannot be: bulldozing and herding are
+geometrically identical, and what separates them is intent, which a referee
+judges and a snapshot does not contain. The model therefore over-reports
+possession for a robot that drives through a piece on its way somewhere else.
+
+This matters for any rule counting simultaneous possession (DECODE's G408 caps
+it at 3), which will see occasional phantom possessions from a robot crossing a
+scattered field. It does not affect attribution, where crediting the robot that
+last moved a piece is right whether it meant to or not.
+
+**The three thresholds.** Contact tolerance is set by the resolver, not by
+taste: `PENETRATION_SLOP_M` is 1 mm and correction is damped, so a piece resting
+against a robot sits a millimetre or two off its surface; 5 mm covers that and is
+still far below any FTC piece diameter. The push-speed floor separates a robot
+that is moving from one whose brake is asymptoting to zero (§2.4). The release
+grace exists because a pushed piece bounces — contact breaks and remakes over a
+few ticks — and without it one continuous push would emit a burst of possession
+and release events; 50 ms is far below the ~3 s the manual calls MOMENTARY, so
+no rule about duration can notice it.
+
 ### 10.13 Fouls and RP eligibility are outside what a simulator can assess
 
 | | |
@@ -1116,5 +1159,6 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |
 | 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |

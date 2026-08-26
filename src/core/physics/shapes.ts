@@ -123,6 +123,33 @@ export function worldVertices(
   return out;
 }
 
+/**
+ * Shortest distance from a world point to an oriented box, and the point on the
+ * box that achieves it. Zero distance means the point is inside.
+ *
+ * Solved in the box's own frame, where the nearest point is just the query
+ * clamped to the half-extents. Cheaper and exact where a polygon-edge scan would
+ * be approximate at the corners.
+ */
+export function closestPointOnObb(
+  shape: Obb,
+  position: Vec2,
+  theta: number,
+  point: Vec2,
+): { readonly point: Vec2; readonly distance: number } {
+  const local = rotate(vec2(point.x - position.x, point.y - position.y), -theta);
+  const { x: hx, y: hy } = shape.halfExtents;
+
+  const clamped = vec2(
+    local.x < -hx ? -hx : local.x > hx ? hx : local.x,
+    local.y < -hy ? -hy : local.y > hy ? hy : local.y,
+  );
+
+  const world = rotate(clamped, theta);
+  const nearest = vec2(position.x + world.x, position.y + world.y);
+  return { point: nearest, distance: Math.hypot(point.x - nearest.x, point.y - nearest.y) };
+}
+
 /** Bounding radius about the shape's own origin, used for broadphase padding. */
 export function boundingRadius(shape: Shape): number {
   if (shape.kind === 'circle') return shape.radius;

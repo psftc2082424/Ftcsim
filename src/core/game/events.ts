@@ -18,6 +18,7 @@
 export type SimEventKind =
   | 'PieceEnteredRegion'
   | 'PieceExitedRegion'
+  | 'PiecePossessed'
   | 'PieceReleasedBy'
   | 'PieceCameToRest'
   | 'RobotEnteredZone'
@@ -56,6 +57,30 @@ export interface PieceExitedRegionEvent extends SimEventBase {
   readonly regionId: string;
 }
 
+/**
+ * A robot took possession of a piece.
+ *
+ * Generic on purpose. The engine has no opinion on what possession *means* for a
+ * given season — DECODE calls it CONTROL and defines it in its glossary, other
+ * games say "carrying" or "herding" — so the detector that produces this decides
+ * from geometry and the rules decide what it is worth.
+ */
+export interface PiecePossessedEvent extends SimEventBase {
+  readonly kind: 'PiecePossessed';
+  readonly pieceId: string;
+  readonly pieceType: string;
+  readonly robotId: string;
+  readonly alliance: Alliance;
+  /**
+   * Pieces this robot holds now, counting this one.
+   *
+   * Carried on the event so a possession-limit rule is an ordinary filtered
+   * rule — "fires when the count reaches 4" — rather than something needing a
+   * predicate with its own view of the world.
+   */
+  readonly possessedCount: number;
+}
+
 /** A robot let go of a piece. */
 export interface PieceReleasedByEvent extends SimEventBase {
   readonly kind: 'PieceReleasedBy';
@@ -63,6 +88,8 @@ export interface PieceReleasedByEvent extends SimEventBase {
   readonly pieceType: string;
   readonly robotId: string;
   readonly alliance: Alliance;
+  /** Pieces this robot still holds, after letting this one go. */
+  readonly possessedCount: number;
 }
 
 /**
@@ -142,6 +169,7 @@ export interface PhaseChangedEvent extends SimEventBase {
 export type SimEvent =
   | PieceEnteredRegionEvent
   | PieceExitedRegionEvent
+  | PiecePossessedEvent
   | PieceReleasedByEvent
   | PieceCameToRestEvent
   | RobotZoneEvent

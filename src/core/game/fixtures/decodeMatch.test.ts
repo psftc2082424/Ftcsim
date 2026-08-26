@@ -314,6 +314,45 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
     expect(result.score.blue).toBe(0);
   });
 
+  /**
+   * The payoff of the possession model: `PieceEnteredRegion` has carried
+   * `byRobotId` / `byAlliance` since the event model was written, and until
+   * possession existed nothing could fill them in. A rule that awards "the
+   * alliance that scored it" now has an answer derived from where the robot and
+   * the artifact actually were.
+   */
+  it('credits the artifact to the robot that pushed it', () => {
+    const sim = decodeMatch({
+      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
+      pieces: [artifact('a1', -34, 0)],
+    });
+    sim.run();
+
+    const entered = sim.events.filter(
+      (event) => event.kind === 'PieceEnteredRegion' && event.pieceId === 'a1',
+    );
+    expect(entered.length).toBeGreaterThan(0);
+
+    for (const event of entered) {
+      if (event.kind !== 'PieceEnteredRegion') continue;
+      expect(event.byRobotId).toBe('0');
+      expect(event.byAlliance).toBe('red');
+    }
+
+    expect(sim.events.some((event) => event.kind === 'PiecePossessed')).toBe(true);
+  });
+
+  it('leaves an untouched artifact unattributed', () => {
+    const sim = decodeMatch({
+      robots: [idle('red', ...START_ON_LAUNCH_LINE.red)],
+      pieces: [artifact('a1', -50, 0)],
+    });
+    sim.run();
+
+    // Pre-placed pieces are a baseline; nobody put them there.
+    expect(sim.possession.creditFor('a1')).toBeUndefined();
+  });
+
   it('scores no CLASSIFIED for an artifact that starts in the ramp', () => {
     // Pre-placed pieces are a baseline, not a scoring transition. They can still
     // score PATTERN, which is assessed on what is on the RAMP at the end of a
