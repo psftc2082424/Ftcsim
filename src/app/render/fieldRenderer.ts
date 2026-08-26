@@ -33,6 +33,7 @@ const COLORS = {
   velocity: '#5ce0a0',
   piece: '#b072d6',
   pieceOutline: '#e0c6f2',
+  pieceShadow: 'rgba(0, 0, 0, 0.35)',
   regionFill: 'rgba(120, 170, 220, 0.10)',
   regionEdge: 'rgba(150, 195, 240, 0.55)',
   redEdge: 'rgba(220, 100, 110, 0.65)',
@@ -162,6 +163,16 @@ function drawOverlay(
   }
 }
 
+/**
+ * How much bigger a piece is drawn per metre of height, as a fraction.
+ *
+ * A top-down view has no way to show that something is in the air, so a shot
+ * would look identical to a piece skidding across the floor. Growing it — and
+ * leaving a shadow behind on the ground — is the usual convention and reads
+ * immediately. Purely presentational: nothing reads this back.
+ */
+const HEIGHT_SCALE_PER_M = 0.6;
+
 function drawPiece(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
@@ -170,16 +181,25 @@ function drawPiece(
 ): void {
   const x = piece.previousPose.p.x + (piece.pose.p.x - piece.previousPose.p.x) * alpha;
   const y = piece.previousPose.p.y + (piece.pose.p.y - piece.previousPose.p.y) * alpha;
+  const heightM = piece.previousHeightM + (piece.heightM - piece.previousHeightM) * alpha;
+
+  const screenX = worldToScreenX(camera, x);
+  const screenY = worldToScreenY(camera, y);
+  // Floored so an artifact stays visible when the whole field is on screen.
+  const groundRadius = Math.max(2, metersToPixels(camera, piece.radiusM));
+
+  // Height above resting, so a piece on the floor casts nothing.
+  const airborneM = Math.max(0, heightM - piece.radiusM);
+
+  if (airborneM > 0) {
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, groundRadius, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.pieceShadow;
+    ctx.fill();
+  }
 
   ctx.beginPath();
-  ctx.arc(
-    worldToScreenX(camera, x),
-    worldToScreenY(camera, y),
-    // Floored so an artifact stays visible when the whole field is on screen.
-    Math.max(2, metersToPixels(camera, piece.radiusM)),
-    0,
-    Math.PI * 2,
-  );
+  ctx.arc(screenX, screenY, groundRadius * (1 + airborneM * HEIGHT_SCALE_PER_M), 0, Math.PI * 2);
   ctx.fillStyle = COLORS.piece;
   ctx.fill();
   ctx.strokeStyle = COLORS.pieceOutline;

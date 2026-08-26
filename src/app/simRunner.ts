@@ -17,7 +17,11 @@
  * second simulation implementation.
  */
 
-import { DT_SECONDS, TELEMETRY_TICK_INTERVAL } from '../core/sim/simWorld.js';
+import {
+  DT_SECONDS,
+  TELEMETRY_TICK_INTERVAL,
+  type GamePieceSpec,
+} from '../core/sim/simWorld.js';
 import { simulationFromDefinition, type MatchSimulation } from '../core/game/matchSimulation.js';
 import type { GameDefinition } from '../core/game/gameDefinition.js';
 import type { MatchState } from '../core/game/matchStructure.js';
@@ -122,6 +126,8 @@ export class SimRunner {
     private readonly inputHub: InputHub,
     private readonly game: GameDefinition,
     private readonly startPose: Pose = { p: vec2(0, 0), theta: 0 },
+    /** Game pieces the field starts with. A bare drivetrain world has none. */
+    private readonly stagedPieces: readonly GamePieceSpec[] = [],
     private readonly seed = 1,
   ) {
     this.field = createStandardField();
@@ -138,6 +144,7 @@ export class SimRunner {
           startPose: this.startPose,
         },
       ],
+      pieces: this.stagedPieces,
       field: this.field,
       seed: this.seed,
     });

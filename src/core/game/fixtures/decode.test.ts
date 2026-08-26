@@ -225,10 +225,33 @@ describe('DECODE rule set integrity', () => {
   });
 });
 
+/**
+ * One scored ARTIFACT: through the GOAL's open top, then onto the RAMP.
+ *
+ * Two events because they are two facts. Entering the GOAL is what scores —
+ * that region starts at the top lip, so only a shot reaches it — and coming to
+ * rest on the RAMP is what fills the nine slots the next arrival is measured
+ * against (§9.8.2).
+ */
+const shootArtifact = (
+  runner: MatchRunner,
+  pieceId: string,
+  pieceType: string,
+  tick: number,
+  alliance: 'red' | 'blue' = 'red',
+  slotIndex?: number,
+): void => {
+  const goal = alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal;
+  const ramp = alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp;
+
+  runner.ingest(enteredRegion(pieceId, pieceType, goal, tick, alliance));
+  runner.ingest(cameToRest(pieceId, pieceType, [ramp], tick + 1, slotIndex));
+};
+
 describe('DECODE scoring — ARTIFACTS', () => {
   it('awards 3 for a CLASSIFIED artifact in AUTO', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
+    shootArtifact(runner, 'a1', 'G', 10);
     expect(runner.score.red).toBe(DECODE_POINTS.classifiedAuto.value);
   });
 
@@ -240,19 +263,19 @@ describe('DECODE scoring — ARTIFACTS', () => {
   it('awards 1 for an artifact arriving at a full RAMP', () => {
     const runner = newRunner();
     for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
-      runner.ingest(enteredRegion(`fill${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+      shootArtifact(runner, `fill${i}`, 'P', 10 + i * 2);
     }
     const afterFilling = runner.score.red;
     expect(afterFilling).toBe(RAMP_SLOT_COUNT.value * DECODE_POINTS.classifiedAuto.value);
 
-    runner.ingest(enteredRegion('spill', 'P', DECODE_REGIONS.redRamp, 100, 'red'));
+    shootArtifact(runner, 'spill', 'P', 100);
     expect(runner.score.red - afterFilling).toBe(DECODE_POINTS.overflowAuto.value);
   });
 
   it('awards CLASSIFIED, not OVERFLOW, for the ninth artifact', () => {
     const runner = newRunner();
     for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
-      runner.ingest(enteredRegion(`fill${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+      shootArtifact(runner, `fill${i}`, 'P', 10 + i * 2);
     }
 
     const overflowAwards = runner.score.deltas.filter((delta) =>
@@ -265,7 +288,7 @@ describe('DECODE scoring — ARTIFACTS', () => {
   it('never awards CLASSIFIED and OVERFLOW for the same artifact', () => {
     const runner = newRunner();
     for (let i = 0; i <= RAMP_SLOT_COUNT.value + 2; i++) {
-      runner.ingest(enteredRegion(`a${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+      shootArtifact(runner, `a${i}`, 'P', 10 + i * 2);
     }
 
     const byPiece = new Map<string, number>();
@@ -283,22 +306,22 @@ describe('DECODE scoring — ARTIFACTS', () => {
   /** §10.5.1: a piece scores once, however many times it re-enters. */
   it('does not score the same artifact twice', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 20, 'red'));
+    shootArtifact(runner, 'a1', 'G', 10);
+    shootArtifact(runner, 'a1', 'G', 20);
     expect(runner.score.red).toBe(3);
   });
 
   it('scores distinct artifacts separately', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
-    runner.ingest(enteredRegion('a2', 'P', DECODE_REGIONS.redRamp, 20, 'red'));
+    shootArtifact(runner, 'a1', 'G', 10, 'red');
+    shootArtifact(runner, 'a2', 'P', 20, 'red');
     expect(runner.score.red).toBe(6);
   });
 
   it('keeps alliances separate', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
-    runner.ingest(enteredRegion('b1', 'G', DECODE_REGIONS.blueRamp, 11, 'blue'));
+    shootArtifact(runner, 'a1', 'G', 10, 'red');
+    shootArtifact(runner, 'b1', 'G', 11, 'blue');
     expect(runner.score.red).toBe(3);
     expect(runner.score.blue).toBe(3);
   });
@@ -306,7 +329,7 @@ describe('DECODE scoring — ARTIFACTS', () => {
   it('scores CLASSIFIED at the same value in TELEOP', () => {
     const runner = newRunner();
     runner.advanceTo(40); // into TELEOP
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 8000, 'red'));
+    shootArtifact(runner, 'a1', 'G', 8000, 'red');
     expect(runner.score.red).toBe(DECODE_POINTS.classifiedTeleop.value);
   });
 
@@ -324,7 +347,7 @@ describe('DECODE scoring — ARTIFACTS', () => {
   it('scores an artifact settling in the AUTO-to-TELEOP gap as AUTO', () => {
     const runner = newRunner();
     runner.advanceTo(33);
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 6600, 'red'));
+    shootArtifact(runner, 'a1', 'G', 6600, 'red');
 
     const breakdown = scoreBreakdown(runner.score, 'red');
     expect(breakdown['red-classified-auto']).toBe(DECODE_POINTS.classifiedAuto.value);
@@ -747,7 +770,7 @@ describe('DECODE — full match end to end', () => {
 
     // Three CLASSIFIED artifacts landing in ramp slots 0-2: 3 x 3 = 9.
     ['G', 'P', 'P'].forEach((type, slot) => {
-      runner.ingest(enteredRegion(`a${slot}`, type, DECODE_REGIONS.redRamp, 300 + slot, 'red'));
+      shootArtifact(runner, `a${slot}`, type, 300 + slot, 'red');
       runner.ingest(
         cameToRest(`a${slot}`, type, [DECODE_REGIONS.redRamp], 400 + slot, slot),
       );
@@ -767,7 +790,7 @@ describe('DECODE — full match end to end', () => {
     // Two more CLASSIFIED into slots 3-4: 2 x 3 = 6.
     ['G', 'P'].forEach((type, index) => {
       const slot = 3 + index;
-      runner.ingest(enteredRegion(`b${slot}`, type, DECODE_REGIONS.redRamp, 8000 + slot, 'red'));
+      shootArtifact(runner, `b${slot}`, type, 8000 + slot, 'red');
       runner.ingest(cameToRest(`b${slot}`, type, [DECODE_REGIONS.redRamp], 8100 + slot, slot));
     });
 
@@ -776,11 +799,11 @@ describe('DECODE — full match end to end', () => {
     // reads the five that came to rest.
     const alreadyOnRamp = 5;
     for (let i = alreadyOnRamp; i < RAMP_SLOT_COUNT.value; i++) {
-      runner.ingest(enteredRegion(`f${i}`, 'P', DECODE_REGIONS.redRamp, 8150 + i, 'red'));
+      shootArtifact(runner, `f${i}`, 'P', 8150 + i, 'red');
     }
 
     // The tenth arrival finds the RAMP full, so it OVERFLOWS instead: 1 (§9.8.2).
-    runner.ingest(enteredRegion('c1', 'P', DECODE_REGIONS.redRamp, 8200, 'red'));
+    shootArtifact(runner, 'c1', 'P', 8200, 'red');
 
     // Two artifacts in the DEPOT: 2 x 1 = 2.
     runner.ingest(cameToRest('d1', 'G', [DECODE_REGIONS.redDepot], 8300));
@@ -815,7 +838,7 @@ describe('DECODE — full match end to end', () => {
       runner.advanceTo(1);
       runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 200));
       ['P', 'G', 'P'].forEach((type, slot) => {
-        runner.ingest(enteredRegion(`a${slot}`, type, DECODE_REGIONS.redRamp, 300 + slot, 'red'));
+        shootArtifact(runner, `a${slot}`, type, 300 + slot, 'red');
         runner.ingest(cameToRest(`a${slot}`, type, [DECODE_REGIONS.redRamp], 400 + slot, slot));
       });
       runner.ingest(robotAssessed('r1', 'red', 5900));
@@ -833,7 +856,7 @@ describe('DECODE — full match end to end', () => {
     const runner = newRunner();
     runner.advanceTo(1);
     runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.goalLaunchZone, 200));
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 300, 'red'));
+    shootArtifact(runner, 'a1', 'G', 300, 'red');
     runner.ingest(robotAssessed('r1', 'red', 5900));
     runner.runToCompletion();
 
@@ -981,7 +1004,7 @@ describe('regression — region contents count pieces, once each', () => {
 
   it('counts a piece once however it got there', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 10, 'red'));
+    shootArtifact(runner, 'a1', 'G', 10, 'red');
     expect(rampCount(runner)).toBe(1);
 
     // Coming to rest in the region it already entered is the same piece.
@@ -989,7 +1012,7 @@ describe('regression — region contents count pieces, once each', () => {
     expect(rampCount(runner)).toBe(1);
 
     // And re-entering it is still the same piece.
-    runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 30, 'red'));
+    shootArtifact(runner, 'a1', 'G', 30, 'red');
     expect(rampCount(runner)).toBe(1);
   });
 
@@ -1003,8 +1026,8 @@ describe('regression — region contents count pieces, once each', () => {
 
   it('holds ids, so a piece can be removed by id', () => {
     const runner = newRunner();
-    runner.ingest(enteredRegion('a1', 'P', DECODE_REGIONS.redRamp, 10, 'red'));
-    runner.ingest(enteredRegion('a2', 'P', DECODE_REGIONS.redRamp, 11, 'red'));
+    shootArtifact(runner, 'a1', 'P', 10, 'red');
+    shootArtifact(runner, 'a2', 'P', 11, 'red');
 
     expect(runner.regionContents[DECODE_REGIONS.redRamp]).toEqual(['a1', 'a2']);
 
@@ -1023,7 +1046,7 @@ describe('regression — region contents count pieces, once each', () => {
   it('reads the RAMP as full only once nine artifacts are on it', () => {
     const runner = newRunner();
     for (let i = 0; i < RAMP_SLOT_COUNT.value; i++) {
-      runner.ingest(enteredRegion(`a${i}`, 'P', DECODE_REGIONS.redRamp, 10 + i, 'red'));
+      shootArtifact(runner, `a${i}`, 'P', 10 + i, 'red');
       runner.ingest(cameToRest(`a${i}`, 'P', [DECODE_REGIONS.redRamp], 100 + i, i));
     }
     expect(rampCount(runner)).toBe(RAMP_SLOT_COUNT.value);

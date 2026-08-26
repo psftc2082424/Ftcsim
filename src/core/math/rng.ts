@@ -36,6 +36,8 @@ export const SubStream = {
   Mechanism: 2,
   GamePiece: 3,
   Scenario: 4,
+  /** Shooter accuracy spread. Added after Scenario, so no existing id moves. */
+  Launch: 5,
 } as const;
 
 export type SubStreamId = (typeof SubStream)[keyof typeof SubStream];

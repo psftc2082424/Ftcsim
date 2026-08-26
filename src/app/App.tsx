@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
 import { DECODE_GAME } from '../core/game/fixtures/decodeGame.js';
+import { stageDecodePieces } from '../core/game/fixtures/decodeStaging.js';
 import { inchesToMeters } from '../core/units/convert.js';
 import { vec2 } from '../core/math/vec2.js';
 import type { TelemetrySample } from '../core/telemetry/sampler.js';
@@ -61,7 +62,13 @@ export function App() {
     const hub = new InputHub([virtualSource, gamepadSource, keyboardSource]);
 
     return {
-      runner: new SimRunner(DEFAULT_ROBOT_CONFIG, hub, DECODE_GAME, LEGAL_START_POSE),
+      runner: new SimRunner(
+        DEFAULT_ROBOT_CONFIG,
+        hub,
+        DECODE_GAME,
+        LEGAL_START_POSE,
+        stageDecodePieces(),
+      ),
       keyboard: keyboardSource,
       gamepad: gamepadSource,
       virtualPad: virtualSource,

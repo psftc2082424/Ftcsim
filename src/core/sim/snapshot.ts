@@ -78,6 +78,12 @@ export interface PieceSnapshot {
   readonly radiusM: number;
   /** Height of the piece's centre above the floor. */
   readonly heightM: number;
+  /** Height at the end of the previous tick, for render interpolation. */
+  readonly previousHeightM: number;
+  /** Rate of change of height. Up is positive. */
+  readonly verticalVelocityMps: number;
+  /** Off the floor — in flight, or bouncing. */
+  readonly airborne: boolean;
 }
 
 export interface WorldSnapshot {

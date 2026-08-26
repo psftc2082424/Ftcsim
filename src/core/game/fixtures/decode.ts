@@ -128,6 +128,16 @@ export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
  * Alliance-scoped because DEPOTS and GOALS are alliance specific (§10.5.1).
  */
 export const DECODE_REGIONS = {
+  /**
+   * The open top of the GOAL, which an ARTIFACT has to clear to score.
+   *
+   * Carries a vertical span starting at the top lip, 38.75 in above the TILE
+   * (§9.7), so entering it means being *above* it — a shot, not a piece pushed
+   * along the floor. This is where CLASSIFIED and OVERFLOW are decided; the
+   * RAMP below is where they come to rest and PATTERN reads them.
+   */
+  redGoal: 'red-goal',
+  blueGoal: 'blue-goal',
   redRamp: 'red-ramp',
   blueRamp: 'blue-ramp',
   redDepot: 'red-depot',
@@ -694,6 +704,7 @@ function patternRules({ alliance, rampRegion, phase }: RampRuleSpec): ScoringRul
 export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
   // --- ARTIFACT scoring, §10.5.1 -------------------------------------------
   ...(['red', 'blue'] as const).flatMap((alliance) => {
+    const goal = alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal;
     const ramp = alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp;
     const depot = alliance === 'red' ? DECODE_REGIONS.redDepot : DECODE_REGIONS.blueDepot;
     const base = alliance === 'red' ? DECODE_ZONES.redBase : DECODE_ZONES.blueBase;
@@ -708,9 +719,10 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
         const overflowed =
           phase === 'AUTO' ? DECODE_POINTS.overflowAuto : DECODE_POINTS.overflowTeleop;
 
+        // Entering the GOAL means clearing its lip, so only a shot scores.
         const arrival = {
           event: 'PieceEnteredRegion' as const,
-          filters: [{ field: 'regionId', equals: ramp }],
+          filters: [{ field: 'regionId', equals: goal }],
         };
 
         return [
@@ -720,8 +732,9 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
             label: `${alliance} CLASSIFIED (${phase})`,
             phase,
             trigger: arrival,
+            // The RAMP still has room, so this one is CLASSIFIED.
             condition: {
-              predicateId: 'regionHoldsAtMost',
+              predicateId: 'regionHoldsFewerThan',
               params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
             },
             award: { points: classified, alliance },
@@ -733,8 +746,9 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
             label: `${alliance} OVERFLOW (${phase})`,
             phase,
             trigger: arrival,
+            // The RAMP was already full when this one arrived (§9.8.2).
             condition: {
-              predicateId: 'regionHoldsMoreThan',
+              predicateId: 'regionHoldsAtLeast',
               params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
             },
             award: { points: overflowed, alliance },

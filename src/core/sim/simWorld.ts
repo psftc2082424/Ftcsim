@@ -36,7 +36,7 @@
  */
 
 import { Battery, type BatteryConfig } from '../motor/battery.js';
-import { Pcg32, type SubStreamId } from '../math/rng.js';
+import { Pcg32, SubStream, type SubStreamId } from '../math/rng.js';
 import { StateHasher } from '../math/hash.js';
 import { solveDrivetrain, type DrivetrainSolution } from '../drive/drivetrain.js';
 import { IdealTraction, type TractionModel } from '../drive/traction.js';
@@ -59,6 +59,16 @@ import { SpatialHash } from '../physics/broadphase.js';
 import { collide } from '../physics/sat.js';
 import { resolveContact } from '../physics/resolve.js';
 import { integrateBody } from '../physics/integrate.js';
+import { isAirborne, launchComponents, stepVertical, type VerticalState } from '../physics/ballistics.js';
+import {
+  LAUNCH_BUTTON,
+  aimShot,
+  launchHeightM,
+  launcherAccepts,
+  launcherOf,
+  loadedWithinM,
+} from './launcher.js';
+import { closestPointOnObb } from '../physics/shapes.js';
 import { createStandardField, type FieldTemplate } from '../field/fieldTemplate.js';
 import type { Controller } from '../control/controller.js';
 import type { Alliance, PieceSnapshot, RobotSnapshot, WorldSnapshot } from './snapshot.js';
@@ -145,8 +155,16 @@ interface SimPiece {
   readonly spec: GamePieceSpec;
   readonly body: RigidBody;
   readonly radiusM: number;
-  readonly heightM: number;
   previousPose: Pose;
+  /**
+   * Height and climb rate, integrated separately from the planar body.
+   *
+   * A robot never leaves the floor and a launched piece does, so a piece
+   * carries the one extra degree of freedom rather than the physics gaining a
+   * third dimension it would not use (`physics/ballistics.ts`).
+   */
+  vertical: VerticalState;
+  previousHeightM: number;
 }
 
 export class SimWorld {
@@ -242,7 +260,14 @@ export class SimWorld {
     });
 
     this.bodies.set(id, body);
-    this.pieces.push({ spec, body, radiusM, heightM, previousPose: body.pose });
+    this.pieces.push({
+      spec,
+      body,
+      radiusM,
+      previousPose: body.pose,
+      vertical: { heightM, velocityMps: 0 },
+      previousHeightM: heightM,
+    });
   }
 
   get tick(): number {
@@ -292,6 +317,11 @@ export class SimWorld {
         turn: input.drive.turn,
       });
 
+      // 5b. Launch, if the driver asked and the robot can. Before integration
+      //     so a piece leaves from where the robot was when the button was
+      //     read, not from where the tick moved it to.
+      if (input.buttons[LAUNCH_BUTTON] === true) this.fireLauncher(robot);
+
       // 6. Integrate.
       const speedBefore = Math.hypot(robot.body.vel.v.x, robot.body.vel.v.y);
       integrateBody(robot.body, robot.solution.wrench, DT_SECONDS);
@@ -304,7 +334,23 @@ export class SimWorld {
     // ASSUMPTIONS.md §5.5.
     for (const piece of this.pieces) {
       piece.previousPose = piece.body.pose;
+      piece.previousHeightM = piece.vertical.heightM;
       integrateBody(piece.body, ZERO_WRENCH, DT_SECONDS);
+
+      // 6c. Height, under gravity. A piece in flight keeps its horizontal
+      //     velocity — with no drag the two are independent — and its span
+      //     rises with it, which is what lets it pass over a robot rather
+      //     than through one.
+      piece.vertical = stepVertical(
+        piece.vertical,
+        piece.radiusM,
+        DT_SECONDS,
+        piece.body.restitution,
+      ).state;
+      piece.body.span = {
+        bottom: Math.max(0, piece.vertical.heightM - piece.radiusM),
+        top: piece.vertical.heightM + piece.radiusM,
+      };
     }
 
     // 7. Collision.
@@ -367,7 +413,10 @@ export class SimWorld {
       previousPose: piece.previousPose,
       vel: piece.body.vel,
       radiusM: piece.radiusM,
-      heightM: piece.heightM,
+      heightM: piece.vertical.heightM,
+      previousHeightM: piece.previousHeightM,
+      verticalVelocityMps: piece.vertical.velocityMps,
+      airborne: isAirborne(piece.vertical, piece.radiusM),
     }));
 
     const snapshot: WorldSnapshot = {
@@ -380,6 +429,60 @@ export class SimWorld {
     };
     this.cachedSnapshot = snapshot;
     return snapshot;
+  }
+
+  /**
+   * Throw a piece: give it a horizontal velocity and a climb rate.
+   *
+   * The physics of a shot, with none of the policy. Who may launch, from what
+   * height, how accurately and whether they possessed the piece first are all
+   * questions for the layer above — this only puts a piece in the air.
+   *
+   * `elevationRad` is measured up from the floor and `headingRad` is a world
+   * bearing, so a caller launching from a robot passes the robot's heading
+   * plus whatever its mechanism adds.
+   */
+  launchPiece(
+    pieceId: string,
+    options: {
+      readonly speedMps: number;
+      readonly elevationRad: number;
+      readonly headingRad: number;
+      readonly fromHeightM?: number | undefined;
+    },
+  ): void {
+    const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
+    if (piece === undefined) throw new Error(`No game piece "${pieceId}" to launch.`);
+    if (!(options.speedMps >= 0)) {
+      throw new Error(`Launch speed must be non-negative, got ${options.speedMps}.`);
+    }
+
+    const { horizontalMps, verticalMps } = launchComponents(
+      options.speedMps,
+      options.elevationRad,
+    );
+
+    piece.body.vel = {
+      v: vec2(
+        horizontalMps * Math.cos(options.headingRad),
+        horizontalMps * Math.sin(options.headingRad),
+      ),
+      omega: piece.body.vel.omega,
+    };
+
+    // Released at the mechanism's height, or from where it already is.
+    const fromHeightM = options.fromHeightM ?? piece.vertical.heightM;
+    piece.vertical = {
+      heightM: Math.max(piece.radiusM, fromHeightM),
+      velocityMps: verticalMps,
+    };
+  }
+
+  /** Height of a piece's centre above the floor, metres. */
+  pieceHeightM(pieceId: string): number {
+    const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
+    if (piece === undefined) throw new Error(`No game piece "${pieceId}".`);
+    return piece.vertical.heightM;
   }
 
   /** Derived robot data, for callers that need the analytic reference values. */
@@ -415,6 +518,9 @@ export class SimWorld {
       hasher.pushInt32(piece.body.id);
       hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
+      // Height is state like any other; leaving it out would let a shot
+      // diverge without the determinism canary noticing.
+      hasher.pushFloat(piece.vertical.heightM).pushFloat(piece.vertical.velocityMps);
     }
 
     return hasher.digestHex();
@@ -423,6 +529,51 @@ export class SimWorld {
   /** Game pieces in creation order, for callers that need more than a snapshot. */
   get pieceCount(): number {
     return this.pieces.length;
+  }
+
+  /**
+   * Throw the piece this robot is holding, if it is holding one.
+   *
+   * "Holding" is decided by geometry: the nearest piece within a diameter of
+   * the robot's footprint that the launcher accepts. A robot with no launch
+   * capability, or nothing loaded, simply does nothing — pressing the button
+   * with an empty shooter is not an error.
+   */
+  private fireLauncher(robot: SimRobot): void {
+    const capability = launcherOf(robot.derived.mechanisms);
+    if (capability === undefined) return;
+
+    const footprint = createObb(robot.derived.lengthM, robot.derived.widthM);
+
+    let loaded: SimPiece | undefined;
+    let bestGap = Infinity;
+    for (const piece of this.pieces) {
+      if (!launcherAccepts(capability, piece.spec.pieceType)) continue;
+
+      const nearest = closestPointOnObb(
+        footprint,
+        robot.body.pose.p,
+        robot.body.pose.theta,
+        piece.body.pose.p,
+      );
+      const gap = nearest.distance - piece.radiusM;
+      if (gap > loadedWithinM(piece.radiusM) || gap >= bestGap) continue;
+
+      bestGap = gap;
+      loaded = piece;
+    }
+
+    if (loaded === undefined) return;
+
+    const shot = aimShot(
+      capability,
+      robot.body.pose.theta,
+      launchHeightM(robot.derived.heightM),
+      // Its own sub-stream, so adding a shooter cannot shift the numbers any
+      // other system draws (ARCHITECTURE.md §9.1).
+      this.rng(SubStream.Launch),
+    );
+    this.launchPiece(loaded.spec.pieceId, shot);
   }
 
   private solveFor(

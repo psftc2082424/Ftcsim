@@ -51,7 +51,14 @@ export interface RigidBody {
   readonly invInertiaZ: number;
 
   readonly shape: Shape;
-  readonly span: VerticalSpan;
+  /**
+   * Mutable, because a body can change height.
+   *
+   * Robots never do, but a launched game piece does, and its span has to rise
+   * with it or a ball in flight would still collide with everything it passes
+   * over (`physics/ballistics.ts`).
+   */
+  span: VerticalSpan;
 
   /** Restitution, 0 = fully inelastic. See ASSUMPTIONS.md §5.1. */
   readonly restitution: number;

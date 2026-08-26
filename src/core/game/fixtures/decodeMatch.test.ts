@@ -51,6 +51,7 @@ import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
+import { LAUNCH_BUTTON } from '../../sim/launcher.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
@@ -300,41 +301,101 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
   });
 
   /**
-   * A robot pushes an artifact into the red RAMP: CLASSIFIED.
+   * A robot shoots an ARTIFACT into the red GOAL: CLASSIFIED.
    *
-   * The push runs *west*, away from blue's half. Pieces have no damping
-   * (ASSUMPTIONS.md §5.5), so an artifact shoved east keeps sliding until it
-   * reaches the far wall — passing through blue's ramp on the way and scoring
-   * for blue, which is correct rule behaviour but not what this test is about.
+   * It has to be a shot. The GOAL region starts at the top lip, 38.75 in above
+   * the TILE (§9.7), so an artifact pushed across the floor into the RAMP
+   * scores nothing — which is the point, and is what this test asserted before
+   * the GOAL had a height.
    */
-  it('awards CLASSIFIED when an artifact enters the ramp', () => {
-    const result = decodeMatch({
-      // Red ramp spans x -60..-44. Robot pushes the artifact west into it.
-      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -34, 0)],
-    }).run();
+  const SHOOTER_ROBOT: RobotConfig = {
+    ...DEFAULT_ROBOT_CONFIG,
+    mechanisms: [
+      {
+        id: 'shooter',
+        name: 'Shooter',
+        preset: 'shooter',
+        massLb: 6,
+        mount: { xIn: 9, yIn: 0, facingDeg: 0 },
+        actuation: {
+          motorId: 'gobilda-5203-312',
+          motorCount: 2,
+          gearRatio: 1,
+          efficiency: 0.95,
+        },
+        capabilities: [
+          {
+            kind: 'launch',
+            pieceTypes: [],
+            // Enough to clear the lip at this range; the trajectory is
+            // integrated, not assumed.
+            exitSpeedFtPerSec: 20,
+            exitAngleDeg: 45,
+            spreadDeg: 0,
+          },
+        ],
+      },
+    ],
+  };
 
-    const breakdown = result.score.deltas.filter((d) => d.ruleId.includes('classified'));
+  /** A robot lined up on the red GOAL with an artifact loaded, firing. */
+  const shootingAtGoal = () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    return decodeMatch({
+      robots: [
+        {
+          config: SHOOTER_ROBOT,
+          alliance: 'red',
+          controller: constantController(
+            createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }),
+          ),
+          // Facing the GOAL down the side wall.
+          startPose: { p: at(goal[0], goal[1] - 38.5), theta: Math.PI / 2 },
+        },
+      ],
+      pieces: [artifact('a1', goal[0], goal[1] - 38.5 + 11.5)],
+    });
+  };
+
+  it('awards CLASSIFIED for an artifact shot through the GOAL', () => {
+    const sim = shootingAtGoal();
+    for (let i = 0; i < 400; i++) sim.step();
+
+    const breakdown = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(breakdown.length).toBeGreaterThan(0);
-    expect(result.score.red).toBeGreaterThanOrEqual(DECODE_POINTS.classifiedAuto.value);
+    expect(sim.score.red).toBeGreaterThanOrEqual(DECODE_POINTS.classifiedAuto.value);
   });
 
-  it('scores an artifact once however long it sits in the ramp', () => {
-    const result = decodeMatch({
-      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -34, 0)],
-    }).run();
+  it('scores a shot artifact once, however long it sits there', () => {
+    const sim = shootingAtGoal();
+    sim.run();
 
-    const classified = result.score.deltas.filter((d) => d.ruleId === 'red-classified-auto');
+    const classified = sim.score.deltas.filter((d) => d.ruleId === 'red-classified-auto');
     expect(classified).toHaveLength(1);
   });
 
-  it('does not award the blue alliance for a red ramp', () => {
+  /**
+   * The height gate, stated directly: the same artifact pushed along the floor
+   * into the RAMP reaches the RAMP and scores nothing, because it never went
+   * over the lip.
+   */
+  it('scores nothing for an artifact pushed along the floor into the ramp', () => {
+    const ramp = centreOf(DECODE_REGIONS.redRamp);
     const result = decodeMatch({
-      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -34, 0)],
+      robots: [
+        driving('red', ramp[0], ramp[1] - 30, { x: 1, y: 0 }, DEFAULT_ROBOT_CONFIG),
+      ],
+      pieces: [artifact('a1', ramp[0], ramp[1] - 16)],
     }).run();
-    expect(result.score.blue).toBe(0);
+
+    expect(result.score.deltas.filter((d) => d.ruleId.includes('classified'))).toEqual([]);
+    expect(result.score.deltas.filter((d) => d.ruleId.includes('overflow'))).toEqual([]);
+  });
+
+  it('does not award the blue alliance for a red GOAL', () => {
+    const sim = shootingAtGoal();
+    sim.run();
+    expect(sim.score.blue).toBe(0);
   });
 
   /**

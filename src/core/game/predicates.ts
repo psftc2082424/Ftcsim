@@ -38,11 +38,13 @@ export interface PredicateContext {
   /**
    * Ids of the pieces currently in each region, by region id.
    *
-   * **The event's own piece is already counted.** `MatchRunner` applies an event
-   * to world state before evaluating rules against it, so a predicate reading
-   * this during a `PieceEnteredRegion` sees the arriving piece included. That is
-   * what lets a capacity question be asked directly — "does the region still
-   * hold at most nine, now that this one is in it?" — instead of off by one.
+   * **The event's own piece is already counted, in the region it entered.**
+   * `MatchRunner` applies an event to world state before evaluating rules
+   * against it, so a predicate reading this during a `PieceEnteredRegion` sees
+   * the arriving piece in *that* region. A rule asking about a different region
+   * — DECODE asks whether the RAMP has room while a piece is entering the GOAL
+   * above it — sees the count before this piece arrives, which is exactly the
+   * question a capacity check wants.
    */
   readonly regionContents: Readonly<Record<string, readonly string[]>>;
   /** Arbitrary per-match values a game needs, e.g. the randomised motif. */
@@ -208,24 +210,18 @@ export function createDefaultRegistry(): PredicateRegistry {
   });
 
   /**
-   * A region holds no more than `count` pieces — it is within capacity.
+   * A region holds fewer than `count` pieces — it still has room.
    *
-   * Exists as an exact complement to `regionHoldsMoreThan` so a game can split
-   * one arrival into two outcomes without either rule doing arithmetic on the
-   * capacity. DECODE needs it: an ARTIFACT entering a full RAMP is OVERFLOW
-   * rather than CLASSIFIED (§9.8.2), and both are the same arrival.
+   * The exact complement of `regionHoldsAtLeast`, so a game can split one
+   * arrival into two outcomes with both rules reading the same capacity and
+   * neither doing arithmetic on it. DECODE needs the pair: an ARTIFACT that
+   * clears the GOAL lip is CLASSIFIED if the RAMP has room and OVERFLOW if it
+   * does not (§9.8.2), and those are the same arrival.
    */
-  registry.register('regionHoldsAtMost', (context, params) => {
+  registry.register('regionHoldsFewerThan', (context, params) => {
     const regionId = readString(params, 'regionId');
     const count = readNumber(params, 'count');
-    return (context.regionContents[regionId]?.length ?? 0) <= count;
-  });
-
-  /** A region holds more than `count` pieces — it is over capacity. */
-  registry.register('regionHoldsMoreThan', (context, params) => {
-    const regionId = readString(params, 'regionId');
-    const count = readNumber(params, 'count');
-    return (context.regionContents[regionId]?.length ?? 0) > count;
+    return (context.regionContents[regionId]?.length ?? 0) < count;
   });
 
   /** The triggering robot is entirely supported inside a zone. */

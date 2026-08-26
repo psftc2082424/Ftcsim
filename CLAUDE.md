@@ -141,20 +141,29 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
   force the motor cannot make.
 - **Perimeter walls are 12 in thick** (§5.8), and only the inner face is
   gameplay. Thinner than a game piece lets a squeezed circle tunnel.
+- **Piece flight is 2.5D** (§5.9). A piece carries height and climb rate;
+  robots stay planar. With no drag the two components are independent, so the
+  split is exact rather than a compromise. Vertical spans — there since Phase 1
+  — are what make a ball fly *over* a robot.
+- **Arc driving is slower, and that is correct** (§2.2.1). Saturation scales
+  forward speed to `1/(1+turn)`, and a robot on a circular path crabs slightly
+  to make its own centripetal force. Do not reach for a multiplier.
 
 ### DECODE fixture: what is sourced and what is not
 
 - **Sourced with citations:** all element *sizes*, rules, point values, timings,
-  piece counts, robot limits, RP thresholds, penalty values, the two LAUNCH ZONE
-  extents, the alliance halves, MOMENTARY/CONTINUOUS, the CONTROL limit.
+  piece counts, robot limits, RP thresholds, penalty values, MOMENTARY/
+  CONTINUOUS, the CONTROL limit — and, from the **Event FIELD Setup Guide**, the
+  TILE grid and the positions of both LAUNCH LINES, the six SPIKE MARKS, the
+  BASE, GATE, LOADING and SECRET TUNNEL ZONES.
 - **Inferred, and marked:** the world frame (`DECODE_FIELD_ORIENTATION`), the
   LAUNCH ZONE triangle vertices (`DECODE_LAUNCH_ZONE_SHAPE`), ARTIFACT mass
   (`ARTIFACT_MASS_LB` — the manual names the part, AndyMark publishes its
   weight).
-- **Still invented:** where the GOAL cluster sits — RAMP, OVERFLOW, DEPOT, BASE,
-  LOADING ZONE, SECRET TUNNEL, GATE. §9.4 puts TILE coordinates only in figures
-  and §9.1 defers to the CAD model. This is the largest remaining gap and
-  `DECODE_LAYOUT_PROVENANCE` says so.
+- **Still inferred:** where the GOAL cluster sits — GOAL, RAMP and DEPOT. The
+  setup guide installs them by figure, so they are constrained by the elements
+  around them rather than placed. `GOAL_CLUSTER_PROVENANCE` says so, and the
+  supplied full-field CAD (untracked, 13 MB) would settle it.
 
 ### Deployment
 
@@ -167,18 +176,19 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Replace the invented GOAL-cluster positions with CAD-derived coordinates.**
-Everything else in the fixture is now sourced or marked, and every remaining
-"distances are wrong, so cycle times are not predictive" caveat traces to this
-one gap. It needs the DECODE field CAD model or the Event FIELD Setup Guide —
-neither is in `Game Manuals/`. Region ids are the contract with `decode.ts` and
-must not change; only `LAYOUT` in `decodeField.ts` moves.
+**Pin the GOAL cluster from the full-field CAD.** GOAL, RAMP and DEPOT are the
+only positions still inferred, and every remaining "distances are approximate,
+so cycle times are not predictive" caveat traces to them. The CAD is at
+`Field CADs/` (untracked). A STEP placement walk was started and abandoned —
+`NEXT_ASSEMBLY_USAGE_OCCURRENCE` plus `ITEM_DEFINED_TRANSFORMATION` is the chain,
+and the parts are named ("Blue Alliance Base Zone Blue Tape", "Blue Goal
+AprilTag Sticker - am-5707_id20"), so a working extractor would settle it.
+Region ids are the contract with `decode.ts` and must not change; only `LAYOUT`
+in `decodeField.ts` moves.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not
 assessed and no robot-contact event exists.
 
-After the layout, in order: stage the starting ARTIFACTS from
-`DECODE_SETUP` — the composition is transcribed but nothing places pieces, and
-placing them needs the SPIKE MARK coordinates the layout gap covers; then
-Phase 4 (PDF ingestion).
+After that: an intake, so a robot can pick a piece up rather than only push and
+shoot; then Phase 4 (PDF ingestion).

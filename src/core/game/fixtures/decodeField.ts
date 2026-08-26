@@ -424,6 +424,18 @@ function region(id: string, placement: Placement, slotCount?: number): FieldRegi
   });
 }
 
+/**
+ * The GOAL's open top: the footprint, but only above the lip.
+ *
+ * "The top lip of the GOAL is 38.75 in. (98.45 cm) from the surface of the
+ * TILE" (§9.7). A region with that floor answers "did this ARTIFACT go *in*"
+ * rather than "is it near the GOAL", which is the difference between a shot and
+ * a piece shoved across the tiles.
+ */
+function goalOpening(id: string, placement: Placement): FieldRegion {
+  return createRectRegion({ id, ...placement, bottomIn: GOAL.topLipHeightIn.value });
+}
+
 function zone(id: string, placement: Placement): FieldZone {
   return createRectZone({ id, ...placement });
 }
@@ -444,6 +456,9 @@ const SPIKE_MARK_SEAM: Readonly<Record<'red' | 'blue', VerticalSeam>> = {
 };
 
 export const DECODE_FIELD_REGIONS: readonly FieldRegion[] = [
+  // The open top of each GOAL, floored at the lip so only a shot enters it.
+  goalOpening(DECODE_REGIONS.redGoal, mirrored(LAYOUT.goal, 'red')),
+  goalOpening(DECODE_REGIONS.blueGoal, LAYOUT.goal),
   region(DECODE_REGIONS.redRamp, mirrored(LAYOUT.ramp, 'red'), RAMP_SLOT_COUNT.value),
   region(DECODE_REGIONS.blueRamp, mirrored(LAYOUT.ramp, 'blue'), RAMP_SLOT_COUNT.value),
   region(DECODE_REGIONS.redDepot, mirrored(LAYOUT.depot, 'red')),

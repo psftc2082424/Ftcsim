@@ -611,6 +611,65 @@ real one does — and then slides undamped (§5.5) until it meets something. The
 test asserts it stays inside the field over thirty further seconds of the robot
 driving into it, rather than asserting a resting position it does not have.
 
+### 5.9 Piece flight is 2.5D, with no air resistance
+
+| | |
+|---|---|
+| **Model** | Height and climb rate integrated separately from the planar body |
+| **Values** | `g = 9.80665` (SI standard); no drag; restitution 0 |
+| **Confidence** | **Derived**, except the omission of drag |
+| **Location** | `src/core/physics/ballistics.ts`, `src/core/sim/simWorld.ts` |
+
+Robots never leave the floor and launched game pieces do, so a piece carries one
+extra degree of freedom rather than the physics gaining a third dimension it
+would not use. With no air resistance the horizontal and vertical components of
+projectile motion are independent, so integrating them separately is **exact**
+rather than an approximation, and the same semi-implicit Euler runs on both.
+
+Two closed forms — range `v² sin 2θ / g` and apex `v² sin²θ / 2g` — back the
+tests, the way `analyticFreeSpeed` backs the drivetrain. The measured apex sits
+below the true one by exactly `v_vertical · dt / 2`, the same symplectic
+half-step offset the planar integrator carries (§4.2), and the test asserts that
+identity rather than a tolerance.
+
+**Vertical spans were already there.** Bodies have carried a `VerticalSpan`
+since Phase 1 and a pair collides only if their spans overlap. That was written
+so a low robot could drive under a raised element; it is what makes a ball in
+flight pass over a robot with no new collision code, and a piece's span now
+rises with it.
+
+**No drag, and why.** A 5 in polypropylene ball at 30 ft/s sits near Re 1.5e5
+with a drag coefficient around 0.5, costing a few percent of range across an FTC
+field. Modelling it needs a drag coefficient and a spin model, and neither is
+published for this piece — the same reason no rolling resistance exists (§2.4).
+**Known bias:** launched pieces fly slightly further and flatter than real ones,
+and the error grows with range.
+
+**No bounce.** Restitution is 0 for every body (§5.1), so a piece lands and
+rolls rather than bouncing. `stepVertical` takes a restitution and has a
+minimum-bounce floor so that a game which does give its pieces one terminates
+instead of jittering against the floor forever.
+
+### 5.10 Scoring through a GOAL is gated on height, not proximity
+
+| | |
+|---|---|
+| **Model** | The GOAL region's floor is the top lip, 38.75 in (§9.7) |
+| **Confidence** | **EXPLICIT** (the lip height); the region is where §9.7 puts it |
+| **Location** | `src/core/game/fixtures/decodeField.ts` |
+
+CLASSIFIED and OVERFLOW used to trigger on a piece reaching the RAMP, which a
+robot could do by shoving an artifact along the floor. The GOAL is now a region
+whose vertical span starts at its top lip, so entering it means going *over* it.
+The RAMP below is unchanged: it is where pieces come to rest, where capacity is
+measured and where PATTERN reads them.
+
+That makes shooting a skill the simulation actually tests — a shot has to clear
+0.98 m at the range it is taken from — and it is asserted both ways: a shot
+scores, and the same artifact pushed across the tiles into the RAMP scores
+nothing.
+
+
 ---
 
 ## 6. Input handling
@@ -1330,6 +1389,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §5.9 (2.5D piece flight, no drag) and §5.10 (GOAL scoring gated on height). Pieces have height and climb rate, robots can launch them, and the 24 on-field ARTIFACTS are staged from §10.3.1 and the setup guide. |
 | 2026-08-26 | Field layout transcribed from the Event FIELD Setup Guide: TILE grid, both LAUNCH LINES, SPIKE MARKS, BASE, GATE, LOADING and SECRET TUNNEL ZONES. §10.9 rewritten; only the GOAL cluster remains untranscribed. |
 | 2026-08-26 | Added §2.2.1 recording the arc-driving investigation: the slowdown is command saturation plus the centripetal crab, both emergent, no correction applied. |
 | 2026-08-26 | Added §10.15 (OVERFLOW as a capacity outcome). The invented OVERFLOW region is gone, and `regionContents` now holds piece ids once each rather than piece types twice. |
