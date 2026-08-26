@@ -128,11 +128,12 @@ describe('determinism — golden state hash', () => {
   });
 
   it('matches the committed golden digest', () => {
-    // Rebaselined twice, both times for a deliberate physics change: the
-    // clipped contact manifold with its iterated normal solver, and then the
-    // mecanum roller-drag term. The golden trace drives into the perimeter and
-    // strafes, so it exercises both.
-    expect(runGolden()).toBe('6785b5b0');
+    // Rebaselined for each deliberate physics change: the clipped contact
+    // manifold with its iterated normal solver, the mecanum roller-drag term,
+    // and then multi-pass contact resolution with a thicker perimeter body. The
+    // golden trace drives into the perimeter and strafes, so it exercises all
+    // of them.
+    expect(runGolden()).toBe('1768e20e');
   });
 
   it('changes when the input trace changes', () => {
@@ -488,7 +489,9 @@ describe('body-frame velocity helper', () => {
         },
       ],
     });
-    world.stepMany(400);
+    // Short of the north wall: this is about the frame rotation, and a robot
+    // parked against a wall has no velocity to rotate.
+    world.stepMany(150);
 
     const robot = world.snapshot().robots[0];
     if (robot === undefined) return;

@@ -70,6 +70,15 @@ const ZERO_WRENCH = Object.freeze({ fx: 0, fy: 0, mz: 0 });
 export const TICK_RATE_HZ = 200;
 export const DT_SECONDS = 1 / TICK_RATE_HZ;
 
+/**
+ * Passes over the contact set per tick.
+ *
+ * One pass resolves each contact in isolation, which is enough for a body with
+ * a single contact and wrong for a body with two. Repeating the sweep lets
+ * neighbouring contacts see each other's corrections. ASSUMPTIONS.md §5.8.
+ */
+export const CONTACT_PASSES = 4;
+
 /** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
 export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
 
@@ -439,19 +448,39 @@ export class SimWorld {
 
     // Pairs arrive sorted by id, so resolution order is fixed regardless of how
     // the spatial hash happened to bucket them.
-    for (const [idA, idB] of this.broadphase.queryPairs()) {
-      const a = this.bodies.get(idA);
-      const b = this.bodies.get(idB);
-      if (a === undefined || b === undefined) continue;
-      if (a.invMass === 0 && b.invMass === 0) continue;
+    const pairs = this.broadphase.queryPairs();
 
-      // Bodies only interact if they occupy overlapping heights. In Phase 1
-      // everything is floor-mounted, so this always passes; it is what will let
-      // a low robot pass under a raised element later.
-      if (!spansOverlap(a.span, b.span)) continue;
+    // Several passes over the whole set, not one. A body with two contacts —
+    // a game piece pinned between a robot and a wall — cannot be satisfied by
+    // resolving each contact once: the correction for one undoes the other, and
+    // single-pass resolution walked the piece through the perimeter
+    // (ASSUMPTIONS.md §5.8). Narrowphase re-runs each pass because the previous
+    // one moved things; the broadphase does not, because a positional
+    // correction is bounded by the penetration it is removing and cannot carry
+    // a body into a cell it was not already overlapping.
+    for (let pass = 0; pass < CONTACT_PASSES; pass++) {
+      let resolvedAny = false;
 
-      const contact = collide(a.shape, a.pose, b.shape, b.pose);
-      if (contact !== null) resolveContact(a, b, contact);
+      for (const [idA, idB] of pairs) {
+        const a = this.bodies.get(idA);
+        const b = this.bodies.get(idB);
+        if (a === undefined || b === undefined) continue;
+        if (a.invMass === 0 && b.invMass === 0) continue;
+
+        // Bodies only interact if they occupy overlapping heights. In Phase 1
+        // everything is floor-mounted, so this always passes; it is what will
+        // let a low robot pass under a raised element later.
+        if (!spansOverlap(a.span, b.span)) continue;
+
+        const contact = collide(a.shape, a.pose, b.shape, b.pose);
+        if (contact === null) continue;
+
+        resolveContact(a, b, contact);
+        resolvedAny = true;
+      }
+
+      // Nothing was touching, so further passes would find nothing either.
+      if (!resolvedAny) break;
     }
   }
 }

@@ -174,15 +174,18 @@ describe('pieces interact through the existing collision resolver', () => {
    * Known defect, recorded rather than hidden (ASSUMPTIONS.md §5.6).
    *
    * A robot that keeps driving into a piece already resting against a wall pins
-   * it in a gap narrower than its own diameter. Both contact normals point along
-   * the same axis, so the resolver has no lateral escape to give it, and the
-   * positional correction eventually pushes it through the wall.
+   * it in a gap narrower than its own diameter, which no position can satisfy.
    *
-   * Real physics would squirt a round piece sideways. This asserts the current
-   * wrong behaviour so that fixing it fails this test loudly rather than
-   * silently changing something nobody was tracking.
+   * It used to leave the field. Two things did that together: resolving each
+   * contact once meant the piece-to-wall contact never pushed back through the
+   * piece to stop the robot, and a 2 in wall was thin enough that a squeezed
+   * 4.9 in artifact could get its centre past the wall's midline — at which
+   * point `circlePoly` pushes an enclosed centre out through the *far* face.
+   *
+   * Both are fixed (ASSUMPTIONS.md §5.8), so the piece now stays in play and
+   * settles against the wall instead.
    */
-  it('escapes the field when pinned between a driving robot and a wall', () => {
+  it('keeps a piece pinned between a driving robot and a wall inside the field', () => {
     const bounds = fieldBounds(createStandardField());
     const w = new SimWorld({
       robots: [
@@ -197,11 +200,27 @@ describe('pieces interact through the existing collision resolver', () => {
 
     w.stepMany(600);
     const piece = w.snapshot().pieces[0];
-    if (piece === undefined) return;
+    const robot = w.snapshot().robots[0];
+    if (piece === undefined || robot === undefined) return;
 
-    expect(piece.pose.p.x).toBeGreaterThan(bounds.maxX);
-    // The robot itself is still correctly contained.
-    expect(w.snapshot().robots[0]?.pose.p.x).toBeLessThan(bounds.maxX);
+    expect(piece.pose.p.x).toBeLessThan(bounds.maxX);
+    expect(robot.pose.p.x).toBeLessThan(bounds.maxX);
+
+    // Contained rather than merely slow to leave: thirty more seconds of the
+    // robot driving into it keeps it in play. The squeeze is still
+    // geometrically unsatisfiable — nothing can separate a piece from both a
+    // robot and a wall closer together than its diameter — so it eventually
+    // squirts out sideways, which is what a real one does. Where it goes after
+    // that is ordinary undamped piece motion (§5.5); what matters is that the
+    // field still holds it.
+    w.stepMany(6000);
+
+    const later = w.snapshot().pieces[0];
+    if (later === undefined) return;
+    expect(later.pose.p.x).toBeGreaterThan(bounds.minX);
+    expect(later.pose.p.x).toBeLessThan(bounds.maxX);
+    expect(later.pose.p.y).toBeGreaterThan(bounds.minY);
+    expect(later.pose.p.y).toBeLessThan(bounds.maxY);
   });
 
   it('keeps every piece finite under sustained contact', () => {

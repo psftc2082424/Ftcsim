@@ -29,8 +29,23 @@ export const FIELD_SIZE_IN = 144;
  */
 export const PERIMETER_WALL_HEIGHT_IN = 12;
 
-/** Thickness given to the perimeter collision bodies. */
-const WALL_THICKNESS_IN = 2;
+/**
+ * Thickness given to the perimeter collision bodies.
+ *
+ * Only the *inner face* is gameplay: walls are placed outside the playing area,
+ * so the interior measures exactly 144 in whatever this is. The depth behind
+ * that face is a modelling choice, and it was 2 in, which was too thin to be
+ * safe.
+ *
+ * A circle whose centre crosses a wall's midline is nearer the far face than
+ * the near one, and `circlePoly` pushes an enclosed centre out through
+ * whichever face is nearest — so a 4.9 in artifact squeezed by 2 in of wall
+ * popped out the back and left the field (ASSUMPTIONS.md §5.8). 12 in exceeds
+ * any FTC scoring element, so no piece can be squeezed far enough to flip
+ * which face is nearest, and it is roughly the depth of the real perimeter
+ * structure rather than a number picked to be large.
+ */
+const WALL_THICKNESS_IN = 12;
 
 export interface FieldTemplate {
   readonly id: string;

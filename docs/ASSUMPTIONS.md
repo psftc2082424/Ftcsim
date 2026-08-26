@@ -458,11 +458,11 @@ a game piece has no motor, so there is no honest equivalent to derive.
 **Known bias.** Pieces travel further than real ones after being struck.
 Calibration target alongside §2.1 and §5.1.
 
-### 5.6 A piece pinned against a wall escapes the field
+### 5.6 A piece pinned against a wall escapes the field — **fixed, see §5.8**
 
 | | |
 |---|---|
-| **Status** | **Known defect**, asserted by test rather than hidden |
+| **Status** | **Fixed.** Kept for the record; §5.8 has the fix |
 | **Location** | `src/core/physics/resolve.ts`, surfaced in `src/core/sim/pieces.test.ts` |
 
 A robot that keeps driving into a piece already resting against the perimeter
@@ -486,9 +486,9 @@ Either changes robot-versus-wall resolution too and would rebaseline the Phase 1
 golden determinism digest, so it belongs in its own change with its own
 verification rather than riding along with entity plumbing.
 
-**Still open after §5.7.** The manifold work sweeps each contact repeatedly, but
-a pinned piece has *two* contacts, and the sweep does not run across pairs. The
-defect and its test are unchanged.
+**Closed by §5.8.** The manifold work of §5.7 sweeps within a contact; what this
+needed was sweeping *across* pairs, plus a perimeter body thick enough that a
+squeezed circle cannot get its centre past the far face.
 
 ### 5.7 Contact manifolds and normal-solver sweeps
 
@@ -531,6 +531,50 @@ rather than of floating-point noise, which is what keeps `collide` reproducible
 **Not physical.** None of the three values changes where a body comes to rest by
 more than the penetration slop of §5.3. They change how faithfully the resolver
 solves the contact it was given.
+
+### 5.8 Multi-pass contact resolution and perimeter thickness
+
+| | |
+|---|---|
+| **Values** | `CONTACT_PASSES = 4`; `WALL_THICKNESS_IN = 12` (was 2) |
+| **Confidence** | **ASSUMED** (numerical and modelling, not physical) |
+| **Location** | `src/core/sim/simWorld.ts`, `src/core/field/fieldTemplate.ts` |
+
+Together these close §5.6, and each is useless without the other.
+
+**Passes over the contact set.** Resolution used to visit every pair once. That
+is enough for a body with one contact and wrong for a body with two, because the
+correction for one contact is computed without knowing about the other. A game
+piece pinned between a driving robot and the perimeter has two, and so does a
+robot in a corner. Four passes let neighbouring contacts see each other's work;
+the sweep stops early when a pass finds nothing touching, so an uncontested tick
+costs one pass. Narrowphase re-runs each pass because the previous one moved
+bodies; broadphase does not, because a positional correction is bounded by the
+penetration it removes and cannot carry a body into a cell it was not already
+overlapping.
+
+Measured: a robot driven diagonally into a corner now settles at exactly the
+corner with a residual speed of 2e-24 m/s and no heading change.
+
+**Perimeter thickness.** Passes alone did not fix the pinned piece, and the
+reason was elsewhere. `circlePoly` pushes a circle whose centre is *inside* a
+polygon out through the nearest face. A 2 in wall is thinner than a 4.9 in
+artifact, so a squeezed piece could get its centre past the wall's midline — at
+which point the nearest face is the outer one and the resolver ejected the piece
+out of the field, accelerating.
+
+Only the wall's *inner face* is gameplay; the walls are placed outside the
+playing area, so the interior measures exactly 144 in whatever the thickness.
+12 in exceeds any FTC scoring element, so no piece can be squeezed far enough to
+flip which face is nearest, and it is about the depth of the real perimeter
+structure rather than a number chosen to be large.
+
+**What is still true.** The squeeze remains geometrically unsatisfiable: no
+position separates a piece from both a robot and a wall that are closer together
+than its diameter. The piece is now nudged sideways instead — which is what a
+real one does — and then slides undamped (§5.5) until it meets something. The
+test asserts it stays inside the field over thirty further seconds of the robot
+driving into it, rather than asserting a resting position it does not have.
 
 ---
 
@@ -1167,6 +1211,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §5.8 (multi-pass contact resolution, perimeter thickness), which closes the §5.6 defect: a piece pinned between a robot and a wall now stays in play. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | G408's CONTROL limit assessed from sustained possession, and ranking-point criteria measured from a match. §10.14 extended with the MOMENTARY proxy the foul rules use for intent. |
 | 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |
 | 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
