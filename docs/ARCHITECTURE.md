@@ -351,10 +351,18 @@ A future calibrated mode implements the same interface; nothing else changes.
 - **Broadphase:** uniform spatial hash, 0.3048 m (12 in) cells.
 - **Narrowphase:** SAT for OBB↔convex-polygon; circle↔polygon and circle↔circle
   where needed.
+- **Manifold:** a polygon pair returns *where* it touches, not just the axis. The
+  least-overlap face becomes the reference and the other shape's facing edge is
+  clipped to it — two points for a face-on contact, one for a corner. A single
+  point is not enough: taken at the deepest vertex it lands at the middle of a
+  perimeter wall, and the lever arm spins a robot that meets the wall square-on
+  (ASSUMPTIONS.md §5.7).
 - **Ordering:** contacts sorted by `(entityIdA, entityIdB)` before resolution, so
   results never depend on hash-bucket iteration order.
-- **Resolution:** MTV positional correction plus normal-velocity cancellation for
-  robot↔static; mass-weighted impulse for dynamic pairs.
+- **Resolution:** normal impulses swept over the manifold with accumulated,
+  non-negative magnitudes, plus MTV positional correction applied as a pure
+  translation. Static bodies participate as infinite mass, so robot↔static and
+  dynamic↔dynamic take the same code path.
 - **Vertical gating:** a pair collides only if their height intervals overlap. A
   robot lower than an element's clearance passes beneath it. This is what makes
   a trench/clearance metric derivable from the actual robot.

@@ -327,7 +327,8 @@ override it later.
 
 **Frictionless contacts.** Only the normal component of a contact is resolved.
 Tangential friction would require a coefficient, and Phase 1 introduces no
-friction coefficient of any kind (`PRODUCT_SPEC.md` §4).
+friction coefficient of any kind (`PRODUCT_SPEC.md` §4). Where the normal
+impulse acts is a separate question, answered in §5.7.
 
 **Known bias.** A robot sliding along a wall keeps all of its tangential speed,
 where a real one would be scrubbed slower. Wall-following therefore looks
@@ -421,6 +422,52 @@ times per tick, or adding a tangential escape for circle-versus-face contacts.
 Either changes robot-versus-wall resolution too and would rebaseline the Phase 1
 golden determinism digest, so it belongs in its own change with its own
 verification rather than riding along with entity plumbing.
+
+**Still open after §5.7.** The manifold work sweeps each contact repeatedly, but
+a pinned piece has *two* contacts, and the sweep does not run across pairs. The
+defect and its test are unchanged.
+
+### 5.7 Contact manifolds and normal-solver sweeps
+
+| | |
+|---|---|
+| **Values** | up to 2 manifold points per polygon pair; `NORMAL_SOLVER_SWEEPS = 8`; `REFERENCE_FACE_TIE_TOLERANCE = 1e-9 m` |
+| **Confidence** | **ASSUMED** (numerical, not physical) |
+| **Location** | `src/core/physics/sat.ts`, `src/core/physics/resolve.ts` |
+
+**Why a manifold exists at all.** A contact normal says which way to push; it
+does not say where. `polyPoly` originally answered "where" with the deepest
+vertex of B along the normal, averaging ties — and against the perimeter, the
+tied vertices are the wall's whole inner face, so the answer was the middle of
+the wall. A robot meeting the east wall square-on at y = 0.5 m took its stopping
+impulse through a 0.5 m lever arm and left the contact at −2.5 rad/s, sliding
+the length of the field. The narrowphase now clips the incident face to the
+reference face's extent, which is the region the shapes actually share.
+
+**Why two points and not one.** A face-on contact resolved at both ends of the
+touching face has two impulses whose torques cancel, so a squared-up robot is
+stopped rather than spun. A corner contact still clips to a single point and
+still rotates the robot, which is the real behaviour and is what squares a robot
+up against a wall it hits at an angle.
+
+**Why eight sweeps.** The two points of a face-on manifold are coupled through
+the body's rotation, so solving each once leaves a residual spin — about
+0.5 rad/s per m/s of approach for this robot, which is visible. Gauss-Seidel on
+the 2x2 normal system converges at a rate of `(k12/k11)^2`, roughly 0.04 for an
+18 in robot, so eight sweeps is far past diminishing returns and still costs
+nothing at the handful of contacts an FTC field produces. Impulses accumulate
+across sweeps and are clamped non-negative, so a contact can be corrected
+downward without ever becoming a pull.
+
+**Why a tie tolerance.** Two boxes meeting exactly flat report identical
+separations for A's face and B's face. Preferring A unless B is shallower by
+more than 1 nm makes the reference-face choice a function of argument order
+rather than of floating-point noise, which is what keeps `collide` reproducible
+— and argument order is already fixed by the id sort in the broadphase.
+
+**Not physical.** None of the three values changes where a body comes to rest by
+more than the penetration slop of §5.3. They change how faithfully the resolver
+solves the contact it was given.
 
 ---
 
@@ -1007,3 +1054,4 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |

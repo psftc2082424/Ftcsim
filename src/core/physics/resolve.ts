@@ -49,7 +49,7 @@ export const PENETRATION_SLOP_M = 0.001;
  * solution where both points are simultaneously non-approaching; for a 3:1
  * box the error falls by about 25x per sweep, so eight is far past the point of
  * diminishing returns and still trivially cheap for the handful of contacts an
- * FTC field produces. ASSUMPTIONS.md §5.6.
+ * FTC field produces. ASSUMPTIONS.md §5.7.
  */
 export const NORMAL_SOLVER_SWEEPS = 8;
 
