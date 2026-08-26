@@ -13,11 +13,18 @@ import {
   DECODE_RP_THRESHOLDS,
   DECODE_RP_THRESHOLD_STABILITY,
   DECODE_SCORING_RULES,
+  DECODE_SETUP,
   DECODE_TOTAL_ARTIFACTS,
   DECODE_ZONES,
   RAMP_SLOT_COUNT,
 } from './decode.js';
-import { collectProvenance, rankingPointsFor } from '../gameDefinition.js';
+import {
+  collectProvenance,
+  definitionErrors,
+  rankingPointsFor,
+  totalStagedPieces,
+  validateGameDefinition,
+} from '../gameDefinition.js';
 import { DECODE_GAME } from './decodeGame.js';
 import { MatchRunner } from '../matchRunner.js';
 import { createDefaultRegistry } from '../predicates.js';
@@ -492,6 +499,50 @@ describe('DECODE scoring — DEPOT', () => {
 
     expect(runner.score.blue).toBe(DECODE_POINTS.depotTeleop.value);
     expect(runner.score.red).toBe(0);
+  });
+});
+
+describe('match staging (§10.3.1)', () => {
+  /**
+   * The reconciliation that makes the transcription trustworthy: staging is
+   * given per location, piece counts are given in §9.9, and the two were
+   * transcribed from different pages. They add up exactly.
+   */
+  it('stages exactly the 24 purple and 12 green the manual declares', () => {
+    expect(totalStagedPieces(DECODE_SETUP)).toEqual({ P: 24, G: 12 });
+  });
+
+  it('is accepted by the definition cross-check', () => {
+    const problems = validateGameDefinition(DECODE_GAME, createDefaultRegistry());
+    expect(problems.filter((p) => p.where.startsWith('setup'))).toEqual([]);
+  });
+
+  /** A dropped group is exactly the error the cross-check exists to catch. */
+  it('rejects a definition whose staging does not add up', () => {
+    const short = {
+      ...DECODE_GAME,
+      setup: { ...DECODE_SETUP, staging: DECODE_SETUP.staging.slice(1) },
+    };
+    const errors = definitionErrors(validateGameDefinition(short, createDefaultRegistry()));
+    expect(errors.some((p) => p.where === 'setup')).toBe(true);
+  });
+
+  it('puts the three MOTIFS on the three SPIKE MARK rows', () => {
+    const rows = DECODE_SETUP.staging.filter((g) => g.id.startsWith('spike-'));
+    expect(rows.map((g) => g.arrangement?.value.join(''))).toEqual(['GPP', 'PGP', 'PPG']);
+    // Six marks in three rows of two — §9.3 gives six, §10.3.1 gives the rows.
+    expect(rows.map((g) => g.locationCount.value)).toEqual([2, 2, 2]);
+  });
+
+  /** "with no set order" is a fact, so the ALLIANCE AREA has no arrangement. */
+  it('records the ALLIANCE AREA as a composition, not an order', () => {
+    const area = DECODE_SETUP.staging.find((g) => g.id === 'alliance-area');
+    expect(area?.arrangement).toBeUndefined();
+    expect(area?.composition?.value).toEqual({ P: 4, G: 2 });
+  });
+
+  it('records the pre-load allowance', () => {
+    expect(DECODE_SETUP.maxPreloadPerRobot?.value).toBe(3);
   });
 });
 

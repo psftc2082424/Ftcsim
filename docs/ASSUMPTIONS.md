@@ -721,6 +721,7 @@ membership becomes a new source of error and will need its own entry here.
 | RP thresholds (Table 10-3) | **Transcribed** | `DECODE_RP_THRESHOLDS`, p.88, all three tiers |
 | Penalty values (Table 10-4) | **Transcribed** | `DECODE_PENALTIES`, p.89 — values only; see §10.13 |
 | Field element **sizes** | **Transcribed** | `decodeDimensions.ts`, every value with a page and a verbatim quote |
+| ARTIFACT staging (§10.3.1) | **Transcribed** | `DECODE_SETUP`, p.81 — composition and arrangement per location; positions are still the CAD's |
 | Field element **positions** | Not modelled | The manual gives the CAD model as authoritative and states illustration dimensions are nominal ±1 in — see §10.9 |
 | ARTIFACT mass | Estimated | Confirmed absent from the manual — see §10.10 |
 | Which actions draw a foul | Not modelled | Refereeing judgement — see §10.13 |
@@ -761,6 +762,18 @@ The earlier reading came from §10.5's "achievements scored ... during the
 AUTO-to-TELEOP transition ... are subject to penalties", taken to mean "are
 worth no points". It means the achievement counts *and* a referee may assess a
 penalty — which is not simulated (§10.13).
+
+**Staging is transcribed, and it reconciles.** §10.3.1 gives the complete
+ARTIFACT staging — three SPIKE MARK rows carrying the three MOTIFS, three per
+LOADING ZONE arranged PGP, six per ALLIANCE AREA with no set order, and up to
+three pre-loaded per robot. Transcribed as composition rather than coordinates,
+because that is the part the manual publishes.
+
+It adds up to exactly 24 purple and 12 green, which §9.9 states on a different
+page. `validateGameDefinition` enforces that reconciliation, so a mistranscribed
+group fails at load rather than starting a match with 33 artifacts. The manual
+also notes that staging may be adjusted for Championship and Premier events,
+which is recorded in `provenanceNotes`.
 
 **Scoring criteria are now the manual's, not an approximation of them.** §10.5.3
 defines LEAVE and BASE as questions about a robot's *final position*, and both
@@ -987,6 +1000,7 @@ match against the lowest bar.
 | 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
 | 2026-08-25 | Competition Manual (Team Update 32) supplied and treated as authoritative. Every DECODE dimension it publishes transcribed into `decodeDimensions.ts` with a page number and verbatim quote; `decodeField.ts` rebuilt on those extents. §10.9 narrowed from "the layout is invented" to "the positions are invented"; §10.10 narrowed to record that ARTIFACT mass is confirmed absent from the manual rather than merely unfound. |
 | 2026-08-25 | RP thresholds (Table 10-3) and penalty values (Table 10-4) transcribed, closing the last `unresolved` value in the DECODE definition; §10.5 table rewritten and §10.13 added for what refereeing judgement puts out of reach. |
+| 2026-08-25 | ARTIFACT staging transcribed from §10.3.1 into a season-agnostic `MatchSetupSpec`, cross-checked against the declared piece counts by `validateGameDefinition`. |
 | 2026-08-25 | AUTO-to-TELEOP transition corrected against §10.5.A: it is now its own `TRANSITION` match state and scores as the period the game declares, where it was previously `PRE` and scored nothing. |
 | 2026-08-25 | Assumption ledger corrected: shared `Sourced` values are now reported at every path that uses them, and `provenanceNotes` carries statements that belong to a definition rather than to one field — so the invented layout and the estimated mass on both piece types now appear in `assumptionLedger(DECODE_GAME)`. |
 | 2026-08-25 | LEAVE and BASE corrected against §10.5.3: both are assessed on a robot's final position, and LEAVE checks every LAUNCH LINE rather than the alliance's own. Added §10.12 for the DEPOT tape, which the manual makes a LAUNCH LINE and which this model cannot yet treat as one. |

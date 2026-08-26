@@ -49,6 +49,79 @@ export interface GamePieceType {
 }
 
 /**
+ * Where pieces start a match, as the manual describes it.
+ *
+ * Composition, not coordinates. A manual states how many pieces sit at each kind
+ * of place and in what order far more reliably than it states where those places
+ * are — DECODE gives the full staging in §10.3.1 while leaving SPIKE MARK
+ * positions to the CAD. Modelling the two separately means the part that *is*
+ * published can be transcribed and checked.
+ *
+ * The check that makes it worth carrying: staged pieces must add up to the piece
+ * counts the game declares. A transcription that drops a group fails validation
+ * rather than producing a match that quietly starts with 33 artifacts.
+ */
+export interface PieceStagingGroup {
+  readonly id: string;
+  readonly label: string;
+  /** How many places of this kind exist on the field. */
+  readonly locationCount: Sourced<number>;
+  /**
+   * Piece type ids in order, where the game specifies an arrangement.
+   *
+   * Its length is the number of pieces per location, so a group states its
+   * count and its order in one place and they cannot disagree.
+   */
+  readonly arrangement?: Sourced<readonly string[]> | undefined;
+  /**
+   * Piece counts by type, where the game specifies no order — DECODE stages six
+   * artifacts per ALLIANCE AREA "with no set order".
+   */
+  readonly composition?: Sourced<Readonly<Record<string, number>>> | undefined;
+}
+
+/** How a match is set up before it starts. */
+export interface MatchSetupSpec {
+  readonly staging: readonly PieceStagingGroup[];
+  /** Pieces a robot may start holding, where the game allows any. */
+  readonly maxPreloadPerRobot?: Sourced<number> | undefined;
+}
+
+/** Piece counts by type in one staging group, across all its locations. */
+export function stagedPieceCounts(
+  group: PieceStagingGroup,
+): Readonly<Record<string, number>> {
+  const perLocation: Record<string, number> = {};
+
+  if (group.arrangement !== undefined) {
+    for (const pieceType of group.arrangement.value) {
+      perLocation[pieceType] = (perLocation[pieceType] ?? 0) + 1;
+    }
+  } else if (group.composition !== undefined) {
+    for (const [pieceType, count] of Object.entries(group.composition.value)) {
+      perLocation[pieceType] = (perLocation[pieceType] ?? 0) + count;
+    }
+  }
+
+  const total: Record<string, number> = {};
+  for (const [pieceType, count] of Object.entries(perLocation)) {
+    total[pieceType] = count * group.locationCount.value;
+  }
+  return total;
+}
+
+/** Piece counts by type across every staging group. */
+export function totalStagedPieces(setup: MatchSetupSpec): Readonly<Record<string, number>> {
+  const total: Record<string, number> = {};
+  for (const group of setup.staging) {
+    for (const [pieceType, count] of Object.entries(stagedPieceCounts(group))) {
+      total[pieceType] = (total[pieceType] ?? 0) + count;
+    }
+  }
+  return total;
+}
+
+/**
  * A ranking-point criterion: a threshold on a match total.
  *
  * Not a `ScoringRule`, and deliberately so. A rule is triggered by an event and
@@ -111,6 +184,9 @@ export interface GameDefinition {
   readonly rules: readonly ScoringRule[];
   readonly objectives: readonly Objective[];
   readonly robotConstraints: RobotConstraints;
+
+  /** How pieces are staged before a match, where the manual describes it. */
+  readonly setup?: MatchSetupSpec | undefined;
 
   /**
    * Ranking points, where the season defines them. Optional because they are
@@ -301,6 +377,47 @@ export function validateGameDefinition(
         `pieces.${piece.id}`,
         'No mass in the definition. The simulation needs one, so a caller must estimate it.',
       );
+    }
+  }
+
+  // --- setup ---------------------------------------------------------------
+  //
+  // The cross-check the staging spec exists for: what is put on the field must
+  // be what the game says exists. A dropped group or a miscounted arrangement
+  // is otherwise invisible until a match runs with the wrong piece count.
+  if (definition.setup !== undefined) {
+    const staged = totalStagedPieces(definition.setup);
+    const declared = new Map(definition.pieces.map((piece) => [piece.id, piece.count.value]));
+
+    for (const [pieceType, count] of Object.entries(staged)) {
+      const expected = declared.get(pieceType);
+      if (expected === undefined) {
+        error('setup', `Stages piece type "${pieceType}", which the definition does not declare.`);
+      } else if (count !== expected) {
+        error(
+          'setup',
+          `Stages ${count} of piece type "${pieceType}", but the definition declares ${expected}.`,
+        );
+      }
+    }
+
+    for (const [pieceType, expected] of declared) {
+      if (staged[pieceType] === undefined) {
+        warn('setup', `Declares ${expected} of "${pieceType}" but stages none.`);
+      }
+    }
+
+    const groupIds = new Set<string>();
+    for (const group of definition.setup.staging) {
+      if (groupIds.has(group.id)) error('setup', `Duplicate staging group "${group.id}".`);
+      groupIds.add(group.id);
+
+      if (group.arrangement === undefined && group.composition === undefined) {
+        error(`setup.${group.id}`, 'Declares neither an arrangement nor a composition.');
+      }
+      if (group.locationCount.value <= 0) {
+        error(`setup.${group.id}`, 'Location count must be positive.');
+      }
     }
   }
 

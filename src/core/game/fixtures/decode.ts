@@ -26,7 +26,7 @@
 import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sourced.js';
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
-import type { PenaltyValues, RankingPointRules } from '../gameDefinition.js';
+import type { MatchSetupSpec, PenaltyValues, RankingPointRules } from '../gameDefinition.js';
 import { ARTIFACT, ZONES } from './decodeDimensions.js';
 
 // ---------------------------------------------------------------- pieces ---
@@ -83,7 +83,39 @@ export const DECODE_MOTIFS = {
   PPG: { pattern: 'PPG', aprilTagId: 23 },
 } as const;
 
+/**
+ * The MOTIF table as Figure 10-4 prints it, cited.
+ *
+ * Worth carrying separately from `DECODE_MOTIFS` because the figure settles the
+ * *direction* the indices run — `GATE G P P G P P G P P SQUARE` — and that is
+ * what decides which end of the RAMP an arriving artifact fills. Reading it the
+ * other way silently mismatches every PATTERN.
+ */
+export const DECODE_MOTIF_TABLE = {
+  gpp: explicit('GPP', 86, 'GATE G P P G P P G P P SQUARE', 'OBELISK tag ID 21.'),
+  pgp: explicit('PGP', 86, 'GATE P G P P G P P G P SQUARE', 'OBELISK tag ID 22.'),
+  ppg: explicit('PPG', 86, 'P P G P P G P P G SQUARE', 'OBELISK tag ID 23.'),
+  repeats: explicit(
+    3,
+    86,
+    'selects the MOTIF which is repeated 3 times to define the PATTERN colors for each of the 9 indices on the RAMP',
+  ),
+} as const;
+
 export type DecodeMotifKey = keyof typeof DECODE_MOTIFS;
+
+/**
+ * SPIKE MARKS per alliance.
+ *
+ * §9.3 gives six on the field; §10.3.1 arranges them as three rows — near,
+ * middle and far — which is three per alliance.
+ */
+export const SPIKE_MARKS_PER_ALLIANCE = explicit(
+  2,
+  63,
+  'SPIKE MARK: 1 of 6 white tape marks 10 in. (25.40 cm) long used to identify the placement of 3 ARTIFACTS before the MATCH',
+  'Six marks in three rows (near, middle, far per §10.3.1) gives two locations per row.',
+);
 
 /** Number of ordered scoring slots on a RAMP (§10.5.2: indices 1–9). */
 export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
@@ -444,6 +476,95 @@ export const DECODE_HAS_NO_WEIGHT_LIMIT = explicitRule(
   'R103',
   'There is no explicit weight limit for FIRST Tech Challenge ROBOTS.',
   122,
+);
+
+// ----------------------------------------------------------- match staging ---
+
+/**
+ * Where the 36 ARTIFACTS start, per §10.3.1 (p.81).
+ *
+ * Composition only — the manual gives the full staging but leaves SPIKE MARK and
+ * LOADING ZONE *positions* to the CAD, like every other coordinate in DECODE.
+ *
+ * The arrangements are stated to read outward: "with the MOTIFS starting from
+ * the middle of the FIELD and continuing toward the FIELD perimeter". The three
+ * SPIKE MARK rows carry the three MOTIFS, which is what makes them worth
+ * transcribing rather than summarising as "18 artifacts on spike marks" — a
+ * robot that knows which row holds which colours can plan its AUTO.
+ *
+ * It adds up exactly: 12 green and 24 purple, matching §9.9. That reconciliation
+ * is enforced by `validateGameDefinition`, so a mistranscribed group fails at
+ * load rather than starting a match with the wrong pieces.
+ */
+export const DECODE_SETUP: MatchSetupSpec = {
+  staging: [
+    {
+      id: 'spike-near',
+      label: 'SPIKE MARKS, audience side',
+      locationCount: SPIKE_MARKS_PER_ALLIANCE,
+      arrangement: explicit(
+        ['G', 'P', 'P'],
+        81,
+        '3 ARTIFACTS on each SPIKE MARK arranged as follows: i. Near (audience side): GPP',
+      ),
+    },
+    {
+      id: 'spike-middle',
+      label: 'SPIKE MARKS, middle',
+      locationCount: SPIKE_MARKS_PER_ALLIANCE,
+      arrangement: explicit(['P', 'G', 'P'], 81, 'ii. Middle: PGP'),
+    },
+    {
+      id: 'spike-far',
+      label: 'SPIKE MARKS, GOAL side',
+      locationCount: SPIKE_MARKS_PER_ALLIANCE,
+      arrangement: explicit(['P', 'P', 'G'], 81, 'iii. Far (GOAL side): PPG'),
+    },
+    {
+      id: 'loading-zone',
+      label: 'LOADING ZONES',
+      locationCount: explicit(2, 81, '3 ARTIFACTS (2P, 1G) in each LOADING ZONE', 'One per alliance.'),
+      arrangement: explicit(
+        ['P', 'G', 'P'],
+        81,
+        '3 ARTIFACTS (2P, 1G) in each LOADING ZONE biased against the FIELD perimeter adjacent to the ALLIANCE AREA and closest to the corner arranged PGP',
+      ),
+    },
+    {
+      id: 'alliance-area',
+      label: 'ALLIANCE AREAS',
+      locationCount: explicit(
+        2,
+        81,
+        '6 ARTIFACTS (4P, 2G) in each ALLIANCE AREA',
+        'One per alliance.',
+      ),
+      // No arrangement: the manual says "with no set order", so a composition is
+      // the whole truth rather than an ordering invented to fill the field.
+      composition: explicit(
+        { P: 4, G: 2 },
+        81,
+        '6 ARTIFACTS (4P, 2G) in each ALLIANCE AREA (may be organized in provided ARTIFACT tray or similar container) with no set order',
+      ),
+    },
+  ],
+  maxPreloadPerRobot: explicit(
+    3,
+    81,
+    'Each ROBOT may be pre-loaded with up to 3 ARTIFACTS from their own ALLIANCE AREA pre-staged ARTIFACTS in C such that each ARTIFACT is in direct contact with the ROBOT.',
+  ),
+};
+
+/**
+ * Staging is not fixed across every event, and the manual says so.
+ *
+ * Recorded so a Championship result computed from this fixture is not mistaken
+ * for the real thing.
+ */
+export const DECODE_STAGING_MAY_BE_MODIFIED = explicit(
+  true,
+  81,
+  'the number, type, and distribution of SCORING ELEMENTS may be adjusted for the FIRST Championship and FIRST Premier Events',
 );
 
 // ------------------------------------------------------------- rule builder ---
