@@ -336,6 +336,10 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
                   ? DECODE_ZONES.redLaunchLine
                   : DECODE_ZONES.blueLaunchLine,
             },
+            // Without this a robot crossing the *other* alliance's launch line
+            // scores LEAVE for them. The zone is alliance-specific; the robot
+            // triggering it must be too.
+            { field: 'alliance', equals: alliance },
           ],
         },
         award: { points: DECODE_POINTS.leaveAuto, alliance },
@@ -350,7 +354,10 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
         phase: 'TELEOP' as const,
         trigger: {
           event: 'RobotOverlapsZone' as const,
-          filters: [{ field: 'zoneId', equals: base }],
+          filters: [
+            { field: 'zoneId', equals: base },
+            { field: 'alliance', equals: alliance },
+          ],
         },
         condition: { predicateId: 'robotFullyInZone', params: { zoneId: base } },
         award: { points: DECODE_POINTS.baseFull, alliance },
@@ -362,7 +369,10 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
         phase: 'TELEOP' as const,
         trigger: {
           event: 'RobotOverlapsZone' as const,
-          filters: [{ field: 'zoneId', equals: base }],
+          filters: [
+            { field: 'zoneId', equals: base },
+            { field: 'alliance', equals: alliance },
+          ],
         },
         condition: { predicateId: 'robotPartiallyInZone', params: { zoneId: base } },
         award: { points: DECODE_POINTS.basePartial, alliance },
