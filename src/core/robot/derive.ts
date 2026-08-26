@@ -173,6 +173,9 @@ export function deriveRobot(config: RobotConfig): DerivedRobot {
       gearRatio: drivetrain.gearRatio,
       wheelRadius,
       kinematicK,
+      // Roller slip depends on the wheelbase alone, not on the k that couples
+      // translation to rotation, so the drivetrain needs both.
+      halfWheelbase,
       motorsPerWheel: drivetrain.motorCount / MECANUM_WHEEL_COUNT,
     }),
     geometryClamped,

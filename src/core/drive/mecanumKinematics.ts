@@ -147,6 +147,74 @@ export function wheelForcesToChassisWrench(forces: WheelValues, k: number): Chas
 }
 
 /**
+ * How fast each wheel's rollers turn, in metres per second of peripheral speed.
+ *
+ * ── The one place forward and sideways are not symmetric ───────────────────
+ *
+ * A mecanum wheel has two rotational freedoms: the hub, driven by the motor,
+ * and the rollers, which spin freely about axes 45 deg to the hub. The
+ * kinematics above describe the hub. This describes the rollers, and it is what
+ * makes lateral motion different in kind from forward motion rather than merely
+ * different in sign.
+ *
+ * Take the contact-point velocity of wheel *i* and split it along the roller
+ * axis `a_i` (where the contact grips) and the perpendicular `u_i` (where it
+ * slips):
+ *
+ *     v_c = (omega_wheel * r) * x_hat  +  s * u_hat
+ *
+ * so `s = v_c . u_hat - omega_wheel * r * (x_hat . u_hat)`. Substituting the
+ * inverse kinematics above and `x_hat . u_hat = +/- 1/sqrt2` collapses to
+ *
+ *     s_FL = s_FR = sqrt2 * (vy + a*omega)
+ *     s_BL = s_BR = sqrt2 * (vy - a*omega)
+ *
+ * where `a` is the half wheelbase. **There is no `vx` term.** Driving straight
+ * ahead, a mecanum wheel's rollers do not turn at all — it rolls like a plain
+ * wheel. Strafing, they turn at `sqrt2` times the chassis speed. Any resistance
+ * living in the roller path is therefore invisible forward and maximal
+ * sideways, which is exactly the asymmetry real mecanum drivetrains show.
+ */
+export function rollerSlipSpeeds(chassis: ChassisVelocity, halfWheelbase: number): WheelValues {
+  const lateral = Math.SQRT2 * chassis.vy;
+  const yaw = Math.SQRT2 * halfWheelbase * chassis.omega;
+
+  return {
+    frontLeft: lateral + yaw,
+    frontRight: lateral + yaw,
+    backLeft: lateral - yaw,
+    backRight: lateral - yaw,
+  };
+}
+
+/**
+ * Jacobian transpose for the roller-slip coordinate.
+ *
+ * Roller slip is a function of chassis velocity, so a force conjugate to it maps
+ * back to a chassis wrench by the transpose of that map — the same discipline
+ * `wheelForcesToChassisWrench` follows for the hub. Doing it this way is not
+ * merely tidy: it makes the result *provably* dissipative, because the power a
+ * resistance `f = -c*s` delivers is `s . f = -c * sum(s_i^2) <= 0` whatever the
+ * chassis is doing. Assembling the four contact forces by hand instead gives a
+ * yaw term that can inject energy into a robot that is longer than it is wide.
+ *
+ * `fx` is identically zero, which is the same statement as "no `vx` term" above:
+ * the rollers can neither help nor hinder straight-line driving.
+ */
+export function rollerForcesToChassisWrench(
+  forces: WheelValues,
+  halfWheelbase: number,
+): ChassisWrench {
+  const { frontLeft: fl, frontRight: fr, backLeft: bl, backRight: br } = forces;
+
+  return {
+    fx: 0,
+    fy: Math.SQRT2 * (fl + fr + bl + br),
+    mz: Math.SQRT2 * halfWheelbase * (fl + fr - bl - br),
+  };
+}
+
+/**
  * Normalise wheel commands into [-1, 1] while preserving the commanded motion.
  *
  * If any wheel exceeds unit magnitude, every wheel is divided by that same

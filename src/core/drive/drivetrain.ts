@@ -24,6 +24,7 @@ import {
   type Meters,
   type MetersPerSec,
   type MetersPerSec2,
+  type RadPerSec,
   type Volts,
 } from '../units/si.js';
 import { motorCurrent, motorTorque, type MotorModel } from '../motor/motorModel.js';
@@ -31,6 +32,8 @@ import { sumPackLoad } from '../motor/battery.js';
 import {
   chassisToWheelVelocities,
   commandToWheels,
+  rollerForcesToChassisWrench,
+  rollerSlipSpeeds,
   mapWheels,
   saturate,
   toArray,
@@ -59,6 +62,32 @@ import type { TractionModel } from './traction.js';
  */
 export const DRIVETRAIN_EFFICIENCY = 0.95;
 
+/**
+ * Resistance in the roller path, newtons per metre/second of roller slip.
+ *
+ * A mecanum wheel's rollers are small, barrel-shaped and carried on short
+ * bearings. Turning them costs something: bearing drag, and a contact patch that
+ * scrubs rather than rolls cleanly. `rollerSlipSpeeds` shows that this cost is
+ * geometrically confined to lateral motion — a mecanum wheel driving straight
+ * ahead does not turn its rollers at all — so one scalar here is enough to make
+ * strafing slower than driving without touching forward performance at all.
+ *
+ * **This is the only invented number in the drivetrain, and it is a
+ * transmission loss, not a traction limit.** `IdealTraction` remains the
+ * identity function and no friction coefficient exists anywhere; what this adds
+ * is a resistance *inside* the drivetrain, a sibling of
+ * `DRIVETRAIN_EFFICIENCY`. Top speed stays emergent: the robot accelerates until
+ * motor force balances roller drag, and nothing anywhere reads a maximum speed.
+ *
+ * The value puts the reference robot at a strafe/forward top-speed ratio of
+ * 0.80. Calibrate it from a measured robot with
+ *
+ *     c = (kT kE G^2 eta / (2 R r^2)) * (v_forward / v_strafe - 1)
+ *
+ * See ASSUMPTIONS.md §2.2.
+ */
+export const MECANUM_ROLLER_DRAG_N_PER_MPS = 3.757;
+
 export interface DrivetrainSpec {
   readonly motor: MotorModel;
   /** External reduction between motor output shaft and wheel. >1 is a reduction. */
@@ -66,7 +95,17 @@ export interface DrivetrainSpec {
   readonly wheelRadius: Meters;
   /** `halfTrack + halfWheelbase`, from `robot/derive.ts`. */
   readonly kinematicK: number;
+  /**
+   * Half the wheelbase, from `robot/derive.ts`.
+   *
+   * Separate from `kinematicK` because roller slip depends on the wheelbase
+   * alone, where the hub kinematics depend on the sum of half-track and
+   * half-wheelbase. Two different geometric facts about the same chassis.
+   */
+  readonly halfWheelbase: number;
   readonly efficiency: number;
+  /** Roller-path resistance, N per m/s of roller slip. */
+  readonly rollerDrag: number;
   /**
    * Drive motors per wheel, `motorCount / 4`. Normally 1. Two motors geared to
    * one wheel double the torque available at that contact patch without
@@ -106,12 +145,22 @@ export function createDrivetrainSpec(params: {
   gearRatio: number;
   wheelRadius: Meters;
   kinematicK: number;
+  halfWheelbase?: number;
   efficiency?: number;
   motorsPerWheel?: number;
+  rollerDrag?: number;
 }): DrivetrainSpec {
   if (params.gearRatio <= 0) throw new Error('Drivetrain gear ratio must be positive.');
   if (params.wheelRadius <= 0) throw new Error('Wheel radius must be positive.');
   if (params.kinematicK <= 0) throw new Error('Kinematic k must be positive.');
+
+  // A square chassis has half-track equal to half-wheelbase, so half of k is the
+  // right default for a caller that only knows the coupling constant.
+  const halfWheelbase = params.halfWheelbase ?? params.kinematicK / 2;
+  if (halfWheelbase <= 0) throw new Error('Half wheelbase must be positive.');
+
+  const rollerDrag = params.rollerDrag ?? MECANUM_ROLLER_DRAG_N_PER_MPS;
+  if (rollerDrag < 0) throw new Error('Roller drag cannot be negative.');
 
   const motorsPerWheel = params.motorsPerWheel ?? 1;
   if (motorsPerWheel <= 0) throw new Error('Motors per wheel must be positive.');
@@ -121,7 +170,9 @@ export function createDrivetrainSpec(params: {
     gearRatio: params.gearRatio,
     wheelRadius: params.wheelRadius,
     kinematicK: params.kinematicK,
+    halfWheelbase,
     efficiency: params.efficiency ?? DRIVETRAIN_EFFICIENCY,
+    rollerDrag,
     motorsPerWheel,
   };
 }
@@ -171,7 +222,21 @@ export function solveDrivetrain(
   const wheelForces = traction.limit(rawWheelForces, { massKg, chassis });
 
   // 6. Jacobian transpose back into the body frame.
-  const wrench = wheelForcesToChassisWrench(wheelForces, spec.kinematicK);
+  const driveWrench = wheelForcesToChassisWrench(wheelForces, spec.kinematicK);
+
+  // 7. The rollers. Turning them costs something, and the geometry says how much
+  //    of the motion goes through them — none of it when driving straight ahead,
+  //    all of it when strafing. Mapped back by its own Jacobian transpose so the
+  //    result cannot inject energy.
+  const rollerSlip = rollerSlipSpeeds(chassis, spec.halfWheelbase);
+  const rollerForces = mapWheels(rollerSlip, (slip) => -spec.rollerDrag * slip);
+  const rollerWrench = rollerForcesToChassisWrench(rollerForces, spec.halfWheelbase);
+
+  const wrench = {
+    fx: driveWrench.fx + rollerWrench.fx,
+    fy: driveWrench.fy + rollerWrench.fy,
+    mz: driveWrench.mz + rollerWrench.mz,
+  };
 
   return {
     wrench,
@@ -204,6 +269,60 @@ export function analyticFreeSpeed(
 ): MetersPerSec {
   const motorOmega = (duty * batteryVolts) / spec.motor.kE;
   return metersPerSec((motorOmega * spec.wheelRadius) / spec.gearRatio);
+}
+
+/**
+ * Analytic *lateral* free speed: where lateral motor force balances roller drag.
+ *
+ * Forward free speed is where motor torque reaches zero. Strafing never gets
+ * there, because the rollers are turning and resisting the whole way, so the
+ * robot settles earlier:
+ *
+ *     4 * kT (V - kE * vy * G / r) * G * eta / (R r)  =  8 * c * vy
+ *
+ * Solving for `vy` gives the value below. With `c = 0` it reduces exactly to
+ * `analyticFreeSpeed`, which is the check that the roller term is an addition to
+ * the model rather than a replacement for part of it.
+ */
+export function analyticStrafeFreeSpeed(
+  spec: DrivetrainSpec,
+  batteryVolts: Volts,
+  duty = 1,
+): MetersPerSec {
+  const forcePerVolt =
+    (4 * spec.motor.kT * spec.gearRatio * spec.efficiency * spec.motorsPerWheel) /
+    (spec.motor.resistance * spec.wheelRadius);
+  const backEmfPerSpeed = (spec.motor.kE * spec.gearRatio) / spec.wheelRadius;
+
+  const numerator = forcePerVolt * duty * batteryVolts;
+  const denominator = 8 * spec.rollerDrag + forcePerVolt * backEmfPerSpeed;
+  return metersPerSec(numerator / denominator);
+}
+
+/**
+ * Analytic steady spin rate, where yaw motor torque balances roller drag.
+ *
+ * Spinning in place moves every contact patch sideways, so the rollers turn and
+ * resist exactly as they do in a strafe. The robot settles where
+ *
+ *     4 k * kT (V - kE k omega G / r) G eta n / (R r)  =  8 c a^2 omega
+ *
+ * With `c = 0` this reduces to `v_free / k`, the pure-kinematic answer.
+ */
+export function analyticSpinRate(
+  spec: DrivetrainSpec,
+  batteryVolts: Volts,
+  duty = 1,
+): RadPerSec {
+  const torquePerVolt =
+    (4 * spec.kinematicK * spec.motor.kT * spec.gearRatio * spec.efficiency * spec.motorsPerWheel) /
+    (spec.motor.resistance * spec.wheelRadius);
+  const backEmfPerRate = (spec.motor.kE * spec.kinematicK * spec.gearRatio) / spec.wheelRadius;
+
+  const rollerResistance = 8 * spec.rollerDrag * spec.halfWheelbase * spec.halfWheelbase;
+  return radPerSec(
+    (torquePerVolt * duty * batteryVolts) / (rollerResistance + torquePerVolt * backEmfPerRate),
+  );
 }
 
 /**

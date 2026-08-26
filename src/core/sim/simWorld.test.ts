@@ -128,10 +128,11 @@ describe('determinism — golden state hash', () => {
   });
 
   it('matches the committed golden digest', () => {
-    // Rebaselined when polygon contacts gained a clipped manifold and an
-    // iterated normal solver; the golden trace opens by driving into the
-    // perimeter, so its trajectory legitimately changed.
-    expect(runGolden()).toBe('7721d433');
+    // Rebaselined twice, both times for a deliberate physics change: the
+    // clipped contact manifold with its iterated normal solver, and then the
+    // mecanum roller-drag term. The golden trace drives into the perimeter and
+    // strafes, so it exercises both.
+    expect(runGolden()).toBe('6785b5b0');
   });
 
   it('changes when the input trace changes', () => {
@@ -269,27 +270,53 @@ describe('Phase 1 verification — emergent acceleration', () => {
 });
 
 describe('Phase 1 verification — rotation and strafe', () => {
-  it('reaches a steady rotation rate near 228 deg/s', () => {
+  /**
+   * Spinning in place drags every contact patch sideways, so the rollers turn
+   * and resist. The rate settles below the pure-kinematic `v_free / k`.
+   */
+  it('reaches a steady rotation rate near 214 deg/s', () => {
     const result = drive(FULL_SPIN, 6);
     const robot = result.finalSnapshot.robots[0];
     if (robot === undefined) return;
 
     const degPerSec = Math.abs(radPerSecToDegPerSec(radPerSec(robot.vel.omega)));
-    expect(degPerSec).toBeGreaterThan(215);
-    expect(degPerSec).toBeLessThan(240);
+    expect(degPerSec).toBeGreaterThan(205);
+    expect(degPerSec).toBeLessThan(225);
   });
 
   /**
-   * Ideal mecanum produces the same force magnitude in every translation
-   * direction, so strafe speed equals drive speed. Real drivetrains strafe
-   * slower; no penalty is modelled because it would require an invented
-   * coefficient (ASSUMPTIONS.md §2.2). Asserted so the idealisation stays
-   * explicit rather than becoming folklore.
+   * A mecanum robot strafes slower than it drives, and the model says so for a
+   * geometric reason rather than by a fudge factor: driving straight ahead does
+   * not turn the rollers at all, strafing turns them at `sqrt2` times the
+   * chassis speed, and the roller path has resistance in it
+   * (`rollerSlipSpeeds`, ASSUMPTIONS.md §2.2).
    */
-  it('strafes at the same speed it drives (known Phase 1 idealisation)', () => {
-    const forward = driveFrom(FULL_FORWARD, WEST_START).finalSnapshot.robots[0];
-    const strafe = driveFrom(FULL_STRAFE, SOUTH_START).finalSnapshot.robots[0];
-    expect(speedOf(strafe)).toBeCloseTo(speedOf(forward), 3);
+  it('strafes slower than it drives', () => {
+    const forward = speedOf(driveFrom(FULL_FORWARD, WEST_START).finalSnapshot.robots[0]);
+    const strafe = speedOf(driveFrom(FULL_STRAFE, SOUTH_START).finalSnapshot.robots[0]);
+
+    expect(strafe).toBeLessThan(forward);
+    // Slower, but still a usable drivetrain rather than a crippled one.
+    expect(strafe / forward).toBeGreaterThan(0.7);
+    expect(strafe / forward).toBeLessThan(0.9);
+  });
+
+  /**
+   * The penalty has to be a property of the *direction of travel*, not of the
+   * command axis: a robot pointed 90 degrees round and driving "forward" is
+   * moving over the same floor as one strafing, and must behave differently
+   * because its wheels are oriented differently, not because of how the stick
+   * was mixed.
+   */
+  it('ties the strafe penalty to the wheels, not to the world axis', () => {
+    const drivingNorth = driveFrom(FULL_FORWARD, { p: vec2(0, -1.6), theta: Math.PI / 2 });
+    const strafingNorth = driveFrom(FULL_STRAFE, SOUTH_START);
+
+    const forward = speedOf(driveFrom(FULL_FORWARD, WEST_START).finalSnapshot.robots[0]);
+
+    // Both end up travelling north; only the second one is strafing.
+    expect(speedOf(drivingNorth.finalSnapshot.robots[0])).toBeCloseTo(forward, 3);
+    expect(speedOf(strafingNorth.finalSnapshot.robots[0])).toBeLessThan(forward);
   });
 
   it('strafes sideways in the body frame, not forwards', () => {

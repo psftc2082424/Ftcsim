@@ -16,7 +16,12 @@ import { DT_SECONDS, SimWorld } from './simWorld.js';
 import { runHeadless, secondsToTicks } from './headless.js';
 import { DEFAULT_ROBOT_CONFIG } from '../robot/robotConfig.js';
 import { deriveRobot } from '../robot/derive.js';
-import { analyticFreeSpeed, analyticPeakAcceleration } from '../drive/drivetrain.js';
+import {
+  analyticFreeSpeed,
+  analyticPeakAcceleration,
+  analyticSpinRate,
+  analyticStrafeFreeSpeed,
+} from '../drive/drivetrain.js';
 import { constantController } from '../control/scripted.js';
 import { createControlInput } from '../control/controlInput.js';
 import { DEFAULT_BATTERY, sumPackLoad } from '../motor/battery.js';
@@ -111,10 +116,11 @@ describe('Phase 1 verification — analytic vs simulated', () => {
     expect(errorPct(measured, analytic)).toBeLessThan(0.001);
   });
 
-  it('rotation rate matches wheel free speed over the kinematic lever arm', () => {
-    // Spinning in place, every wheel runs at its free speed and the contact
-    // patch traces a circle of radius k, so omega = v_free / k.
-    const analytic = analyticFreeSpeed(derived.drivetrain, NOMINAL) / derived.kinematicK;
+  it('rotation rate matches the analytic spin balance', () => {
+    // Spinning in place drags every contact patch sideways, so the rollers turn
+    // and resist just as they do in a strafe. The robot settles where yaw motor
+    // torque balances that drag, not at the pure-kinematic v_free / k.
+    const analytic = analyticSpinRate(derived.drivetrain, NOMINAL);
 
     const result = runHeadless({
       robots: [
@@ -140,8 +146,15 @@ describe('Phase 1 verification — analytic vs simulated', () => {
     expect(errorPct(measured, analytic)).toBeLessThan(0.5);
   });
 
-  it('strafe speed equals drive speed under the ideal mecanum model', () => {
-    const analytic = analyticFreeSpeed(derived.drivetrain, NOMINAL);
+  /**
+   * Strafing turns the rollers; driving straight does not (see
+   * `rollerSlipSpeeds`). So lateral motion settles where motor force balances
+   * roller drag, below the free speed forward motion reaches.
+   */
+  it('strafe speed matches the analytic lateral balance, below drive speed', () => {
+    expect(analyticStrafeFreeSpeed(derived.drivetrain, NOMINAL)).toBeLessThan(
+      analyticFreeSpeed(derived.drivetrain, NOMINAL),
+    );
 
     const result = runHeadless({
       robots: [
@@ -151,12 +164,22 @@ describe('Phase 1 verification — analytic vs simulated', () => {
           startPose: SOUTH_START,
         },
       ],
-      ticks: secondsToTicks(1.4, DT_SECONDS),
+      ticks: secondsToTicks(2.2, DT_SECONDS),
     });
 
     const robot = result.finalSnapshot.robots[0];
     if (robot === undefined) return;
     const measured = Math.hypot(robot.vel.v.x, robot.vel.v.y);
+
+    /**
+     * Compared at the *settled* pack voltage rather than at nominal, which the
+     * forward case does not need to do. Forward motion converges on zero motor
+     * current, so the battery recovers to open circuit; a strafe never stops
+     * drawing current, because the rollers are still resisting. Holding the
+     * comparison at 12 V would charge that real sag to the roller model.
+     */
+    const settledVolts = asVolts(result.finalSnapshot.batteryVolts);
+    const analytic = analyticStrafeFreeSpeed(derived.drivetrain, settledVolts);
 
     report(
       'Strafe speed',
@@ -165,7 +188,6 @@ describe('Phase 1 verification — analytic vs simulated', () => {
       `${errorPct(measured, analytic).toFixed(3)}%`,
     );
 
-    // Equal by construction; real mecanum strafes slower (ASSUMPTIONS.md §2.2).
     expect(errorPct(measured, analytic)).toBeLessThan(0.5);
   });
 

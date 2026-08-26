@@ -77,21 +77,25 @@ function robotOf(world: SimWorld): RobotSnapshot {
 
 describe('release to stop — translation', () => {
   /**
-   * Both cases run the same numbers: an ideal mecanum drive puts identical force
-   * forward and sideways (ASSUMPTIONS.md §2.2), so it must also brake
-   * identically. Testing both is what would catch a sign or mixing error that
-   * only shows on one axis.
+   * Both axes are tested because a sign or mixing error can show on one and not
+   * the other, and because they no longer run the same numbers.
+   *
+   * `minReleaseSpeed` differs by axis because the drivetrain does. Strafing
+   * turns the mecanum rollers and driving straight does not, so a strafe settles
+   * at about 0.8 of forward free speed (ASSUMPTIONS.md §2.2) — and it then stops
+   * in less distance, because the same roller drag that limited it also brakes
+   * it alongside the motors.
    */
-  for (const [name, input, start] of [
-    ['forward', FULL_FORWARD, WEST_START],
-    ['strafe', FULL_STRAFE, SOUTH_START],
+  for (const [name, input, start, minReleaseSpeed, maxSlide] of [
+    ['forward', FULL_FORWARD, WEST_START, 1.5, 0.25],
+    ['strafe', FULL_STRAFE, SOUTH_START, 1.2, 0.2],
   ] as const) {
     describe(name, () => {
       it('sheds most of its speed within a fifth of a second', () => {
         const world = releaseAfterSpinUp(input, start);
         world.stepMany(SPIN_UP_TICKS);
         const released = speedOf(robotOf(world));
-        expect(released).toBeGreaterThan(1.5);
+        expect(released).toBeGreaterThan(minReleaseSpeed);
 
         world.stepMany(40); // 0.2 s
         expect(speedOf(robotOf(world))).toBeLessThan(released * 0.2);
@@ -126,8 +130,8 @@ describe('release to stop — translation', () => {
         // From 1.57 m/s under a brake no stronger than the motor itself, the
         // robot needs about 0.18 m. A far shorter figure would mean velocity
         // was being assigned rather than integrated.
-        expect(slide).toBeLessThan(0.25);
-        expect(slide).toBeGreaterThan(0.1);
+        expect(slide).toBeLessThan(maxSlide);
+        expect(slide).toBeGreaterThan(0.08);
       });
 
       it('decelerates monotonically, never reversing', () => {
@@ -136,7 +140,7 @@ describe('release to stop — translation', () => {
 
         const forwardAxis = name === 'forward' ? 'x' : 'y';
         let previous = robotOf(world).vel.v[forwardAxis];
-        expect(previous).toBeGreaterThan(1.5);
+        expect(previous).toBeGreaterThan(minReleaseSpeed);
 
         for (let i = 0; i < 400; i++) {
           world.step();

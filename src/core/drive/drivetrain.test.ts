@@ -126,12 +126,14 @@ describe('drivetrain — directional purity', () => {
   });
 
   /**
-   * Ideal mecanum with the Jacobian-transpose force map gives identical force
-   * magnitude forward and sideways. Real drivetrains strafe slower; no strafe
-   * penalty is modelled in Phase 1 because it would require an invented
-   * coefficient (ASSUMPTIONS.md §2.2). Asserted so the idealisation is explicit.
+   * The *hub* is symmetric: from rest the Jacobian-transpose force map gives
+   * identical force forward and sideways, and that is a real property of ideal
+   * 45° mecanum rather than a simplification. What makes strafing slower is the
+   * rollers, and from rest they are not turning — so this equality must survive
+   * the roller model, and it is where the asymmetry does *not* come from.
+   * See `rollerSlip.test.ts` and ASSUMPTIONS.md §2.2.
    */
-  it('produces equal forward and lateral force magnitude (known idealisation)', () => {
+  it('produces equal forward and lateral force magnitude from rest', () => {
     const forward = solve(defaultSpec(), REST, 1, 0, 0);
     const strafe = solve(defaultSpec(), REST, 0, 1, 0);
     expect(strafe.wrench.fy).toBeCloseTo(forward.wrench.fx, 9);

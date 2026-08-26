@@ -128,24 +128,87 @@ model, not a defect.
 **Extension path.** `TractionModel` is an interface. A calibrated Coulomb model
 becomes an explicit opt-in implementation with no change to any caller.
 
-### 2.2 No strafe-efficiency penalty
+### 2.2 Roller-path resistance `MECANUM_ROLLER_DRAG_N_PER_MPS`
 
 | | |
 |---|---|
-| **Value** | None modelled — forward and lateral force magnitudes are equal |
-| **Confidence** | **ASSUMED** (idealisation) |
-| **Location** | `src/core/drive/drivetrain.ts` |
+| **Value** | `3.757` N per m/s of roller slip |
+| **Confidence** | **ASSUMED** (one scalar; the direction dependence is derived) |
+| **Location** | `src/core/drive/drivetrain.ts`, `src/core/drive/mecanumKinematics.ts` |
 
-Ideal mecanum kinematics with the Jacobian-transpose force mapping produce
-`|F_x| = |F_y| = 4F` for pure forward and pure strafe respectively, so the model
-gives identical translational acceleration and top speed in every direction.
+Real mecanum drivetrains strafe measurably slower than they drive forward. The
+hub kinematics do not explain it: ideal 45° mecanum with the Jacobian-transpose
+force mapping gives `|F_x| = |F_y| = 4F`, identical acceleration and identical
+top speed in every direction. That symmetry is a genuine theorem about the hub,
+and this ledger previously recorded it as an idealisation with no fix available
+short of an invented traction coefficient.
 
-**Known bias.** Real mecanum drivetrains strafe measurably slower than they drive
-forward — roller scrub, single-roller load transfer, and higher effective
-rolling resistance laterally. Introducing a correction factor would mean adding
-an invented, traction-adjacent coefficient, which is explicitly out of scope for
-Phase 1. Recorded here as a known idealisation. Calibration target alongside
-§2.1.
+**What was missing was the second degree of freedom.** A mecanum wheel has two:
+the hub, which the motor drives, and the rollers, which spin freely about axes
+45° to it. Splitting the contact velocity along the roller axis `â` and the
+perpendicular `û`,
+
+```
+v_c = (ω_wheel · r) x̂ + s û        ⇒   s = v_c·û − ω_wheel·r (x̂·û)
+```
+
+and substituting the inverse kinematics collapses to
+
+```
+s_FL = s_FR = √2 (v_y + a·ω)
+s_BL = s_BR = √2 (v_y − a·ω)
+```
+
+with **no `v_x` term**. Driving straight ahead, a mecanum wheel's rollers do not
+turn at all — it rolls like a plain wheel. Strafing, they turn at `√2` times the
+chassis speed. So any resistance in the roller path is *geometrically* confined
+to lateral motion and yaw.
+
+**What is assumed is one scalar**, the resistance itself: rollers are small,
+barrel-shaped and carried on short bearings, and turning them costs something.
+The direction dependence is not assumed — it falls out of the 45° geometry
+above.
+
+**Why this is not a friction coefficient.** `IdealTraction` remains the identity
+function and no friction or traction coefficient exists anywhere in the
+codebase (§2.1). This is a resistance *inside* the drivetrain, a sibling of
+`DRIVETRAIN_EFFICIENCY` (§2.3), applied as a force before integration. Top speed
+stays emergent: the robot accelerates until motor force balances roller drag,
+and nothing anywhere reads a maximum speed.
+
+**Mapped by Jacobian transpose, deliberately.** Roller slip is a linear function
+of chassis velocity, so a force conjugate to it maps back through the transpose
+of that map — the same discipline the wheel forces already follow. This is not
+merely tidy: it makes the result provably dissipative, `P = s·f = −c Σ s² ≤ 0`,
+for any chassis motion. Assembling the four contact forces by hand instead
+produces a yaw term proportional to `(halfTrack − halfWheelbase)` that *injects*
+energy into a chassis wider than it is long.
+
+**Effect on the reference robot** (18 in, 4 × 312 RPM, 96 mm wheels, 12 V):
+
+| Quantity | Before | After |
+|---|---|---|
+| Forward free speed | 1.5685 m/s | 1.5685 m/s (unchanged, exactly) |
+| Peak acceleration | 12.996 m/s² | 12.996 m/s² (unchanged, exactly) |
+| Strafe settling speed | 1.5685 m/s | 1.2549 m/s (0.80 ×) |
+| Spin rate | 228.3 °/s | 214.8 °/s |
+
+**Calibrating it.** The value was chosen to put the reference robot at a
+strafe/forward ratio of 0.80, which is mid-range for what FTC teams report. From
+a measured robot,
+
+```
+c = (k_t k_e G² η) / (2 R r²) · (v_forward / v_strafe − 1)
+```
+
+Because `c` is a property of the wheel rather than of the robot, the resulting
+ratio varies with the drivetrain — a heavily geared robot overcomes roller drag
+more easily and strafes relatively faster, which is the right direction.
+
+**Known limitation.** The drag force is independent of normal load, so a heavier
+robot pays the same absolute resistance. Making it load-dependent would be a
+friction coefficient, which §2.1 excludes. The consequence is that the
+strafe/forward ratio does not vary with robot mass.
 
 ### 2.3 External transmission efficiency `DRIVETRAIN_EFFICIENCY`
 
@@ -587,7 +650,6 @@ the external belt reduction carries an efficiency term (§2.3).
 | Effect | Why omitted | Consequence |
 |---|---|---|
 | Wheel slip / traction limit | Excluded by `PRODUCT_SPEC.md` §4 | Over-predicts acceleration (§2.1) |
-| Strafe efficiency loss | Would require an invented coefficient | Over-predicts strafe performance (§2.2) |
 | Rolling resistance | Would require an invented coefficient | Coasting is slightly optimistic (§2.4) |
 | Contact friction | Would require a coefficient | Wall sliding sheds no speed (§5.1) |
 | No-load current | Not in the specified current formula | Battery sag understated ~2.5 % (§7.2) |
@@ -600,9 +662,9 @@ the external belt reduction carries an efficiency term (§2.3).
 
 ### 8.1 Net direction of the Phase 1 biases
 
-Almost every omission above flatters the robot: no traction limit, no strafe
-penalty, no rolling resistance, no contact friction, understated current, an
-under-estimated moment of inertia. **Phase 1 numbers should be read as an
+Almost every omission above flatters the robot: no traction limit, no rolling
+resistance, no contact friction, understated current, an under-estimated moment
+of inertia. The strafe penalty is no longer among them (§2.2). **Phase 1 numbers should be read as an
 optimistic upper bound on what a design can do, not as a prediction of match
 performance.** The acceleration figure is the least trustworthy of them.
 
@@ -1054,4 +1116,5 @@ match against the lowest bar.
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
+| 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |
