@@ -10,3 +10,13 @@ dist/
 # citations; `tools/verify-citations.mjs` checks those against a local copy.
 Game Manuals/
 *.pdf
+
+# Source field CAD and setup guides.
+#
+# Same reason as the manuals above: third-party copyrighted documents supplied
+# for transcription, and large binaries besides — the DECODE full-field STEP is
+# 13 MB. What is derived from them lives in the fixtures with citations.
+Field CADs/
+Field Setup Guide/
+*.step
+*.stp
