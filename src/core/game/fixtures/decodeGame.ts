@@ -23,7 +23,9 @@ import {
   DECODE_MATCH,
   DECODE_MOTIFS,
   DECODE_OBJECTIVES,
+  DECODE_PENALTIES,
   DECODE_PIECES,
+  DECODE_RANKING_POINT_RULES,
   DECODE_ROBOT_CONSTRAINTS,
   DECODE_SCORING_RULES,
 } from './decode.js';
@@ -88,6 +90,13 @@ export const DECODE_GAME: GameDefinition = {
   rules: DECODE_SCORING_RULES,
   objectives: DECODE_OBJECTIVES,
   robotConstraints: DECODE_ROBOT_CONSTRAINTS,
+
+  // Recorded, not scored. Both are outside what a match simulation decides —
+  // ranking points need an event tier and a tournament, fouls need a referee —
+  // but carrying them here puts them in front of the provenance walker and
+  // spares a caller from hard-coding Table 10-3.
+  rankingPoints: DECODE_RANKING_POINT_RULES,
+  penalties: DECODE_PENALTIES,
 
   variables: { motif: DECODE_DEFAULT_MOTIF.value },
 };

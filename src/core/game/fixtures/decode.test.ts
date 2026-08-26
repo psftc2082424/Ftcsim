@@ -1,17 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
   ARTIFACT_NOMINAL_DIAMETER_IN,
+  DECODE_FOULS_ASSESSED_BY_REFEREE,
   DECODE_MATCH,
   DECODE_MOTIFS,
   DECODE_OBJECTIVES,
+  DECODE_PENALTIES,
   DECODE_PIECES,
   DECODE_POINTS,
+  DECODE_RANKING_POINT_RULES,
   DECODE_REGIONS,
+  DECODE_RP_THRESHOLDS,
+  DECODE_RP_THRESHOLD_STABILITY,
   DECODE_SCORING_RULES,
   DECODE_TOTAL_ARTIFACTS,
   DECODE_ZONES,
   RAMP_SLOT_COUNT,
 } from './decode.js';
+import { collectProvenance, rankingPointsFor } from '../gameDefinition.js';
+import { DECODE_GAME } from './decodeGame.js';
 import { MatchRunner } from '../matchRunner.js';
 import { createDefaultRegistry } from '../predicates.js';
 import { validateRuleSet } from '../rulesEngine.js';
@@ -86,6 +93,26 @@ const robotZone = (
   alliance,
   zoneId,
   supportFraction,
+});
+
+/**
+ * The end-of-period assessment.
+ *
+ * §10.5.3 assesses both LEAVE and BASE on where a robot *finished*, so every
+ * ROBOT award below is triggered by this rather than by the moment a robot
+ * crossed a boundary. Zone events are still ingested first, because they are
+ * what tells the runner where each robot is.
+ */
+const robotAssessed = (
+  robotId: string,
+  alliance: 'red' | 'blue',
+  tick: number,
+): SimEvent => ({
+  kind: 'RobotAssessed',
+  tick,
+  timeSec: tick * DT,
+  robotId,
+  alliance,
 });
 
 describe('DECODE fixture — manual provenance', () => {
@@ -283,22 +310,65 @@ describe('DECODE scoring — PATTERN', () => {
 describe('DECODE scoring — ROBOT criteria', () => {
   it('awards 3 per robot for LEAVE, capped at two robots', () => {
     const runner = newRunner();
-    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 100));
-    runner.ingest(robotZone('RobotExitedZone', 'r2', 'red', DECODE_ZONES.redLaunchLine, 110));
+    // No zone events, so no robot has support on any LAUNCH LINE.
+    runner.ingest(robotAssessed('r1', 'red', 100));
+    runner.ingest(robotAssessed('r2', 'red', 100));
     // A third robot cannot exist on an alliance; the cap must hold anyway.
-    runner.ingest(robotZone('RobotExitedZone', 'r3', 'red', DECODE_ZONES.redLaunchLine, 120));
+    runner.ingest(robotAssessed('r3', 'red', 100));
 
     expect(runner.score.red).toBe(2 * DECODE_POINTS.leaveAuto.value);
+  });
+
+  /**
+   * §10.5.3 asks where the robot is at the end of AUTO, not whether it ever
+   * left. The earlier implementation triggered on the exit itself, so a robot
+   * that drove out and came back still scored.
+   */
+  it('withholds LEAVE from a robot that returned to a LAUNCH LINE', () => {
+    const runner = newRunner();
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 50, 1));
+    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 100));
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 150, 1));
+    runner.ingest(robotAssessed('r1', 'red', 200));
+
+    expect(runner.score.red).toBe(0);
+  });
+
+  /**
+   * "no longer over **any** LAUNCH LINE" — the lines belong to the FIELD, not
+   * to an alliance (§9.3), so sitting on the opponent's line disqualifies too.
+   */
+  it('withholds LEAVE from a robot sitting on the other LAUNCH LINE', () => {
+    const runner = newRunner();
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.blueLaunchLine, 50, 1));
+    runner.ingest(robotAssessed('r1', 'red', 200));
+
+    expect(runner.score.red).toBe(0);
+  });
+
+  /** Partial support still counts as "over" the line. */
+  it('withholds LEAVE from a robot only partly over a LAUNCH LINE', () => {
+    const runner = newRunner();
+    runner.ingest(
+      robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 50, 0.25),
+    );
+    runner.ingest(robotAssessed('r1', 'red', 200));
+
+    expect(runner.score.red).toBe(0);
   });
 
   it('awards 10 for a fully returned robot and 5 for a partial one', () => {
     const runner = newRunner();
     runner.advanceTo(40);
 
+    // "If all of the support of the ROBOT in the BASE ZONE is from the TILE in
+    // the BASE ZONE, the ROBOT is fully returned to BASE." (§10.5.3)
     runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 8000, 1));
+    runner.ingest(robotAssessed('r1', 'red', 8000));
     expect(runner.score.red).toBe(DECODE_POINTS.baseFull.value);
 
     runner.ingest(robotZone('RobotOverlapsZone', 'r2', 'red', DECODE_ZONES.redBase, 8100, 0.5));
+    runner.ingest(robotAssessed('r2', 'red', 8100));
     expect(runner.score.red).toBe(
       DECODE_POINTS.baseFull.value + DECODE_POINTS.basePartial.value,
     );
@@ -309,6 +379,21 @@ describe('DECODE scoring — ROBOT criteria', () => {
     const runner = newRunner();
     runner.advanceTo(40);
     runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 8000, 0));
+    runner.ingest(robotAssessed('r1', 'red', 8000));
+    expect(runner.score.red).toBe(0);
+  });
+
+  /**
+   * BASE is assessed on the final position, so touching it mid-match earns
+   * nothing. The earlier implementation triggered on the crossing itself.
+   */
+  it('awards nothing for a robot that visited BASE and drove away', () => {
+    const runner = newRunner();
+    runner.advanceTo(40);
+    runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 8000, 1));
+    runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redBase, 8200));
+    runner.ingest(robotAssessed('r1', 'red', 8400));
+
     expect(runner.score.red).toBe(0);
   });
 
@@ -317,6 +402,8 @@ describe('DECODE scoring — ROBOT criteria', () => {
     runner.advanceTo(40);
     runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 8000, 1));
     runner.ingest(robotZone('RobotOverlapsZone', 'r2', 'red', DECODE_ZONES.redBase, 8100, 1));
+    runner.ingest(robotAssessed('r1', 'red', 8200));
+    runner.ingest(robotAssessed('r2', 'red', 8200));
     runner.runToCompletion();
 
     const breakdown = scoreBreakdown(runner.score, 'red');
@@ -330,6 +417,8 @@ describe('DECODE scoring — ROBOT criteria', () => {
     runner.advanceTo(40);
     runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 8000, 1));
     runner.ingest(robotZone('RobotOverlapsZone', 'r2', 'red', DECODE_ZONES.redBase, 8100, 0.4));
+    runner.ingest(robotAssessed('r1', 'red', 8200));
+    runner.ingest(robotAssessed('r2', 'red', 8200));
     runner.runToCompletion();
 
     expect(scoreBreakdown(runner.score, 'red')['red-base-bonus']).toBeUndefined();
@@ -370,6 +459,144 @@ describe('DECODE scoring — DEPOT', () => {
   });
 });
 
+describe('citation contract', () => {
+  /**
+   * What a *test* can check without the PDF.
+   *
+   * `tools/verify-citations.mjs` checks each quote against the manual itself,
+   * but it needs a 188-page PDF and an extractor, so it is a tool a human runs
+   * after transcribing. These assertions guard the shape a citation must have,
+   * which is what makes that tool able to check it at all — and they encode the
+   * conventions the first run of that tool established.
+   */
+  const cited = collectProvenance(DECODE_GAME).filter((e) => e.confidence === 'explicit');
+
+  it('gives every explicit value a page or a rule', () => {
+    const uncited = cited.filter((e) => e.sourcePage === undefined && e.sourceRule === undefined);
+    expect(uncited.map((e) => e.path)).toEqual([]);
+  });
+
+  it('gives every explicit value a quote to check', () => {
+    const unquoted = cited.filter((e) => (e.sourceQuote ?? '').trim().length === 0);
+    expect(unquoted.map((e) => e.path)).toEqual([]);
+  });
+
+  /**
+   * A reconstructed table row reads like a quotation but is not one, and no
+   * verifier can find it in the source. Values read out of a table quote the
+   * row as printed and name the column in `note` instead.
+   */
+  it('has no quote that reconstructs a table row', () => {
+    const reconstructed = cited.filter((e) => (e.sourceQuote ?? '').includes(' | '));
+    expect(reconstructed.map((e) => e.path)).toEqual([]);
+  });
+
+  /** Cited pages must exist in the document that was transcribed. */
+  it('cites pages inside the manual', () => {
+    const outOfRange = cited.filter(
+      (e) => e.sourcePage !== undefined && (e.sourcePage < 1 || e.sourcePage > 188),
+    );
+    expect(outOfRange.map((e) => e.path)).toEqual([]);
+  });
+});
+
+describe('DECODE ranking points (Tables 10-2 and 10-3)', () => {
+  it('transcribes every threshold in Table 10-3', () => {
+    // Read straight off p.88: three criteria x three event tiers.
+    expect(DECODE_RP_THRESHOLDS.firstChampionship.movement.value).toBe(21);
+    expect(DECODE_RP_THRESHOLDS.firstChampionship.goal.value).toBe(67);
+    expect(DECODE_RP_THRESHOLDS.firstChampionship.pattern.value).toBe(22);
+
+    expect(DECODE_RP_THRESHOLDS.regionalChampionship.movement.value).toBe(21);
+    expect(DECODE_RP_THRESHOLDS.regionalChampionship.goal.value).toBe(42);
+    expect(DECODE_RP_THRESHOLDS.regionalChampionship.pattern.value).toBe(22);
+
+    expect(DECODE_RP_THRESHOLDS.other.movement.value).toBe(16);
+    expect(DECODE_RP_THRESHOLDS.other.goal.value).toBe(36);
+    expect(DECODE_RP_THRESHOLDS.other.pattern.value).toBe(18);
+  });
+
+  it('cites the manual for every threshold', () => {
+    for (const [tier, criteria] of Object.entries(DECODE_RP_THRESHOLDS)) {
+      for (const [name, value] of Object.entries(criteria)) {
+        expect(value.confidence, `${tier}.${name}`).toBe('explicit');
+        expect(value.sourcePage, `${tier}.${name}`).toBe(88);
+      }
+    }
+  });
+
+  it('awards nothing below every threshold', () => {
+    const rp = rankingPointsFor(
+      DECODE_RANKING_POINT_RULES,
+      'other',
+      { movement: 15, goal: 35, pattern: 17 },
+      'loss',
+    );
+    expect(rp).toBe(0);
+  });
+
+  it('awards at the threshold, which is inclusive', () => {
+    const rp = rankingPointsFor(
+      DECODE_RANKING_POINT_RULES,
+      'other',
+      { movement: 16, goal: 36, pattern: 18 },
+    );
+    expect(rp).toBe(3);
+  });
+
+  /** The same performance is worth fewer RP at a Championship. */
+  it('scores the same match differently by event tier', () => {
+    const totals = { movement: 20, goal: 50, pattern: 20 };
+
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'other', totals)).toBe(3);
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'regionalChampionship', totals)).toBe(1);
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'firstChampionship', totals)).toBe(0);
+  });
+
+  it('adds the outcome ranking points', () => {
+    const none = { movement: 0, goal: 0, pattern: 0 };
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'other', none, 'win')).toBe(3);
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'other', none, 'tie')).toBe(1);
+    expect(rankingPointsFor(DECODE_RANKING_POINT_RULES, 'other', none, 'loss')).toBe(0);
+  });
+
+  /** A default tier would quietly score a Championship against the low bar. */
+  it('throws on an unknown event tier rather than defaulting', () => {
+    expect(() =>
+      rankingPointsFor(DECODE_RANKING_POINT_RULES, 'premier', { movement: 99 }),
+    ).toThrow(/no threshold for tier "premier"/);
+  });
+
+  it('records that two of the three tiers are provisional', () => {
+    expect(DECODE_RP_THRESHOLD_STABILITY.value).toBe(false);
+    expect(DECODE_RP_THRESHOLD_STABILITY.sourceQuote).toContain('announced in Team Updates');
+  });
+});
+
+describe('DECODE penalties (Table 10-4)', () => {
+  it('transcribes the foul values', () => {
+    expect(DECODE_PENALTIES.minorToOpponent.value).toBe(5);
+    expect(DECODE_PENALTIES.majorToOpponent.value).toBe(15);
+  });
+
+  it('states the fouls credit the opponent rather than deducting', () => {
+    expect(DECODE_PENALTIES.minorToOpponent.sourceQuote).toContain("opponent's MATCH point total");
+    expect(DECODE_PENALTIES.majorToOpponent.sourceQuote).toContain("opponent's MATCH point total");
+  });
+
+  /**
+   * No rule in the set assesses a foul, and that is a deliberate limit: every
+   * DECODE violation is a referee's call, not a geometric fact.
+   */
+  it('has no rule that assesses a foul', () => {
+    const penalising = DECODE_SCORING_RULES.filter(
+      (rule) => rule.id.includes('foul') || rule.id.includes('penalty'),
+    );
+    expect(penalising).toEqual([]);
+    expect(DECODE_FOULS_ASSESSED_BY_REFEREE.value).toBe(true);
+  });
+});
+
 describe('DECODE — full match end to end', () => {
   /**
    * A complete scripted match, scored from simulated actions alone. Every number
@@ -380,7 +607,10 @@ describe('DECODE — full match end to end', () => {
 
     // --- AUTO -------------------------------------------------------------
     runner.advanceTo(1);
-    // Both robots leave the launch line: 2 x 3 = 6.
+    // Both robots start on the launch line and drive off it: 2 x 3 = 6, awarded
+    // at the end-of-AUTO assessment rather than at the crossing (§10.5.3).
+    runner.ingest(robotZone('RobotEnteredZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 10, 1));
+    runner.ingest(robotZone('RobotEnteredZone', 'r2', 'red', DECODE_ZONES.redLaunchLine, 10, 1));
     runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 200));
     runner.ingest(robotZone('RobotExitedZone', 'r2', 'red', DECODE_ZONES.redLaunchLine, 220));
 
@@ -392,7 +622,9 @@ describe('DECODE — full match end to end', () => {
       );
     });
 
-    // End of AUTO: PATTERN scores 3 matching slots x 2 = 6.
+    // End of AUTO: LEAVE is assessed here, and PATTERN scores 3 slots x 2 = 6.
+    runner.ingest(robotAssessed('r1', 'red', 5900));
+    runner.ingest(robotAssessed('r2', 'red', 5900));
     runner.advanceTo(31);
 
     const afterAuto = runner.score.red;
@@ -418,6 +650,8 @@ describe('DECODE — full match end to end', () => {
     // Both robots return fully to BASE: 10 + 10, plus the 10 bonus.
     runner.ingest(robotZone('RobotOverlapsZone', 'r1', 'red', DECODE_ZONES.redBase, 31000, 1));
     runner.ingest(robotZone('RobotOverlapsZone', 'r2', 'red', DECODE_ZONES.redBase, 31100, 1));
+    runner.ingest(robotAssessed('r1', 'red', 31200));
+    runner.ingest(robotAssessed('r2', 'red', 31200));
 
     runner.runToCompletion();
 
@@ -445,6 +679,7 @@ describe('DECODE — full match end to end', () => {
         runner.ingest(enteredRegion(`a${slot}`, type, DECODE_REGIONS.redRamp, 300 + slot, 'red'));
         runner.ingest(cameToRest(`a${slot}`, type, [DECODE_REGIONS.redRamp], 400 + slot, slot));
       });
+      runner.ingest(robotAssessed('r1', 'red', 5900));
       runner.runToCompletion();
       return runner.score.red;
     };
@@ -460,6 +695,7 @@ describe('DECODE — full match end to end', () => {
     runner.advanceTo(1);
     runner.ingest(robotZone('RobotExitedZone', 'r1', 'red', DECODE_ZONES.redLaunchLine, 200));
     runner.ingest(enteredRegion('a1', 'G', DECODE_REGIONS.redRamp, 300, 'red'));
+    runner.ingest(robotAssessed('r1', 'red', 5900));
     runner.runToCompletion();
 
     const breakdown = scoreBreakdown(runner.score, 'red');

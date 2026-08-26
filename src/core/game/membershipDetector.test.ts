@@ -315,6 +315,65 @@ describe('robot zone occupancy', () => {
   });
 });
 
+describe('restating robots at a period boundary', () => {
+  /**
+   * `restateRobots` exists because zone events only fire for zones a robot is
+   * *in*, which cannot express a rule about where a robot is **not** — DECODE's
+   * LEAVE awards exactly the robots that produce no zone event (§10.5.3). So it
+   * restates each robot as a bare fact and lets a predicate ask the question.
+   */
+  it('reports every known robot, wherever it is', () => {
+    const d = detector();
+    d.prime({ robots: [robot(0, 0), robot(60, 60, { robotId: 'r2', alliance: 'blue' })] });
+
+    const events = d.restateRobots(400);
+    expect(kinds(events)).toEqual(['RobotAssessed', 'RobotAssessed']);
+    expect(events.map((e) => ('robotId' in e ? e.robotId : '?'))).toEqual(['r1', 'r2']);
+  });
+
+  it('carries each robot alliance, so a rule can filter by it', () => {
+    const d = detector();
+    d.prime({ robots: [robot(0, 0), robot(60, 60, { robotId: 'r2', alliance: 'blue' })] });
+
+    const alliances = d.restateRobots(400).map((e) => ('alliance' in e ? e.alliance : '?'));
+    expect(alliances).toEqual(['red', 'blue']);
+  });
+
+  it('derives event time from the tick', () => {
+    const d = detector();
+    d.prime({ robots: [robot(0, 0)] });
+    expect(d.restateRobots(400)[0]?.timeSec).toBeCloseTo(2, 10);
+  });
+
+  it('reports nothing when no robot has been seen', () => {
+    expect(detector().restateRobots(400)).toEqual([]);
+  });
+
+  /** A restatement is not a transition, so it must not disturb the diff. */
+  it('leaves the transition state untouched', () => {
+    const d = detector();
+    d.prime({ robots: [robot(60, 60)] });
+    d.restateRobots(400);
+
+    // Moving into the zone afterwards must still read as an entry.
+    expect(kinds(d.update({ robots: [robot(0, 0)] }, 401))).toEqual(['RobotEnteredZone']);
+  });
+
+  it('is deterministic regardless of the order robots were seen in', () => {
+    const forward = detector();
+    forward.prime({
+      robots: [robot(0, 0), robot(60, 60, { robotId: 'r2', alliance: 'blue' })],
+    });
+
+    const reverse = detector();
+    reverse.prime({
+      robots: [robot(60, 60, { robotId: 'r2', alliance: 'blue' }), robot(0, 0)],
+    });
+
+    expect(forward.restateRobots(400)).toEqual(reverse.restateRobots(400));
+  });
+});
+
 describe('several objects on one tick', () => {
   it('reports every object that transitioned', () => {
     const d = detector();

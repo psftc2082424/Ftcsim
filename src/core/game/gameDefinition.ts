@@ -48,6 +48,46 @@ export interface GamePieceType {
   readonly count: Sourced<number>;
 }
 
+/**
+ * A ranking-point criterion: a threshold on a match total.
+ *
+ * Not a `ScoringRule`, and deliberately so. A rule is triggered by an event and
+ * awards match points; a ranking point is a threshold on an aggregate that no
+ * single event carries, and it decides tournament seeding rather than the match.
+ * Folding one into the other would mean inventing an event for "the match
+ * ended with enough points", which is not a fact about the world.
+ *
+ * Thresholds are keyed by an event tier the *game* names, because which tiers
+ * exist is a tournament-structure question the engine has no opinion on. DECODE
+ * has three (Table 10-3); another season may have one.
+ */
+export interface RankingPointCriterion {
+  readonly id: string;
+  readonly label: string;
+  /** Ranking points awarded when the threshold is met. */
+  readonly award: Sourced<number>;
+  readonly thresholdByTier: Readonly<Record<string, Sourced<number>>>;
+}
+
+/** Ranking points a season awards, both for outcome and for performance. */
+export interface RankingPointRules {
+  readonly win: Sourced<number>;
+  readonly tie: Sourced<number>;
+  readonly criteria: readonly RankingPointCriterion[];
+}
+
+/**
+ * Foul values, in match points credited to the *opponent*.
+ *
+ * Values only. Which actions draw a foul is referee judgement in every FTC
+ * season, so a simulator cannot assess them; recording the values still lets a
+ * caller applying a foul externally use the right number.
+ */
+export interface PenaltyValues {
+  readonly minorToOpponent: Sourced<number>;
+  readonly majorToOpponent: Sourced<number>;
+}
+
 /** Size and expansion limits a legal robot must respect. */
 export interface RobotConstraints {
   readonly startingCubeIn: Sourced<number>;
@@ -72,8 +112,55 @@ export interface GameDefinition {
   readonly objectives: readonly Objective[];
   readonly robotConstraints: RobotConstraints;
 
+  /**
+   * Ranking points, where the season defines them. Optional because they are
+   * recorded rather than scored — see `rankingPointsFor`.
+   */
+  readonly rankingPoints?: RankingPointRules | undefined;
+  /** Foul values, where the season publishes them. */
+  readonly penalties?: PenaltyValues | undefined;
+
   /** Per-match values, e.g. a randomised pattern selection. */
   readonly variables?: Readonly<Record<string, FilterValue>> | undefined;
+}
+
+/**
+ * Ranking points an alliance earns from its match totals.
+ *
+ * `totals` is keyed by criterion id, and a criterion with no total supplied
+ * simply does not score — a caller that cannot measure something should not be
+ * forced to invent a zero that reads as a real measurement.
+ *
+ * An unknown tier throws rather than falling back to a default. Silently scoring
+ * a Championship match against a lower threshold would inflate every ranking
+ * point in the tournament, which is exactly the kind of quiet wrongness a
+ * default produces.
+ */
+export function rankingPointsFor(
+  rules: RankingPointRules,
+  tier: string,
+  totals: Readonly<Record<string, number>>,
+  outcome?: 'win' | 'tie' | 'loss' | undefined,
+): number {
+  let total = 0;
+
+  for (const criterion of rules.criteria) {
+    const threshold = criterion.thresholdByTier[tier];
+    if (threshold === undefined) {
+      const known = Object.keys(criterion.thresholdByTier).sort().join(', ');
+      throw new Error(
+        `Ranking-point criterion "${criterion.id}" has no threshold for tier "${tier}". Known tiers: ${known || '(none)'}.`,
+      );
+    }
+
+    const measured = totals[criterion.id];
+    if (measured !== undefined && measured >= threshold.value) total += criterion.award.value;
+  }
+
+  if (outcome === 'win') total += rules.win.value;
+  else if (outcome === 'tie') total += rules.tie.value;
+
+  return total;
 }
 
 // ------------------------------------------------------------- validation ---
@@ -105,6 +192,15 @@ export function referencedPlaceIds(rules: readonly ScoringRule[]): {
     const params = rule.condition?.params ?? {};
     if (typeof params['regionId'] === 'string') regions.add(params['regionId']);
     if (typeof params['zoneId'] === 'string') zones.add(params['zoneId']);
+    // Plural params are comma-separated (see `readList` in predicates.ts). Split
+    // them here too, or a rule naming several zones would validate against none
+    // of them and a typo'd zone id would reach the runtime unchecked.
+    if (typeof params['zoneIds'] === 'string') {
+      for (const zoneId of params['zoneIds'].split(',')) {
+        const trimmed = zoneId.trim();
+        if (trimmed.length > 0) zones.add(trimmed);
+      }
+    }
   }
 
   return { regions: [...regions].sort(), zones: [...zones].sort() };
@@ -197,6 +293,34 @@ export function validateGameDefinition(
     }
   }
 
+  // --- ranking points ------------------------------------------------------
+  //
+  // A criterion whose tiers disagree is worse than one that is missing: it
+  // scores for some events and throws for others, and only at the event that
+  // lacks a threshold. Checked here so the inconsistency surfaces at load.
+  if (definition.rankingPoints !== undefined) {
+    const criteria = definition.rankingPoints.criteria;
+    const criterionIds = new Set<string>();
+    const tiersOfFirst = new Set(Object.keys(criteria[0]?.thresholdByTier ?? {}));
+
+    for (const criterion of criteria) {
+      if (criterionIds.has(criterion.id)) {
+        error('rankingPoints', `Duplicate ranking-point criterion "${criterion.id}".`);
+      }
+      criterionIds.add(criterion.id);
+
+      const tiers = Object.keys(criterion.thresholdByTier);
+      if (tiers.length === 0) {
+        error(`rankingPoints.${criterion.id}`, 'Declares no threshold for any event tier.');
+      } else if (tiers.length !== tiersOfFirst.size || tiers.some((t) => !tiersOfFirst.has(t))) {
+        error(
+          `rankingPoints.${criterion.id}`,
+          `Event tiers differ from the other criteria (${[...tiersOfFirst].sort().join(', ')}).`,
+        );
+      }
+    }
+  }
+
   return problems;
 }
 
@@ -215,6 +339,15 @@ export interface LedgerEntry {
   readonly note?: string | undefined;
   readonly sourcePage?: number | undefined;
   readonly sourceRule?: string | undefined;
+  /**
+   * The quote the value was read from.
+   *
+   * Carried because the ledger is what a reviewer actually reads: a page number
+   * alone asks them to find the value again, where the quote lets them confirm
+   * it. It is also what `tools/verify-citations.mjs` checks against the source
+   * document.
+   */
+  readonly sourceQuote?: string | undefined;
 }
 
 function isSourced(value: unknown): value is Sourced<unknown> {
@@ -254,6 +387,7 @@ export function collectProvenance(definition: GameDefinition): readonly LedgerEn
         note: node.note,
         sourcePage: node.sourcePage,
         sourceRule: node.sourceRule,
+        sourceQuote: node.sourceQuote,
       });
       return;
     }

@@ -2,3 +2,11 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# Source game manuals.
+#
+# Third-party copyrighted documents supplied for transcription, and large
+# binaries besides. What is derived from them lives in the fixtures with page
+# citations; `tools/verify-citations.mjs` checks those against a local copy.
+Game Manuals/
+*.pdf

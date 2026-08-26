@@ -165,6 +165,9 @@ export class MatchSimulation {
     if (this.endsAPeriod(this.world.tick)) {
       this.ingestAll(this.detector.restateRestingPieces(this.world.tick, this.options.slotAssignment));
       this.ingestAll(this.detector.restateOccupancy(this.world.tick));
+      // Robots last: an assessment rule asks where a robot is *not*, so the
+      // zone bookkeeping above must already be current when it runs.
+      this.ingestAll(this.detector.restateRobots(this.world.tick));
     }
 
     // The runner ingests its own transition; logging the returned event keeps

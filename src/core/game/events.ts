@@ -25,6 +25,7 @@ export type SimEventKind =
   | 'RobotOverlapsZone'
   | 'RobotHeightExceeded'
   | 'MechanismStateChanged'
+  | 'RobotAssessed'
   | 'PhaseChanged';
 
 export type Alliance = 'red' | 'blue';
@@ -107,6 +108,24 @@ export interface MechanismStateChangedEvent extends SimEventBase {
 }
 
 /**
+ * A robot exists and is being assessed at a moment of consequence.
+ *
+ * Zone events only fire for zones a robot is *in*, which cannot express a rule
+ * about where a robot is **not**. DECODE's LEAVE is exactly that: a robot scores
+ * when it "is no longer over any LAUNCH LINE at the end of AUTO" (§10.5.3), and
+ * a robot that has left produces no zone event at all to trigger on.
+ *
+ * So an assessment restates each robot as a bare fact at a period boundary, and
+ * predicates answer questions about it. Season-agnostic: it asserts nothing
+ * beyond "this robot is here now".
+ */
+export interface RobotAssessedEvent extends SimEventBase {
+  readonly kind: 'RobotAssessed';
+  readonly robotId: string;
+  readonly alliance: Alliance;
+}
+
+/**
  * The match clock moved between phases.
  *
  * This is what lets end-of-period assessment be an ordinary rule rather than a
@@ -128,6 +147,7 @@ export type SimEvent =
   | RobotZoneEvent
   | RobotHeightExceededEvent
   | MechanismStateChangedEvent
+  | RobotAssessedEvent
   | PhaseChangedEvent;
 
 /**

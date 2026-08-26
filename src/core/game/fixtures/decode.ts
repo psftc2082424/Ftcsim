@@ -23,9 +23,11 @@
  *    rather than 150 s.
  */
 
-import { assumed, explicit, explicitRule, unresolved } from '../sourced.js';
+import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sourced.js';
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
+import type { PenaltyValues, RankingPointRules } from '../gameDefinition.js';
+import { ARTIFACT, ZONES } from './decodeDimensions.js';
 
 // ---------------------------------------------------------------- pieces ---
 
@@ -61,12 +63,13 @@ export const DECODE_PIECES: readonly DecodePieceType[] = [
   },
 ];
 
-/** Nominal diameter as printed, distinct from the toleranced spec above. */
-export const ARTIFACT_NOMINAL_DIAMETER_IN = explicit(
-  5,
-  73,
-  'ARTIFACTS are 5 in. (12.70 cm) nominal Gopher ResisDent polypropylene balls',
-);
+/**
+ * Nominal diameter as printed, distinct from the toleranced spec above.
+ *
+ * Aliased rather than re-cited: a second copy had its own quote, which had lost
+ * the trademark mark the manual prints and so no longer matched the source.
+ */
+export const ARTIFACT_NOMINAL_DIAMETER_IN = ARTIFACT.nominalDiameterIn;
 
 // ---------------------------------------------------------------- motifs ---
 
@@ -108,12 +111,32 @@ export const DECODE_ZONES = {
   blueLaunchLine: 'blue-launch-line',
 } as const;
 
-/** BASE ZONE is an 18 in square (§9.3). */
-export const BASE_ZONE_SIDE_IN = explicit(
-  18,
-  61,
-  'BASE ZONE: an 18 in. +/- 0.125 in. wide by 18 in. +/- 0.125 in.',
-);
+/**
+ * Every zone LEAVE is assessed against, comma-separated for `robotNotInZone`.
+ *
+ * §10.5.3 says "no longer over **any** LAUNCH LINE", and LAUNCH LINES are not
+ * an alliance's property: §9.3 puts one LAUNCH ZONE on the audience side and one
+ * on the GOAL side, both belonging to the FIELD.
+ *
+ * ── Known incompleteness ───────────────────────────────────────────────
+ *
+ * §9.3 also makes the DEPOT tape a LAUNCH LINE ("The DEPOT tape is a LAUNCH
+ * LINE"), and the DEPOT is modelled here as a *region* — a place artifacts rest
+ * — not as a zone a robot's support is measured against. A robot parked over a
+ * DEPOT at the end of AUTO therefore scores LEAVE here and would not on a real
+ * field. Recorded in ASSUMPTIONS.md §10.12 rather than papered over; fixing it
+ * means giving the DEPOT a zone as well as a region, which needs the positions
+ * this layout does not yet have.
+ */
+export const ALL_LAUNCH_LINE_ZONE_IDS = `${DECODE_ZONES.redLaunchLine},${DECODE_ZONES.blueLaunchLine}`;
+
+/**
+ * BASE ZONE side, re-exported from the transcribed dimensions.
+ *
+ * Was a second copy with its own citation, which drifted: it named p.61 where
+ * the text is on p.62. A dimension should exist once, so this is now an alias.
+ */
+export const BASE_ZONE_SIDE_IN = ZONES.baseZoneSideIn;
 
 // ------------------------------------------------------------ match timing ---
 
@@ -142,10 +165,14 @@ export const DECODE_MATCH: MatchStructure = {
         {
           id: 'ENDGAME',
           // DECODE defines no endgame; zero means the sub-phase never opens.
-          startsAtRemainingSec: explicit(
+          // Deduced from an absence, so `inferred` rather than `explicit`: the
+          // manual gives the match exactly two periods and the word ENDGAME
+          // appears nowhere in it. Zero means the sub-phase never opens.
+          startsAtRemainingSec: inferred(
             0,
+            'The manual defines AUTO and TELEOP and no third period; "ENDGAME" does ' +
+              'not appear anywhere in it. BASE is assessed at the end of TELEOP.',
             83,
-            'The DECODE manual defines no ENDGAME period; BASE is assessed at the end of TELEOP.',
           ),
         },
       ],
@@ -162,55 +189,250 @@ export const DECODE_MATCH: MatchStructure = {
 
 /** Table 10-2, DECODE point values (§10.5.4, p.88). */
 export const DECODE_POINTS = {
-  leaveAuto: explicit(3, 88, 'LEAVE | AUTO 3'),
-  classifiedAuto: explicit(3, 88, 'CLASSIFIED | AUTO 3'),
-  classifiedTeleop: explicit(3, 88, 'CLASSIFIED | TELEOP 3'),
-  overflowAuto: explicit(1, 88, 'OVERFLOW | AUTO 1'),
-  overflowTeleop: explicit(1, 88, 'OVERFLOW | TELEOP 1'),
-  depotTeleop: explicit(1, 88, 'DEPOT | TELEOP 1'),
-  patternAuto: explicit(2, 88, 'PATTERN ARTIFACT matches MOTIF | AUTO 2'),
-  patternTeleop: explicit(2, 88, 'PATTERN ARTIFACT matches MOTIF | TELEOP 2'),
-  basePartial: explicit(5, 88, 'Partially returned to BASE | 5'),
-  baseFull: explicit(10, 88, 'Fully returned to BASE | 10'),
-  baseBothBonus: explicit(10, 88, 'Additional Bonus: 2 ROBOTS fully returned to BASE. | 10'),
+  leaveAuto: explicit(3, 88, 'LEAVE 3', 'AUTO column; the row has no TELEOP entry'),
+  classifiedAuto: explicit(3, 88, 'CLASSIFIED 3 3', 'AUTO column'),
+  classifiedTeleop: explicit(3, 88, 'CLASSIFIED 3 3', 'TELEOP column'),
+  overflowAuto: explicit(1, 88, 'ARTIFACT OVERFLOW 1 1', 'AUTO column'),
+  overflowTeleop: explicit(1, 88, 'ARTIFACT OVERFLOW 1 1', 'TELEOP column'),
+  depotTeleop: explicit(1, 88, 'DEPOT 1', 'TELEOP column; the row has no AUTO entry'),
+  patternAuto: explicit(2, 88, 'PATTERN ARTIFACT matches MOTIF 2 2', 'AUTO column'),
+  patternTeleop: explicit(2, 88, 'PATTERN ARTIFACT matches MOTIF 2 2', 'TELEOP column'),
+  basePartial: explicit(5, 88, 'Partially returned to BASE 5'),
+  baseFull: explicit(10, 88, 'Fully returned to BASE 10'),
+  baseBothBonus: explicit(
+    10,
+    88,
+    'Additional Bonus: 2 ROBOTS fully',
+    'Table 10-2, TELEOP column: 10. The PDF wraps "returned to BASE." onto the ' +
+      'line below the value, so the label and its value are not contiguous.',
+  ),
 } as const;
 
 /**
- * Ranking points are recorded for completeness but are **not** scored by the
- * rules engine: RP thresholds vary by event tier (Table 10-3) and RP affects
- * tournament ranking rather than match score.
+ * Ranking points (Tables 10-2 and 10-3, p.88).
+ *
+ * Recorded but **not** scored by the rules engine: RP decides tournament
+ * ranking rather than match score, and an RP is earned by an alliance's whole
+ * match performance rather than by any single event. A caller that wants them
+ * computes them from the final score with `decodeRankingPointsFor` below.
  */
 export const DECODE_RANKING_POINTS = {
-  win: explicit(3, 88, 'WIN | 3'),
-  tie: explicit(1, 88, 'TIE | 1'),
-  movement: explicit(1, 88, 'MOVEMENT RP | 1'),
-  goal: explicit(1, 88, 'GOAL RP | 1'),
-  pattern: explicit(1, 88, 'PATTERN RP | 1'),
-  thresholds: unresolved(
-    0,
-    'RP thresholds (Table 10-3) vary by event tier and were not transcribed; not needed for match scoring.',
+  win: explicit(
+    3,
+    88,
+    'Completing a MATCH with more MATCH points than your',
+    'Table 10-2, WIN row: 3. The PDF wraps "opponent" below the value.',
+  ),
+  tie: explicit(
+    1,
+    88,
+    'Completing a MATCH with the same MATCH points as your',
+    'Table 10-2, TIE row: 1. The PDF wraps "opponent" below the value.',
+  ),
+  movement: explicit(
+    1,
+    88,
+    'Combined LEAVE + BASE points earned at or above',
+    'Table 10-2, MOVEMENT RP row: 1. The PDF wraps "threshold" below the value.',
+  ),
+  goal: explicit(
+    1,
+    88,
+    'The number of ARTIFACTS scored through the SQUARE at or',
+    'Table 10-2, GOAL RP row: 1. The PDF wraps "above threshold" below the value.',
+  ),
+  pattern: explicit(
+    1,
+    88,
+    'PATTERN RP - PATTERN points earned at or above threshold',
+    'Table 10-2, PATTERN RP row: 1.',
   ),
 } as const;
+
+/**
+ * Event tiers, because DECODE's RP thresholds are not one set of numbers.
+ *
+ * Table 10-3 gives three columns, and the manual adds that Championship
+ * thresholds may still move ("RP thresholds for Regional Championships and FIRST
+ * Championship will be announced in Team Updates") and that Premier Events set
+ * their own. So a threshold is only meaningful alongside the tier it came from,
+ * and the tier is the caller's choice rather than a property of the game.
+ */
+export type DecodeEventTier = 'firstChampionship' | 'regionalChampionship' | 'other';
+
+/** Table 10-3 (p.88), transcribed column by column. */
+export const DECODE_RP_THRESHOLDS: Readonly<
+  Record<DecodeEventTier, Readonly<Record<'movement' | 'goal' | 'pattern', Sourced<number>>>>
+> = {
+  firstChampionship: {
+    movement: explicit(21, 88, 'MOVEMENT RP 21 21 16', 'FIRST Championship column'),
+    goal: explicit(67, 88, 'GOAL RP 67 42 36', 'FIRST Championship column'),
+    pattern: explicit(22, 88, 'PATTERN RP 22 22 18', 'FIRST Championship column'),
+  },
+  regionalChampionship: {
+    movement: explicit(21, 88, 'MOVEMENT RP 21 21 16', 'Regional Championships column'),
+    goal: explicit(42, 88, 'GOAL RP 67 42 36', 'Regional Championships column'),
+    pattern: explicit(22, 88, 'PATTERN RP 22 22 18', 'Regional Championships column'),
+  },
+  other: {
+    movement: explicit(16, 88, 'MOVEMENT RP 21 21 16', 'All Other Events column'),
+    goal: explicit(36, 88, 'GOAL RP 67 42 36', 'All Other Events column'),
+    pattern: explicit(18, 88, 'PATTERN RP 22 22 18', 'All Other Events column'),
+  },
+} as const;
+
+/**
+ * Two of the three tiers are provisional, and that is the manual's own
+ * statement rather than a caveat added here.
+ */
+export const DECODE_RP_THRESHOLD_STABILITY = explicit(
+  false,
+  88,
+  'RP thresholds for Regional Championships and FIRST Championship will be announced in Team Updates. *Premier Events will be able to set their own thresholds to best reflect the experience they want to provide teams.',
+);
+
+/**
+ * DECODE's ranking points as definition data.
+ *
+ * The criterion ids are the keys a caller supplies totals under, and each says
+ * what it measures rather than naming a rule — `rankingPointsFor` in
+ * `gameDefinition.ts` does the arithmetic and knows nothing about DECODE.
+ *
+ * Does not model the rules that make an alliance *ineligible* for an RP (G206,
+ * G417, G418, G431). Those are referee judgement, and the simulator has no
+ * referee. See ASSUMPTIONS.md §10.13.
+ */
+export const DECODE_RANKING_POINT_RULES: RankingPointRules = {
+  win: DECODE_RANKING_POINTS.win,
+  tie: DECODE_RANKING_POINTS.tie,
+  criteria: [
+    {
+      id: 'movement',
+      label: 'MOVEMENT RP - combined LEAVE + BASE points',
+      award: DECODE_RANKING_POINTS.movement,
+      thresholdByTier: tierMap('movement'),
+    },
+    {
+      id: 'goal',
+      label: 'GOAL RP - ARTIFACTS scored through the SQUARE',
+      award: DECODE_RANKING_POINTS.goal,
+      thresholdByTier: tierMap('goal'),
+    },
+    {
+      id: 'pattern',
+      label: 'PATTERN RP - PATTERN points',
+      award: DECODE_RANKING_POINTS.pattern,
+      thresholdByTier: tierMap('pattern'),
+    },
+  ],
+};
+
+function tierMap(
+  criterion: 'movement' | 'goal' | 'pattern',
+): Readonly<Record<DecodeEventTier, Sourced<number>>> {
+  return {
+    firstChampionship: DECODE_RP_THRESHOLDS.firstChampionship[criterion],
+    regionalChampionship: DECODE_RP_THRESHOLDS.regionalChampionship[criterion],
+    other: DECODE_RP_THRESHOLDS.other[criterion],
+  };
+}
+
+// -------------------------------------------------------------- penalties ---
+
+/**
+ * Table 10-4 (p.89). Point values only.
+ *
+ * A foul is *credited to the opponent's* total rather than deducted from the
+ * violator's, which matters: a penalised alliance's own score is unchanged.
+ *
+ * None of DECODE's violations are simulated, and that is a limit of the
+ * simulator rather than an omission from the manual. Every foul turns on
+ * referee perception — the manual says so directly, "All rules throughout the
+ * Game Rules section are called as perceived by a REFEREE" (p.89) — and on
+ * judgements like MOMENTARY, PERSISTENT and REPEATED that no geometric
+ * predicate decides. The values are recorded so a caller applying a foul
+ * externally uses the right number.
+ */
+export const DECODE_PENALTIES: PenaltyValues = {
+  minorToOpponent: explicit(
+    5,
+    89,
+    "a credit of 5 points towards the opponent's MATCH point total",
+    'Table 10-4, MINOR FOUL row. The PDF renders the two penalty labels above ' +
+      'their two descriptions, so the label and its value are not adjacent in ' +
+      'the extracted text; 5 is the first description and MINOR FOUL the first label.',
+  ),
+  majorToOpponent: explicit(
+    15,
+    89,
+    "a credit of 15 points towards the opponent's MATCH point total",
+    'Table 10-4, MAJOR FOUL row.',
+  ),
+};
+
+/**
+ * Recorded as a fact about the source, not as a value: fouls are judgement, not
+ * geometry, so no amount of simulation detail would let the engine assess one.
+ */
+export const DECODE_FOULS_ASSESSED_BY_REFEREE = explicit(
+  true,
+  89,
+  'All rules throughout the Game Rules section are called as perceived by a REFEREE.',
+);
 
 // ------------------------------------------------------------ robot limits ---
 
+/**
+ * Sizing rules, re-read against the manual.
+ *
+ * An earlier version cited R104 for the starting cube and p.103 for both
+ * expansion limits. R104 is "Keep it together" and says nothing about size; the
+ * sizing rules are R101 (p.121) and R105 (p.123). Corrected here, and worth
+ * noting as the failure mode a citation is supposed to catch — the *values*
+ * were right, so nothing downstream was wrong, and only the citation revealed
+ * that they had not actually been read from where they claimed.
+ */
 export const DECODE_ROBOT_CONSTRAINTS = {
   startingCubeIn: explicitRule(
     18,
-    'R104',
-    'within an 18 in. wide, by 18 in. long, by 18 in. high volume',
+    'R101',
+    'the ROBOT must be fully self-contained within an 18 in. (45.70 cm) wide, by 18 in. (45.70 cm) long, by 18 in. (45.70 cm) high volume',
+    121,
   ),
-  maxExpandedHeightIn: explicit(
+  /**
+   * The 38 in ceiling is conditional, not a general limit: R105.C allows it only
+   * "within the limitations per G415", and G415 permits it only during the final
+   * 20 seconds and only outside every LAUNCH ZONE. Modelled as the maximum a
+   * legal robot may ever reach, which is what a builder needs; the conditions
+   * are a referee's call and are not simulated (ASSUMPTIONS.md §10.13).
+   */
+  maxExpandedHeightIn: explicitRule(
     38,
-    103,
-    'ROBOTS may only expand above 18 in. (45.70 cm) up to 38 in. (96.50 cm)',
+    'R105.C',
+    'Within the limitations per G415, ROBOTS may expand vertically up to 38 in. (96.50 cm).',
+    123,
   ),
-  horizontalExpansionIn: explicit(
+  horizontalExpansionIn: explicitRule(
     18,
-    103,
-    'fixed 18 in. by 18 in. when fully expanded per G414',
+    'R105.A',
+    'ROBOTS may expand horizontally but must remain within a fixed 18 in. (45.70 cm) by 18 in. (45.70 cm) when fully expanded per G414',
+    123,
   ),
 } as const;
+
+/**
+ * DECODE sets no weight limit, which is why nothing here caps robot mass.
+ *
+ * Recorded rather than left implicit: a simulator that silently clamped mass
+ * would be enforcing a rule the game does not have, and mass is the single
+ * biggest determinant of acceleration in the drivetrain model.
+ */
+export const DECODE_HAS_NO_WEIGHT_LIMIT = explicitRule(
+  true,
+  'R103',
+  'There is no explicit weight limit for FIRST Tech Challenge ROBOTS.',
+  122,
+);
 
 // ------------------------------------------------------------- rule builder ---
 
@@ -322,25 +544,31 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
 
       // --- LEAVE, assessed at the end of AUTO (§10.5, E; §10.5.3) ----------
+      //
+      // The manual's criterion is a *final position*, not a crossing:
+      //
+      //   "To qualify for LEAVE points, a ROBOT must move such that it is no
+      //    longer over any LAUNCH LINE at the end of AUTO." (p.87)
+      //
+      // Two consequences the earlier `RobotExitedZone` version got wrong. A
+      // robot that leaves and drives back scored anyway, because the exit had
+      // already fired; and "any LAUNCH LINE" means every line on the field, not
+      // the robot's own — the DEPOT tape is a LAUNCH LINE too (§9.3), and the
+      // LAUNCH ZONES belong to the FIELD rather than to an alliance.
+      //
+      // So it triggers on the end-of-AUTO assessment and asks where the robot
+      // is *not*, which is what `RobotAssessed` exists for.
       {
         id: `${alliance}-leave`,
         label: `${alliance} LEAVE`,
         phase: 'AUTO' as const,
         trigger: {
-          event: 'RobotExitedZone' as const,
-          filters: [
-            {
-              field: 'zoneId',
-              equals:
-                alliance === 'red'
-                  ? DECODE_ZONES.redLaunchLine
-                  : DECODE_ZONES.blueLaunchLine,
-            },
-            // Without this a robot crossing the *other* alliance's launch line
-            // scores LEAVE for them. The zone is alliance-specific; the robot
-            // triggering it must be too.
-            { field: 'alliance', equals: alliance },
-          ],
+          event: 'RobotAssessed' as const,
+          filters: [{ field: 'alliance', equals: alliance }],
+        },
+        condition: {
+          predicateId: 'robotNotInZone',
+          params: { zoneIds: ALL_LAUNCH_LINE_ZONE_IDS },
         },
         award: { points: DECODE_POINTS.leaveAuto, alliance },
         // One award per robot per match; two robots per alliance.
@@ -348,16 +576,35 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
       },
 
       // --- BASE, assessed at the end of TELEOP (§10.5, F; §10.5.3) ---------
+      //
+      // The manual defines both tiers by *support*, not by overlap:
+      //
+      //   "A ROBOT fully returned to BASE must only be supported, either
+      //    directly or transitively, by the TILE in the BASE ZONE."
+      //   "A ROBOT partially returned to BASE must be partially supported ...
+      //    by the TILE in the BASE ZONE." (p.87)
+      //
+      // and settles the boundary: "If all of the support of the ROBOT in the
+      // BASE ZONE is from the TILE in the BASE ZONE, the ROBOT is fully
+      // returned"; if some support comes from tiles outside it, the ROBOT is
+      // partially returned. That is exactly the support fraction the detector
+      // measures, so `robotFullyInZone` / `robotPartiallyInZone` are the right
+      // questions — what changes is *when* they are asked.
+      //
+      // Triggering on `RobotOverlapsZone` assessed the moment a robot crossed
+      // the boundary, so a robot that touched BASE mid-match and drove away
+      // still scored. `RobotAssessed` fires at the end of the period, which is
+      // when the manual assesses it.
+      //
+      // The two tiers are mutually exclusive by construction: full support
+      // makes `robotPartiallyInZone` false, so a robot cannot collect both.
       {
         id: `${alliance}-base-full`,
         label: `${alliance} fully returned to BASE`,
         phase: 'TELEOP' as const,
         trigger: {
-          event: 'RobotOverlapsZone' as const,
-          filters: [
-            { field: 'zoneId', equals: base },
-            { field: 'alliance', equals: alliance },
-          ],
+          event: 'RobotAssessed' as const,
+          filters: [{ field: 'alliance', equals: alliance }],
         },
         condition: { predicateId: 'robotFullyInZone', params: { zoneId: base } },
         award: { points: DECODE_POINTS.baseFull, alliance },
@@ -368,11 +615,8 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
         label: `${alliance} partially returned to BASE`,
         phase: 'TELEOP' as const,
         trigger: {
-          event: 'RobotOverlapsZone' as const,
-          filters: [
-            { field: 'zoneId', equals: base },
-            { field: 'alliance', equals: alliance },
-          ],
+          event: 'RobotAssessed' as const,
+          filters: [{ field: 'alliance', equals: alliance }],
         },
         condition: { predicateId: 'robotPartiallyInZone', params: { zoneId: base } },
         award: { points: DECODE_POINTS.basePartial, alliance },
@@ -479,4 +723,5 @@ export const DECODE_TOTAL_ARTIFACTS = explicit(
   36,
   73,
   'There are 24 purple (P) ARTIFACTS and 12 green (G) ARTIFACTS total in a DECODE MATCH.',
+  'The manual states the two counts; 36 is their sum.',
 );

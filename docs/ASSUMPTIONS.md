@@ -714,14 +714,19 @@ simulation emits. In Phase 3 those events are scripted by tests; when the
 physics layer emits them for real, the mapping from geometry to region
 membership becomes a new source of error and will need its own entry here.
 
-### 10.5 Not transcribed from the manual
+### 10.5 What is transcribed from the manual, and what is not
 
 | Item | Status | Why |
 |---|---|---|
-| RP thresholds (Table 10-3) | **unresolved** | Vary by event tier; affect ranking, not match score |
-| Field element geometry (GOAL, RAMP, CLASSIFIER, OBELISK positions) | Not modelled | The manual gives the CAD model as authoritative and states illustration dimensions are nominal ±1 in |
-| Penalties and violations (§10.6, §11) | Not modelled | Refereeing judgement; out of Phase 3 scope |
+| RP thresholds (Table 10-3) | **Transcribed** | `DECODE_RP_THRESHOLDS`, p.88, all three tiers |
+| Penalty values (Table 10-4) | **Transcribed** | `DECODE_PENALTIES`, p.89 — values only; see §10.13 |
+| Field element **sizes** | **Transcribed** | `decodeDimensions.ts`, every value with a page and a verbatim quote |
+| Field element **positions** | Not modelled | The manual gives the CAD model as authoritative and states illustration dimensions are nominal ±1 in — see §10.9 |
+| ARTIFACT mass | Estimated | Confirmed absent from the manual — see §10.10 |
+| Which actions draw a foul | Not modelled | Refereeing judgement — see §10.13 |
+| RP eligibility rules (G206, G417, G418, G431) | Not modelled | Refereeing judgement — see §10.13 |
 | AprilTag positions | Recorded only as ids | Navigation aid, not scoring |
+| DEPOT tape as a LAUNCH LINE | Not modelled | See §10.12 |
 
 Field geometry is the significant gap: DECODE regions currently exist as *ids*
 that events reference, not as placed shapes. Scoring is correct; spatial
@@ -736,6 +741,21 @@ derives from a robot physically pushing a piece into a region.
 What remains is not the pipeline but the *coordinates*: DECODE's field element
 positions are still invented (§10.9). The engine applies DECODE's rules
 correctly to whatever geometry it is given; it is given a placeholder.
+
+**Sizes are now sourced.** `decodeDimensions.ts` transcribes every dimension the
+Competition Manual publishes — field, tiles, tape, each zone, the GOAL and its
+top lip, the CLASSIFIER, the ARTIFACT, the AprilTags and the OBELISK — each with
+a page number and a verbatim quote. `decodeField.ts` builds the layout from
+those extents, so the elements are the right size at guessed places rather than
+guessed size at guessed places.
+
+**Scoring criteria are now the manual's, not an approximation of them.** §10.5.3
+defines LEAVE and BASE as questions about a robot's *final position*, and both
+rules were previously triggered by a boundary crossing — so a robot that left
+the LAUNCH LINE and drove back still scored LEAVE, and a robot that touched BASE
+mid-match and left still scored BASE. Both now trigger on an end-of-period
+`RobotAssessed` fact. LEAVE additionally checks *every* LAUNCH LINE, not the
+alliance's own, because the LAUNCH ZONES belong to the FIELD (§9.3).
 
 ### 10.6 Robot zone occupancy by corner sampling
 
@@ -814,10 +834,22 @@ resolution is not stuck with a representative number invented to fit.
 | **Status** | **Placeholder**, marked in code and asserted by test |
 | **Location** | `src/core/game/fixtures/decodeField.ts` |
 
-Every coordinate in the DECODE layout is made up. The Competition Manual names
-the field CAD as authoritative and marks illustration dimensions as nominal, so
-there is nothing to transcribe. `DECODE_LAYOUT_PROVENANCE` records this as an
-`assumed` value and a test asserts it stays that way.
+Every coordinate in the DECODE layout is made up — but only the coordinates.
+Element **sizes** are transcribed from the manual with citations
+(`decodeDimensions.ts`); what remains invented is where each correctly-sized
+element sits.
+
+The manual publishes no coordinate table: §9.4 defines TILE coordinates in
+Figures 9-4 and 9-5, which are images, and §9.1 names the 3D CAD model as the
+official representation with a ±1 in tolerance on anything measured from it.
+`DECODE_LAYOUT_PROVENANCE` records the remaining gap as an `assumed` value and a
+test asserts it stays that way.
+
+**Consequence, precisely.** Distances between elements are wrong, so cycle times
+and "did it reach the goal" outcomes are not predictive. Every "is it inside"
+judgement is right relative to the placed geometry, and correct in absolute
+terms once positions are supplied, because the extents being tested against are
+the real ones.
 
 **What this does and does not invalidate.** The rules, point values, timings and
 piece counts are transcribed and cited; the end-to-end scores in
@@ -838,6 +870,14 @@ DECODE specifies ARTIFACT diameter (4.9 in ± 0.25) and material, but no weight,
 and the physics needs one. This is an estimate for a hollow 5 in polypropylene
 ball.
 
+**Confirmed absent, not merely unfound.** §9.9 gives diameter, tolerance,
+colour, part numbers (`am-3376a_purple` / `am-3376a_green`) and material —
+"Gopher ResisDent polypropylene" — and no mass; searching the manual for a
+weight returns nothing. `ARTIFACT_MASS_NOT_IN_MANUAL` in `decodeDimensions.ts`
+records that as a fact about the source, so the estimate reads as filling a real
+gap rather than as a failure to look. Resolving it needs the AndyMark product
+spec for `am-3376a` or a weighed artifact — neither is in the supplied manual.
+
 **Why it matters more than it looks.** Piece mass sets how far an artifact
 travels when a robot strikes it, and with no piece damping (§5.5) a struck
 artifact slides until it meets a wall. Every "did it reach the goal" outcome
@@ -855,6 +895,62 @@ transcribed versus estimated.
 This section still records assumptions in the *engine*. Assumptions in a
 *season* live in the definition and are read out of it.
 
+### 10.12 The DEPOT tape is a LAUNCH LINE, and is not modelled as one
+
+| | |
+|---|---|
+| **Status** | **Known incompleteness**, recorded in code |
+| **Location** | `src/core/game/fixtures/decode.ts` (`ALL_LAUNCH_LINE_ZONE_IDS`) |
+
+§9.3 states plainly: "The DEPOT tape is a LAUNCH LINE". LEAVE is assessed
+against being over *any* LAUNCH LINE (§10.5.3), so a robot parked over a DEPOT
+at the end of AUTO does not qualify.
+
+Here the DEPOT is a **region** — a place artifacts come to rest, which is what
+the DEPOT scoring rule needs — and not a **zone**, which is what a robot's
+support is measured against. So `ALL_LAUNCH_LINE_ZONE_IDS` names the two LAUNCH
+ZONE placeholders only, and a robot over a DEPOT scores LEAVE here when it
+would not on a real field.
+
+**Why it is not simply fixed.** The DEPOT would need a zone as well as a region,
+placed at the base of the GOAL — and its position is exactly what §10.9 says is
+missing. Adding a zone at an invented position would replace a visible gap with
+an invisible one. Fix this together with the layout, not before it.
+
+### 10.13 Fouls and RP eligibility are outside what a simulator can assess
+
+| | |
+|---|---|
+| **Status** | Values transcribed; triggers **not modelled** |
+| **Location** | `src/core/game/fixtures/decode.ts` (`DECODE_PENALTIES`, `DECODE_RANKING_POINT_RULES`) |
+
+Table 10-4 (p.89) gives the point values, and they are transcribed: a MINOR FOUL
+credits 5 points to the opponent, a MAJOR FOUL 15. Note the direction — a foul
+*credits the opponent* rather than deducting from the violator, so a penalised
+alliance's own score is unchanged.
+
+What is not modelled is *which actions draw a foul*, and that is a limit of the
+simulator rather than an omission from the manual. The manual says it directly:
+"All rules throughout the Game Rules section are called as perceived by a
+REFEREE" (p.89). The benchmarks are explicitly qualitative — MOMENTARY is
+"fewer than approximately 3 seconds", PERSISTENT and REPEATED are judgement —
+and most violations turn on intent (G205 throwing a match, G206 colluding) or on
+contact assessments no geometric predicate settles. `DECODE_SCORING_RULES`
+therefore contains no penalty rule, and a test asserts it stays that way.
+
+The same applies to the several rules that make an alliance *ineligible* for a
+ranking point (G206, G417, G418, G431): the thresholds are transcribed and
+`rankingPointsFor` applies them, but eligibility is a referee's call.
+
+**Ranking points are recorded, not scored.** They are on the definition
+(`rankingPoints`) rather than in the rule set, because an RP is a threshold on a
+match total — which no event carries — and depends on the event tier, which is
+not part of the game. Table 10-3 gives three tiers, and the manual states that
+two of them are provisional ("will be announced in Team Updates") and that
+Premier Events set their own; `rankingPointsFor` therefore throws on an unknown
+tier rather than defaulting, since a silent default would score a Championship
+match against the lowest bar.
+
 ---
 
 ## 11. Revision log
@@ -868,6 +964,9 @@ This section still records assumptions in the *engine*. Assumptions in a
 | 2026-08-25 | Added §10 (game layer and DECODE fixture): what is transcribed vs assumed, DECODE cycle-time estimates, logical world-state bookkeeping, and what was deliberately not transcribed from the manual. |
 | 2026-08-25 | Added §10.6 (corner-sampled zone occupancy) as region geometry landed; §10.5 updated to record that regions now have placed shapes but nothing emits events from them yet. |
 | 2026-08-25 | Added §10.7 (detector snapshot contract) and §10.8 (duplicated zone-occupancy thresholds) as the membership detector landed; §10.5 narrowed to the remaining gap, piece bodies. |
+| 2026-08-25 | Competition Manual (Team Update 32) supplied and treated as authoritative. Every DECODE dimension it publishes transcribed into `decodeDimensions.ts` with a page number and verbatim quote; `decodeField.ts` rebuilt on those extents. §10.9 narrowed from "the layout is invented" to "the positions are invented"; §10.10 narrowed to record that ARTIFACT mass is confirmed absent from the manual rather than merely unfound. |
+| 2026-08-25 | RP thresholds (Table 10-3) and penalty values (Table 10-4) transcribed, closing the last `unresolved` value in the DECODE definition; §10.5 table rewritten and §10.13 added for what refereeing judgement puts out of reach. |
+| 2026-08-25 | LEAVE and BASE corrected against §10.5.3: both are assessed on a robot's final position, and LEAVE checks every LAUNCH LINE rather than the alliance's own. Added §10.12 for the DEPOT tape, which the manual makes a LAUNCH LINE and which this model cannot yet treat as one. |
 | 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |

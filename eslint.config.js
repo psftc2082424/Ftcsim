@@ -176,4 +176,16 @@ export default tseslint.config(
       'no-console': 'off',
     },
   },
+
+  // ---------------------------------------------------------------- tools ---
+  //
+  // Maintainer scripts, run by hand against files outside the repo. They are not
+  // part of the app or the sim, so the layering rules do not apply — but they do
+  // run on Node, which the browser-oriented default globals do not include.
+  {
+    files: ['tools/**/*.mjs'],
+    languageOptions: {
+      globals: { console: 'readonly', process: 'readonly' },
+    },
+  },
 );

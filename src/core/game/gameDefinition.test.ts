@@ -271,10 +271,25 @@ describe('DECODE provenance', () => {
     expect(ledger.some((e) => (e.note ?? '').includes('no mass'))).toBe(true);
   });
 
-  it('flags the unresolved ranking-point thresholds', () => {
-    // Recorded as unresolved rather than guessed; they affect ranking, not score.
+  /**
+   * The thresholds were recorded as `unresolved` until Table 10-3 was
+   * transcribed. Nothing in the definition should be unresolved now — an
+   * `unknown` entry is a value the simulator is using without knowing it.
+   */
+  it('leaves no unresolved values in the definition', () => {
     const unknowns = assumptionLedger(DECODE_GAME).filter((e) => e.confidence === 'unknown');
-    expect(unknowns.length).toBeGreaterThanOrEqual(0);
+    expect(unknowns.map((e) => e.path)).toEqual([]);
+  });
+
+  it('carries the ranking-point thresholds as sourced values', () => {
+    const paths = collectProvenance(DECODE_GAME)
+      .filter((e) => e.path.startsWith('rankingPoints'))
+      .map((e) => e.path);
+
+    // Three criteria, each with an award and three tier thresholds, plus the
+    // two outcome awards.
+    expect(paths.length).toBeGreaterThanOrEqual(14);
+    expect(paths.every((p) => p.startsWith('rankingPoints'))).toBe(true);
   });
 
   it('cites a page or rule for its explicit values', () => {

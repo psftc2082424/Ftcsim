@@ -36,14 +36,32 @@ export interface Sourced<T> {
   readonly note?: string | undefined;
 }
 
-/** Stated directly by the manual. */
-export function explicit<T>(value: T, sourcePage?: number, sourceQuote?: string): Sourced<T> {
-  return { value, confidence: 'explicit', sourcePage, sourceQuote };
+/**
+ * Stated directly by the manual.
+ *
+ * `sourceQuote` must be **verbatim**, so that a reviewer can find it on the
+ * cited page. A value read out of a table therefore quotes the whole row and
+ * uses `note` to say which column it came from — reconstructing a row as
+ * "LABEL | value" reads like a quotation but is not one, and cannot be checked
+ * against the source.
+ */
+export function explicit<T>(
+  value: T,
+  sourcePage?: number,
+  sourceQuote?: string,
+  note?: string,
+): Sourced<T> {
+  return { value, confidence: 'explicit', sourcePage, sourceQuote, note };
 }
 
 /** Stated directly by the manual, cited by rule or section rather than page. */
-export function explicitRule<T>(value: T, sourceRule: string, sourceQuote?: string): Sourced<T> {
-  return { value, confidence: 'explicit', sourceRule, sourceQuote };
+export function explicitRule<T>(
+  value: T,
+  sourceRule: string,
+  sourceQuote?: string,
+  sourcePage?: number,
+): Sourced<T> {
+  return { value, confidence: 'explicit', sourceRule, sourceQuote, sourcePage };
 }
 
 /** Deduced from a diagram or from surrounding text, not stated outright. */

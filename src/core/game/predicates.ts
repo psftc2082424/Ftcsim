@@ -118,6 +118,34 @@ function readString(params: PredicateParams, key: string): string {
   return value;
 }
 
+/**
+ * Read a plural parameter as a delimited list.
+ *
+ * `FilterValue` is deliberately scalar — `string | number | boolean` — so a
+ * generated GameDefinition cannot smuggle structure through a predicate's
+ * parameters. A rule that genuinely needs several ids therefore encodes them as
+ * one comma-separated string, which stays inert data and stays reviewable.
+ *
+ * DECODE's LEAVE needs this: the criterion is "no longer over **any** LAUNCH
+ * LINE" (§10.5.3), which names a set rather than a single zone.
+ */
+function readList(params: PredicateParams, key: string): readonly string[] {
+  const value = params[key];
+  if (typeof value !== 'string') {
+    throw new PredicateError(`Predicate parameter "${key}" must be a string.`);
+  }
+
+  const items = value
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+
+  if (items.length === 0) {
+    throw new PredicateError(`Predicate parameter "${key}" must name at least one id.`);
+  }
+  return items;
+}
+
 function readNumber(params: PredicateParams, key: string): number {
   const value = params[key];
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -197,6 +225,26 @@ export function createDefaultRegistry(): PredicateRegistry {
     return (context.robotsFullyInZone[zoneId] ?? []).length >= count;
   });
 
+  /**
+   * The triggering robot has no support inside any of the named zones.
+   *
+   * The inverse of the zone predicates, and it needs to exist separately because
+   * a rule cannot be written as "no event fired". DECODE's LEAVE awards a robot
+   * for being clear of every LAUNCH LINE at the end of AUTO (§10.5.3), which is
+   * a question about absence.
+   *
+   * Paired with `RobotAssessed`, which restates a robot regardless of where it
+   * is, so there is something for such a rule to trigger on.
+   *
+   * Params: `zoneIds`, a comma-separated list. True only when the robot has no
+   * support — full or partial — in any of them.
+   */
+  registry.register('robotNotInZone', (context, params) => {
+    const robotId = robotIdOf(context.event);
+    if (robotId === null) return false;
+    return !inAnyZone(context, robotId, readList(params, 'zoneIds'));
+  });
+
   /** A named match variable equals a given value. */
   registry.register('variableEquals', (context, params) => {
     const name = readString(params, 'name');
@@ -208,4 +256,17 @@ export function createDefaultRegistry(): PredicateRegistry {
 
 function robotIdOf(event: SimEvent): string | null {
   return 'robotId' in event && typeof event.robotId === 'string' ? event.robotId : null;
+}
+
+/** Any support at all — full or partial — in any of the named zones. */
+function inAnyZone(
+  context: PredicateContext,
+  robotId: string,
+  zoneIds: readonly string[],
+): boolean {
+  return zoneIds.some(
+    (zoneId) =>
+      (context.robotsFullyInZone[zoneId] ?? []).includes(robotId) ||
+      (context.robotsPartiallyInZone[zoneId] ?? []).includes(robotId),
+  );
 }

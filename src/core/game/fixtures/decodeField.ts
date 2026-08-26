@@ -1,59 +1,53 @@
 /**
- * DECODE field geometry — **PLACEHOLDER LAYOUT, NOT FROM THE MANUAL**.
+ * DECODE field layout.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- *  Read this before trusting any coordinate in this file.
+ *  SIZES are sourced. POSITIONS are not.
  *
- *  Every *position* here is invented. The DECODE Competition Manual does not
- *  publish field element coordinates: it names the CAD model as authoritative
- *  and states that dimensions in its illustrations are nominal (ASSUMPTIONS.md
- *  §10.5). Nothing in this file was read off a manual page, and none of it is
- *  cited, because there is nothing to cite.
+ *  Every extent below comes from `decodeDimensions.ts`, transcribed from the
+ *  Competition Manual with page citations. The BASE ZONE really is 18 in
+ *  square; the DEPOT really is 30 in long; the LAUNCH ZONES really are 2×1 and
+ *  6×3 TILES.
  *
- *  What this layout IS for: making the scoring pipeline runnable end to end, so
- *  that rules, events and effects can be exercised against real simulated
- *  positions. The *scores* the engine computes from these regions are correct
- *  for this layout. They are not predictions of a real DECODE match.
+ *  Where each element *sits* on the field is still invented. §9.4 defines TILE
+ *  coordinates in Figures 9-4 and 9-5, but those are images — the manual
+ *  publishes no coordinate table, and §9.1 names the 3D CAD model as the
+ *  official representation. So the layout below places correctly-sized elements
+ *  at guessed locations.
  *
- *  What must change before this is trustworthy: replace every position below
- *  with values taken from the official field CAD or drawings. The region *ids*
- *  are the contract with `decode.ts` and must not change; only coordinates need
- *  to be corrected.
+ *  Consequence: distances between elements are wrong, so cycle times and "did
+ *  it reach the goal" outcomes are not predictive. Sizes, and therefore every
+ *  "is it inside" judgement once positioned, are right.
+ *
+ *  To finish: read positions off the field CAD or the Event FIELD Setup Guide
+ *  and replace `LAYOUT` below. Region ids are the contract with `decode.ts` and
+ *  must not change.
  * ═══════════════════════════════════════════════════════════════════════════
- *
- * Two dimensions here are genuinely sourced and are marked as such in
- * `decode.ts`: the BASE ZONE is an 18 in square (§9.3) and the RAMP has nine
- * ordered slots (§10.5.2). The layout honours both.
  */
 
 import { assumed, type Sourced } from '../sourced.js';
 import { createRectRegion, createRectZone, type FieldRegion, type FieldZone } from '../regions.js';
-import { BASE_ZONE_SIDE_IN, DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT } from './decode.js';
+import { DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT } from './decode.js';
+import { CLASSIFIER, FIELD, GOAL, ZONES } from './decodeDimensions.js';
 
 /**
- * Every position in this module carries the same provenance: none.
+ * Provenance marker for the *positions* in this file.
  *
- * Rather than repeat the disclaimer per constant, one marker is exported and
- * asserted by test, so a reviewer can see at a glance that this file is
- * unsourced and a future change cannot quietly promote it.
+ * Sizes are cited individually in `decodeDimensions.ts`; this covers the one
+ * thing that is not sourced, so a reviewer can see at a glance what remains
+ * invented and a future change cannot quietly promote it.
  */
 export const DECODE_LAYOUT_PROVENANCE: Sourced<string> = assumed(
-  'placeholder',
-  'Field element positions are invented. The DECODE manual defers to the field CAD ' +
-    'and marks illustration dimensions as nominal, so no coordinate here is sourced. ' +
-    'Replace with CAD-derived values before using these scores as predictions.',
+  'positions-invented',
+  'Element SIZES are transcribed from the Competition Manual (see decodeDimensions.ts). ' +
+    'Element POSITIONS are invented: §9.4 defines TILE coordinates only in figures, and ' +
+    '§9.1 names the 3D CAD model as the official representation. Distances between ' +
+    'elements are therefore wrong, so cycle times and reachability are not predictive.',
 );
 
-/** The FTC field is 12 ft square, so coordinates run to ±72 in from centre. */
-const HALF_FIELD_IN = 72;
+const HALF_FIELD_IN = FIELD.sideIn.value / 2;
 
-/**
- * Alliance sides. Red occupies -X, blue +X.
- *
- * Mirroring on a sign is the reason the world origin sits at the field centre
- * (ARCHITECTURE.md `field/fieldTemplate.ts`), and it is why this layout is
- * symmetric: an asymmetry here would be an invention on top of an invention.
- */
+/** Red occupies -X, blue +X. The world origin is the field centre. */
 const SIDE = { red: -1, blue: 1 } as const;
 
 interface Placement {
@@ -63,26 +57,88 @@ interface Placement {
   readonly lengthIn: number;
 }
 
-/** Placeholder placements, mirrored per alliance. */
+/**
+ * Placeholder positions with sourced extents.
+ *
+ * Read each entry as: the size is from the manual, the centre is a guess.
+ */
 const LAYOUT = {
-  /** Ordered queue of nine slots. Long in Y so slots read along the ramp. */
-  ramp: { centerXIn: 52, centerYIn: 0, widthIn: 16, lengthIn: 54 },
-  /** Catches artifacts beyond the ramp's capacity. */
-  overflow: { centerXIn: 52, centerYIn: 40, widthIn: 16, lengthIn: 20 },
-  /** Human-player return area. */
-  depot: { centerXIn: 52, centerYIn: -40, widthIn: 16, lengthIn: 20 },
-  /** Where robots are assessed at the end of the match. 18 in square (§9.3). */
+  /**
+   * The RAMP holds up to 9 CLASSIFIED artifacts (§9.8.2). Modelled long in Y so
+   * its nine indices read along its length; the real ramp's footprint is in the
+   * CAD.
+   */
+  ramp: {
+    centerXIn: 52,
+    centerYIn: 0,
+    widthIn: GOAL.footprintIn.value,
+    lengthIn: 54,
+  },
+  /**
+   * OVERFLOW has no geometry of its own in the manual — it is a *state*, not a
+   * place: an artifact overflows when it passes the SQUARE without transitioning
+   * directly to the RAMP (§10.5.1). Modelled as a region only because the
+   * current detector decides scoring by position. See the note below.
+   */
+  overflow: {
+    centerXIn: 52,
+    centerYIn: 40,
+    widthIn: GOAL.footprintIn.value,
+    lengthIn: 20,
+  },
+  /**
+   * The DEPOT is 30 in of tape spanning the GOAL's front face (§9.3). Given a
+   * shallow depth so "over the DEPOT" (§10.5.1) is an area an artifact can rest
+   * on rather than a line.
+   */
+  depot: {
+    centerXIn: 40,
+    centerYIn: -40,
+    widthIn: 12,
+    lengthIn: ZONES.depotLengthIn.value,
+  },
+  /** 18 in square, the one DECODE zone with a tolerance tighter than ±1 in. */
   base: {
     centerXIn: 60,
     centerYIn: -60,
-    widthIn: BASE_ZONE_SIDE_IN.value,
-    lengthIn: BASE_ZONE_SIDE_IN.value,
+    widthIn: ZONES.baseZoneSideIn.value,
+    lengthIn: ZONES.baseZoneSideIn.value,
   },
   /**
-   * The strip a robot must leave for LEAVE to score. Modelled as a zone the
-   * robot starts inside, so departing it is an exit event.
+   * LAUNCH LINE, approximated as a rectangle.
+   *
+   * The real LAUNCH ZONES are triangular and belong to the FIELD rather than to
+   * an alliance (§9.3): 2×1 TILES on the audience side, 6×3 on the GOAL side.
+   * LEAVE is assessed against being "over any LAUNCH LINE" (§10.5.3), so this
+   * stands in for the lines a robot starts on. Recorded as an approximation.
    */
-  launchLine: { centerXIn: 64, centerYIn: 20, widthIn: 16, lengthIn: 48 },
+  launchLine: {
+    centerXIn: 58,
+    centerYIn: 20,
+    widthIn: FIELD.tileSideIn.value,
+    lengthIn: FIELD.tileSideIn.value * 2,
+  },
+  /** 23 in square (§9.3), adjacent to the ALLIANCE AREA. */
+  loading: {
+    centerXIn: 58,
+    centerYIn: -20,
+    widthIn: ZONES.loadingZoneSideIn.value,
+    lengthIn: ZONES.loadingZoneSideIn.value,
+  },
+  /** 46.5 × 6.125 in (§9.3); where OVERFLOW artifacts exit over the GATE. */
+  secretTunnel: {
+    centerXIn: 30,
+    centerYIn: 30,
+    widthIn: ZONES.secretTunnelWidthIn.value,
+    lengthIn: ZONES.secretTunnelLengthIn.value,
+  },
+  /** 2.75 × 10 in (§9.3), adjacent to each GATE. */
+  gate: {
+    centerXIn: 40,
+    centerYIn: 26,
+    widthIn: ZONES.gateZoneWidthIn.value,
+    lengthIn: ZONES.gateZoneLengthIn.value,
+  },
 } as const satisfies Record<string, Placement>;
 
 function mirrored(placement: Placement, alliance: 'red' | 'blue'): Placement {
@@ -124,21 +180,30 @@ export const DECODE_SLOTTED_REGIONS: Readonly<Record<string, number>> = {
 };
 
 /**
- * Where a piece sits in a ramp's queue.
+ * Where an artifact sits in a RAMP's nine indices.
  *
- * DECODE's RAMP is a sequence, and pattern scoring reads position within it. A
- * real implementation would derive the index from distance along the ramp; this
- * placeholder assigns arrival order, which is behaviourally the same for a
- * queue that fills from one end and is honest about being a stand-in.
+ * ── Direction matters, and the manual settles it ───────────────────────────
  *
- * Arrival order is tracked by the caller, so the assignment stays a pure
- * function of what it is given.
+ * Figure 10-4 (p.86) lays the indices out as `GATE | 1 2 3 4 5 6 7 8 9 | SQUARE`.
+ * Artifacts enter at the SQUARE end (§10.5.1) and are retained by the GATE, so
+ * the RAMP fills from index 9 downward: the first artifact in ends at index 9,
+ * the ninth at index 1.
+ *
+ * An earlier version filled 1-upward, which silently mismatched every PATTERN
+ * against a repeating motif. Returns a 0-based index for the engine, so
+ * arrival *n* maps to index `capacity - 1 - n`.
+ *
+ * Beyond capacity the artifact OVERFLOWS and occupies no index (§9.8.2).
  */
 export function createRampSlotAssignment(): {
   assign: (pieceId: string, regionId: string) => number | undefined;
   reset: () => void;
 } {
   const arrivals = new Map<string, string[]>();
+  const capacity = CLASSIFIER.rampCapacity.value;
+
+  const indexFor = (arrivalOrder: number): number | undefined =>
+    arrivalOrder < capacity ? capacity - 1 - arrivalOrder : undefined;
 
   return {
     assign(pieceId, regionId) {
@@ -151,11 +216,10 @@ export function createRampSlotAssignment(): {
       }
 
       const existing = queue.indexOf(pieceId);
-      if (existing >= 0) return existing;
+      if (existing >= 0) return indexFor(existing);
 
-      if (queue.length >= (DECODE_SLOTTED_REGIONS[regionId] ?? 0)) return undefined;
       queue.push(pieceId);
-      return queue.length - 1;
+      return indexFor(queue.length - 1);
     },
     reset() {
       arrivals.clear();
@@ -165,8 +229,7 @@ export function createRampSlotAssignment(): {
 
 /** Field bounds check, so a placeholder layout cannot silently sit off-field. */
 export function layoutFitsField(): boolean {
-  const placements = Object.values(LAYOUT);
-  return placements.every((placement) => {
+  return Object.values(LAYOUT).every((placement) => {
     const halfW = placement.widthIn / 2;
     const halfL = placement.lengthIn / 2;
     return (

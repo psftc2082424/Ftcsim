@@ -188,6 +188,71 @@ describe('built-in predicates', () => {
     ).toBe(false);
   });
 
+  describe('robotNotInZone', () => {
+    /**
+     * The inverse of the zone predicates, which a rule cannot express as "no
+     * event fired". Written for DECODE's LEAVE — "no longer over any LAUNCH
+     * LINE at the end of AUTO" (§10.5.3) — so it takes a *list* of zones.
+     */
+    const assessed = (robotId: string) =>
+      ({
+        kind: 'RobotAssessed',
+        tick: 1,
+        timeSec: 0,
+        robotId,
+        alliance: 'red',
+      }) as const;
+
+    const context = (robotId: string): PredicateContext => ({
+      ...emptyContext(assessed(robotId)),
+      robotsFullyInZone: { 'line-a': ['r1'] },
+      robotsPartiallyInZone: { 'line-b': ['r2'] },
+    });
+
+    const check = (robotId: string, zoneIds: string): boolean =>
+      registry.evaluate(
+        { predicateId: 'robotNotInZone', params: { zoneIds } },
+        context(robotId),
+      );
+
+    it('is true for a robot in none of the zones', () => {
+      expect(check('r3', 'line-a,line-b')).toBe(true);
+    });
+
+    it('is false for a robot fully in one of them', () => {
+      expect(check('r1', 'line-a,line-b')).toBe(false);
+    });
+
+    /** Partial support still counts as being in the zone. */
+    it('is false for a robot partially in one of them', () => {
+      expect(check('r2', 'line-a,line-b')).toBe(false);
+    });
+
+    /** The whole point of the list: a robot clear of one line but not another. */
+    it('narrows to the zones it is given', () => {
+      expect(check('r1', 'line-b')).toBe(true);
+      expect(check('r1', 'line-a')).toBe(false);
+    });
+
+    it('tolerates whitespace around the delimiters', () => {
+      expect(check('r1', ' line-a , line-b ')).toBe(false);
+    });
+
+    it('rejects an empty list rather than passing everything', () => {
+      expect(() => check('r1', ' , ')).toThrow(/at least one id/);
+    });
+
+    /** An event with no robot cannot answer a question about a robot. */
+    it('is false for an event that names no robot', () => {
+      expect(
+        registry.evaluate(
+          { predicateId: 'robotNotInZone', params: { zoneIds: 'line-a' } },
+          emptyContext(pieceEvent('goal')),
+        ),
+      ).toBe(false);
+    });
+  });
+
   it('counts allied robots in a zone', () => {
     const context: PredicateContext = {
       ...emptyContext(pieceEvent('goal')),

@@ -231,6 +231,28 @@ export class RegionMembershipDetector {
   }
 
   /**
+   * Restate every known robot as a bare `RobotAssessed` fact.
+   *
+   * Needed because zone events only fire for zones a robot is *in*, so a rule
+   * about where a robot is **not** has nothing to trigger on. DECODE's LEAVE
+   * awards a robot for being clear of every LAUNCH LINE at the end of AUTO
+   * (§10.5.3); the robots that qualify are exactly the ones producing no zone
+   * event.
+   *
+   * Emitted per robot, so an end-of-period rule is evaluated once per robot
+   * rather than once for the whole field.
+   */
+  restateRobots(tick: number): readonly SimEvent[] {
+    const timeSec = tick * this.dtSec;
+    const events: SimEvent[] = [];
+
+    for (const [robotId, state] of this.robots) {
+      events.push({ kind: 'RobotAssessed', tick, timeSec, robotId, alliance: state.alliance });
+    }
+    return [...events].sort(compareEvents);
+  }
+
+  /**
    * Report every piece currently at rest in a region as `PieceCameToRest`.
    *
    * Several games assess scoring only once pieces settle, and ordered-slot

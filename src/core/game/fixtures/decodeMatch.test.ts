@@ -54,6 +54,22 @@ import { vec2 } from '../../math/vec2.js';
 
 const at = (xIn: number, yIn: number) => vec2(inchesToMeters(xIn), inchesToMeters(yIn));
 
+/**
+ * Points from rules whose id contains a fragment.
+ *
+ * The BASE and DEPOT cases below assert on this rather than on the total,
+ * because a robot parked anywhere clear of a LAUNCH LINE also earns LEAVE at
+ * the end of AUTO (§10.5.3) — correctly, but it is not what those tests are
+ * about. Filtering keeps each assertion aimed at the rule it names.
+ */
+const pointsFrom = (
+  result: { readonly score: { readonly deltas: readonly { ruleId: string; points: number }[] } },
+  fragment: string,
+): number =>
+  result.score.deltas
+    .filter((delta) => delta.ruleId.includes(fragment))
+    .reduce((sum, delta) => sum + delta.points, 0);
+
 /** A small robot, so an 18 in BASE ZONE can contain it fully. See the gap note. */
 const SMALL_ROBOT: RobotConfig = {
   ...DEFAULT_ROBOT_CONFIG,
@@ -110,7 +126,7 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
     slottedRegions: DECODE_SLOTTED_REGIONS,
     slotAssignment: slots.assign,
     variables: { motif: DECODE_MOTIFS.GPP.pattern },
-    robots: [idle('red', -64, 20)],
+    robots: [idle('red', -60, 20)],
     ...patch,
   });
 }
@@ -160,7 +176,7 @@ describe('LEAVE (§10.5, E)', () => {
   /** A robot that departs its LAUNCH LINE zone during AUTO scores LEAVE. */
   it('awards LEAVE when a robot exits the launch line in AUTO', () => {
     const result = decodeMatch({
-      robots: [driving('red', -64, 20, { x: 1, y: 0 })],
+      robots: [driving('red', -60, 20, { x: 1, y: 0 })],
     }).run();
 
     expect(result.score.red).toBe(DECODE_POINTS.leaveAuto.value);
@@ -169,19 +185,19 @@ describe('LEAVE (§10.5, E)', () => {
 
   it('awards LEAVE once per robot, up to two robots', () => {
     const result = decodeMatch({
-      robots: [driving('red', -64, 10, { x: 1, y: 0 }), driving('red', -64, 34, { x: 1, y: 0 })],
+      robots: [driving('red', -60, 10, { x: 1, y: 0 }), driving('red', -60, 34, { x: 1, y: 0 })],
     }).run();
 
     expect(result.score.red).toBe(2 * DECODE_POINTS.leaveAuto.value);
   });
 
   it('does not award LEAVE for a robot that stays put', () => {
-    expect(decodeMatch({ robots: [idle('red', -64, 20)] }).run().score.red).toBe(0);
+    expect(decodeMatch({ robots: [idle('red', -60, 20)] }).run().score.red).toBe(0);
   });
 
   it('credits the alliance that owns the robot', () => {
     const result = decodeMatch({
-      robots: [driving('blue', 64, 20, { x: -1, y: 0 })],
+      robots: [driving('blue', 60, 20, { x: -1, y: 0 })],
     }).run();
 
     expect(result.score.blue).toBe(DECODE_POINTS.leaveAuto.value);
@@ -209,8 +225,8 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
   it('awards CLASSIFIED when an artifact enters the ramp', () => {
     const result = decodeMatch({
       // Red ramp spans x -60..-44. Robot pushes the artifact west into it.
-      robots: [driving('red', -30, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -42, 0)],
+      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
+      pieces: [artifact('a1', -34, 0)],
     }).run();
 
     const breakdown = result.score.deltas.filter((d) => d.ruleId.includes('classified'));
@@ -220,8 +236,8 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
 
   it('scores an artifact once however long it sits in the ramp', () => {
     const result = decodeMatch({
-      robots: [driving('red', -30, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -42, 0)],
+      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
+      pieces: [artifact('a1', -34, 0)],
     }).run();
 
     const classified = result.score.deltas.filter((d) => d.ruleId === 'red-classified-auto');
@@ -230,16 +246,61 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
 
   it('does not award the blue alliance for a red ramp', () => {
     const result = decodeMatch({
-      robots: [driving('red', -30, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -42, 0)],
+      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
+      pieces: [artifact('a1', -34, 0)],
     }).run();
     expect(result.score.blue).toBe(0);
   });
 
-  it('scores nothing for an artifact that starts in the ramp', () => {
-    // Pre-placed pieces are a baseline, not a scoring transition.
-    const result = decodeMatch({ pieces: [artifact('a1', -52, 0)] }).run();
-    expect(result.score.red).toBe(0);
+  it('scores no CLASSIFIED for an artifact that starts in the ramp', () => {
+    // Pre-placed pieces are a baseline, not a scoring transition. They can still
+    // score PATTERN, which is assessed on what is on the RAMP at the end of a
+    // period rather than on how it got there (§10.5.2).
+    const result = decodeMatch({ pieces: [artifact('a1', -50, 0)] }).run();
+    expect(result.score.deltas.filter((d) => d.ruleId.includes('classified'))).toEqual([]);
+  });
+});
+
+describe('LEAVE (§10.5, E and §10.5.3)', () => {
+  /**
+   * "To qualify for LEAVE points, a ROBOT must move such that it is no longer
+   * over any LAUNCH LINE at the end of AUTO." (p.87)
+   *
+   * A final position, not a crossing — and "any" LAUNCH LINE, because the
+   * LAUNCH ZONES belong to the FIELD rather than to an alliance (§9.3). The
+   * placeholder layout puts the red line over x -70..-46, y -4..44 and the blue
+   * one mirrored; see the layout caveat at the top of this file.
+   */
+  it('awards LEAVE to a robot clear of every LAUNCH LINE at the end of AUTO', () => {
+    const result = decodeMatch({ robots: [idle('red', 0, 0)] }).run();
+    expect(pointsFrom(result, '-leave')).toBe(DECODE_POINTS.leaveAuto.value);
+  });
+
+  it('awards LEAVE once per robot', () => {
+    const result = decodeMatch({
+      robots: [idle('red', 0, 0), idle('red', 0, 20)],
+    }).run();
+    expect(pointsFrom(result, '-leave')).toBe(2 * DECODE_POINTS.leaveAuto.value);
+  });
+
+  it('withholds LEAVE from a robot still on its own LAUNCH LINE', () => {
+    const result = decodeMatch({ robots: [idle('red', -58, 20)] }).run();
+    expect(pointsFrom(result, '-leave')).toBe(0);
+  });
+
+  /** "any LAUNCH LINE" includes the other alliance's. */
+  it('withholds LEAVE from a red robot parked on the blue LAUNCH LINE', () => {
+    const result = decodeMatch({ robots: [idle('red', 58, 20)] }).run();
+    expect(pointsFrom(result, '-leave')).toBe(0);
+  });
+
+  it('assesses LEAVE at the end of AUTO, not at the end of the match', () => {
+    const result = decodeMatch({ robots: [idle('red', 0, 0)] }).run();
+    const leave = result.score.deltas.filter((d) => d.ruleId.includes('-leave'));
+
+    expect(leave).toHaveLength(1);
+    // AUTO is 30 s at 200 Hz; the award lands on the boundary, not at the buzzer.
+    expect(leave[0]?.tick).toBeLessThanOrEqual(30 / 0.005);
   });
 });
 
@@ -255,8 +316,8 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
 
   it('awards a full BASE return for a robot finishing inside', () => {
     const result = decodeMatch({ robots: [inBase('red')] }).run();
-    expect(result.score.red).toBe(DECODE_POINTS.baseFull.value);
-    expect(result.score.red).toBe(10);
+    expect(pointsFrom(result, '-base')).toBe(DECODE_POINTS.baseFull.value);
+    expect(pointsFrom(result, '-base')).toBe(10);
   });
 
   it('awards the two-robot bonus on top of both full returns', () => {
@@ -267,17 +328,17 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
     }).run();
 
     // 10 + 10 for the robots, plus the 10 bonus for both being fully in.
-    expect(result.score.red).toBe(
+    expect(pointsFrom(result, '-base')).toBe(
       2 * DECODE_POINTS.baseFull.value + DECODE_POINTS.baseBothBonus.value,
     );
-    expect(result.score.red).toBe(30);
+    expect(pointsFrom(result, '-base')).toBe(30);
   });
 
   it('awards a partial return for a robot only half inside', () => {
     // Straddling the -51 in edge of the base zone.
     const result = decodeMatch({ robots: [idle('red', -51, -60, SMALL_ROBOT)] }).run();
-    expect(result.score.red).toBe(DECODE_POINTS.basePartial.value);
-    expect(result.score.red).toBe(5);
+    expect(pointsFrom(result, '-base')).toBe(DECODE_POINTS.basePartial.value);
+    expect(pointsFrom(result, '-base')).toBe(5);
   });
 
   it('awards no bonus when only one robot is fully in', () => {
@@ -287,13 +348,14 @@ describe('BASE (§10.5, F and §10.5.3)', () => {
     }).run();
 
     // One full (10) plus one partial (5); no bonus.
-    expect(result.score.red).toBe(
+    expect(pointsFrom(result, '-base')).toBe(
       DECODE_POINTS.baseFull.value + DECODE_POINTS.basePartial.value,
     );
   });
 
   it('awards nothing for a robot nowhere near BASE', () => {
-    expect(decodeMatch({ robots: [idle('red', 0, 0, SMALL_ROBOT)] }).run().score.red).toBe(0);
+    const result = decodeMatch({ robots: [idle('red', 0, 0, SMALL_ROBOT)] }).run();
+    expect(pointsFrom(result, '-base')).toBe(0);
   });
 
   it('assesses BASE at the end of the match, not on arrival', () => {
@@ -319,7 +381,7 @@ describe('PATTERN (§10.5.2)', () => {
       diameterIn: 5,
       massLb: 0.3,
       // Spread along the ramp, which spans y -27..27 at x -52.
-      startPositionM: at(-52, -12 + i * 8),
+      startPositionM: at(-50, -12 + i * 8),
     }));
 
     const slots = createRampSlotAssignment();
@@ -363,14 +425,14 @@ describe('DECODE match determinism', () => {
   const build = () =>
     decodeMatch({
       seed: 2026,
-      robots: [driving('red', -64, 20, { x: 1, y: 0 }), idle('blue', 60, -60, SMALL_ROBOT)],
+      robots: [driving('red', -60, 20, { x: 1, y: 0 }), idle('blue', 60, -60, SMALL_ROBOT)],
       pieces: [
         {
           pieceId: 'a1',
           pieceType: 'P',
           diameterIn: 5,
           massLb: 0.3,
-          startPositionM: at(-58, 20),
+          startPositionM: at(-50, 20),
         },
       ],
     });
@@ -436,7 +498,7 @@ describe('running DECODE from the GameDefinition alone', () => {
 
     const slots = createRampSlotAssignment();
     const result = simulationFromDefinition(DECODE_GAME, {
-      robots: [driving('red', -64, 20, { x: 1, y: 0 })],
+      robots: [driving('red', -60, 20, { x: 1, y: 0 })],
       slotAssignment: slots.assign,
     }).run();
 
@@ -486,35 +548,35 @@ describe('DEPOT (§10.5, D)', () => {
           pieceType: 'P',
           diameterIn: 5,
           massLb: 0.3,
-          startPositionM: at(-52, -40),
+          startPositionM: at(-40, -40),
         },
       ],
     }).run();
 
     const depot = result.score.deltas.filter((d) => d.ruleId === 'red-depot');
     expect(depot).toHaveLength(1);
-    expect(result.score.red).toBe(DECODE_POINTS.depotTeleop.value);
-    expect(result.score.red).toBe(1);
+    expect(pointsFrom(result, '-depot')).toBe(DECODE_POINTS.depotTeleop.value);
+    expect(pointsFrom(result, '-depot')).toBe(1);
   });
 
   it('awards DEPOT once per artifact, not once per period boundary', () => {
     const result = decodeMatch({
       robots: [idle('red', 0, 0)],
       pieces: [
-        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -40) },
-        { pieceId: 'd2', pieceType: 'G', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -36) },
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -40) },
+        { pieceId: 'd2', pieceType: 'G', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -36) },
       ],
     }).run();
 
     expect(result.score.deltas.filter((d) => d.ruleId === 'red-depot')).toHaveLength(2);
-    expect(result.score.red).toBe(2 * DECODE_POINTS.depotTeleop.value);
+    expect(pointsFrom(result, '-depot')).toBe(2 * DECODE_POINTS.depotTeleop.value);
   });
 
   it('does not award DEPOT to the opposing alliance', () => {
     const result = decodeMatch({
       robots: [idle('red', 0, 0)],
       pieces: [
-        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -40) },
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-40, -40) },
       ],
     }).run();
     expect(result.score.blue).toBe(0);
