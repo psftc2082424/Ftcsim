@@ -84,20 +84,25 @@ FTC-Simulator/
     │   ├── math/                  vec2.ts, angle.ts, rng.ts, hash.ts, spatialHash.ts
     │   ├── motor/                 motorModel.ts, battery.ts, catalog/goBILDA.ts
     │   ├── drive/                 mecanumKinematics.ts, drivetrain.ts, traction.ts
-    │   ├── mechanism/             (Phase 2) capability.ts, mechanism.ts
+    │   ├── mechanism/             capability.ts, mechanism.ts, presets.ts
     │   ├── robot/                 robotConfig.ts, derive.ts, robotRuntime.ts
     │   ├── physics/               body.ts, shapes.ts, sat.ts, broadphase.ts,
     │   │                          resolve.ts, integrate.ts
     │   ├── sim/                   simWorld.ts, snapshot.ts, headless.ts, events.ts
-    │   ├── game/                  (Phase 3) gameDefinition.ts, matchClock.ts,
-    │   │                          rulesEngine.ts, scoring.ts
+    │   ├── game/                  sourced.ts, matchStructure.ts, scoring.ts,
+    │   │                          gameDefinition.ts, events.ts, effects.ts,
+    │   │                          matchClock.ts, predicates.ts, rulesEngine.ts,
+    │   │                          matchRunner.ts, regions.ts,
+    │   │                          membershipDetector.ts, observation.ts,
+    │   │                          matchSimulation.ts, fixtures/
     │   ├── control/               controlInput.ts, controller.ts, scripted.ts
     │   ├── field/                 fieldTemplate.ts
     │   ├── metrics/               (Phase 5) metricSpec.ts, probes/
     │   ├── archetype/             (Phase 5) synthesize.ts, feasibility.ts
     │   └── telemetry/             sampler.ts, types.ts
-    ├── schema/                    (Phase 2) zod schemas + migrations/
-    ├── storage/                   (Phase 2) idb.ts, presets.ts
+    ├── schema/                    robotConfig.schema.ts,
+    │                              gameDefinition.schema.ts, migrations.ts
+    ├── storage/                   kvStore.ts, presets.ts
     ├── manual/                    (Phase 4) ingest/, extract/, draft/
     └── app/                       React shell
         ├── render/                canvasRenderer.ts, camera.ts, layers/

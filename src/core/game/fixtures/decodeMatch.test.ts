@@ -469,3 +469,54 @@ describe('running DECODE from the GameDefinition alone', () => {
     expect(artifact?.massLb?.confidence).toBe('assumed');
   });
 });
+
+describe('DEPOT (§10.5, D)', () => {
+  /**
+   * DEPOT is assessed on artifacts resting in the depot at the end of TELEOP, so
+   * it is reached through end-of-period restatement rather than through an entry
+   * transition. An artifact placed there at the start and left alone must score.
+   */
+  it('awards DEPOT for an artifact resting in the depot at the end', () => {
+    // Red depot spans x -60..-44, y -50..-30 in the placeholder layout.
+    const result = decodeMatch({
+      robots: [idle('red', 0, 0)],
+      pieces: [
+        {
+          pieceId: 'd1',
+          pieceType: 'P',
+          diameterIn: 5,
+          massLb: 0.3,
+          startPositionM: at(-52, -40),
+        },
+      ],
+    }).run();
+
+    const depot = result.score.deltas.filter((d) => d.ruleId === 'red-depot');
+    expect(depot).toHaveLength(1);
+    expect(result.score.red).toBe(DECODE_POINTS.depotTeleop.value);
+    expect(result.score.red).toBe(1);
+  });
+
+  it('awards DEPOT once per artifact, not once per period boundary', () => {
+    const result = decodeMatch({
+      robots: [idle('red', 0, 0)],
+      pieces: [
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -40) },
+        { pieceId: 'd2', pieceType: 'G', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -36) },
+      ],
+    }).run();
+
+    expect(result.score.deltas.filter((d) => d.ruleId === 'red-depot')).toHaveLength(2);
+    expect(result.score.red).toBe(2 * DECODE_POINTS.depotTeleop.value);
+  });
+
+  it('does not award DEPOT to the opposing alliance', () => {
+    const result = decodeMatch({
+      robots: [idle('red', 0, 0)],
+      pieces: [
+        { pieceId: 'd1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(-52, -40) },
+      ],
+    }).run();
+    expect(result.score.blue).toBe(0);
+  });
+});
