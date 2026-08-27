@@ -180,6 +180,34 @@ export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
   72,
 );
 
+/**
+ * Physical approach point for the GOAL-to-classifier throat.
+ *
+ * dSim's logical rail hand-off is at y=57 in.  In this simulator the same
+ * transition is performed by a 5 in physical disc around a 2 in face wall, so
+ * the basin first aims at the clear side of that arch (y=68 in); normal lane
+ * guidance then carries it down through the observed 57 in throat.
+ */
+export const CLASSIFIER_BASIN_THROAT = inferred(
+  { xIn: 69, yIn: 68 },
+  'Adapted from dSim\'s x = field half - 3 in, y = gate origin + 55 in rail hand-off: the physical disc/face-wall clearance requires a short turn at the back of the basin before the same lane flow.',
+  72,
+);
+
+/** Field-facing point immediately outside dSim's clipped GOAL-to-ramp throat. */
+export const CLASSIFIER_INBOUND_REJECT_POINT = inferred(
+  { xIn: 63, yIn: 57 },
+  'dSim clips the GOAL face at the six-inch classifier channel and projects ordinary ground balls out of that channel on the field side.',
+  72,
+);
+
+/** Shared GOAL/ramp guide surface reaches the physical basin hand-off neighbourhood. */
+export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
+  inchesToMeters(10),
+  "dSim's basin and rail overlap at the GOAL/classifier arch; the physical disc model hands to lane guidance within a 10 in throat neighbourhood rather than requiring a centre to occupy the wall corner.",
+  72,
+);
+
 // ---------------------------------------------------------------- regions ---
 
 /**
@@ -339,6 +367,16 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
     blocksInboundExit: true,
     lane: {
+      receivingBasin: true,
+      receivingBasinTargetM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_BASIN_THROAT.value.xIn : -CLASSIFIER_BASIN_THROAT.value.xIn),
+        inchesToMeters(CLASSIFIER_BASIN_THROAT.value.yIn),
+      ),
+      receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
+      inboundRejectPointM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
+        inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
+      ),
       travelDirection: vec2(0, -1),
       driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
       // The same speed a released ARTIFACT already leaves the GATE at
@@ -348,7 +386,6 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
       lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
       gateColliderTag: `${alliance}-classifier-gate`,
-      entryBarrierColliderTag: `${alliance}-classifier-entry`,
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
       entryVelocityRetention: 0.2,

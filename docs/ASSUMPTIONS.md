@@ -1658,14 +1658,15 @@ classifier slot. The values for the guide and overflow surface are observations
 of dSim's public DECODE behaviour and are explicitly not manual dimensions.
 
 The GOAL's field-facing solid boundary reaches the stated `38.75 in` top lip;
-its backboard and side panels retain the full `54 in` assembly height. Thus a
-ground robot or loose ARTIFACT cannot enter the GOAL/classifier, while a ball
-that genuinely crossed the high GOAL membership volume is permitted through
-that one semantic barrier into the attached lane. This is a generic
-per-piece/tagged-collider permission, not a positional move: once inside, the
-ball remains subject to the same integration, `0.20` restitution, rolling loss,
-and ball/field contacts as every other loose ball. An unrelated field ball has
-no permission and collides with the GOAL face normally.
+its backboard and side panels retain the full `54 in` assembly height. A ball
+that genuinely crosses the raised GOAL region is first retained in the hollow
+receiving basin, then receives bounded physical guidance to the classifier
+throat. The face is clipped at that throat, as in dSim; ordinary loose balls
+are projected back to a declared public-side point if they intrude into the
+protected lane without completing the GOAL entry. This is a generic
+receiving-basin/lane contract, not a positional move through the lane: accepted
+balls remain subject to the same integration, `0.20` restitution, rolling loss,
+and ball/field contacts as every other loose ball.
 
 The live GATE stays a tagged solid collider until its owner latches it open.
 Opening it does not release or animate any ball; it simply retracts that one
@@ -1677,7 +1678,7 @@ or drivetrain collision behaviour.
 
 | Date | Change |
 |---|---|
-| 2026-08-27 | Added §10.18: CLASSIFIER queues are now generic physical guided lanes with a governed slope, a semantic live GATE, physical nine-ball packing, declared elevated overflow, and a tagged one-way GOAL entry barrier. ARTIFACTS remain normal colliding bodies after scoring; no fixed slot or teleport path remains. |
+| 2026-08-27 | Updated §10.18: a generic receiving basin now retains a valid GOAL entry before feeding its physical lane. The GOAL face is clipped at the classifier throat and a data-declared public-side guard rejects loose, unaccepted lane intrusions; no per-piece collider bypass remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |
 | 2026-08-24 | Ledger created for Phase 1. |
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |

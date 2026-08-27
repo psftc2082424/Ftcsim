@@ -94,7 +94,6 @@ class FakeWorld implements ConveyorWorld {
     }
   >();
   readonly colliderStates = new Map<string, boolean>();
-  readonly pieceBarrierPermissions = new Map<string, boolean>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -126,10 +125,6 @@ class FakeWorld implements ConveyorWorld {
 
   setColliderTagActive(tag: string, active: boolean): void {
     this.colliderStates.set(tag, active);
-  }
-
-  setPieceColliderTagPassable(pieceId: string, _tag: string, passable: boolean): void {
-    this.pieceBarrierPermissions.set(pieceId, passable);
   }
 
   dampPieceVelocity(_pieceId: string, _retention: number): void {}

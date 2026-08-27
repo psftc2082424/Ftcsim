@@ -90,6 +90,17 @@ export interface PieceConveyorSpec {
 
 /** A generic ramp/channel that guides, but never parks, active game pieces. */
 export interface GuidedLaneSpec {
+  /**
+   * Whether accepted pieces first settle in a receiving basin before the lane.
+   * A GOAL-plus-ramp assembly uses this; a bare chute can feed its lane directly.
+   */
+  readonly receivingBasin?: boolean | undefined;
+  /** Physical throat where a declared receiving basin hands into this lane. */
+  readonly receivingBasinTargetM?: Vec2 | undefined;
+  /** Distance from the throat at which the shared guide surface takes over. */
+  readonly receivingBasinHandoffDistanceM?: number | undefined;
+  /** Public-side correction point for a loose piece that intrudes into a protected lane. */
+  readonly inboundRejectPointM?: Vec2 | undefined;
   /** Unit-ish world-frame direction from the entry toward the release gate. */
   readonly travelDirection: Vec2;
   /** Down-lane acceleration, m/s². */
@@ -113,12 +124,6 @@ export interface GuidedLaneSpec {
   readonly lateralCenteringAccelerationMps2: number;
   /** Semantic field collider tag retracted while the gate is latched open. */
   readonly gateColliderTag: string;
-  /**
-   * A one-way entry barrier between an elevated receiving basin and this lane.
-   * An arriving piece may pass it under normal physics; loose field pieces may
-   * not enter backward through the same solid assembly.
-   */
-  readonly entryBarrierColliderTag?: string | undefined;
   /** Centre height of an overflow piece riding above the packed lane. */
   readonly overflowHeightM: number;
   /** Vertical approach rate to that overflow surface, m/s. */
@@ -144,8 +149,6 @@ export interface ConveyorWorld {
   ): void;
   /** Enable/disable a semantic static-collider group, e.g. a gate arm. */
   setColliderTagActive(tag: string, active: boolean): void;
-  /** Permit one already-authorised piece through a declared one-way barrier. */
-  setPieceColliderTagPassable(pieceId: string, tag: string, passable: boolean): void;
   /** Inelastic field-basin capture; keeps a piece active at its current pose. */
   dampPieceVelocity(pieceId: string, retention: number): void;
 }
@@ -167,6 +170,8 @@ interface ConveyorState {
   readonly released: Set<string>;
   /** Full-lane arrivals that ride the declared elevated overflow surface. */
   readonly overflow: Set<string>;
+  /** Accepted pieces retained by the receiving basin before they board the lane. */
+  readonly basin: Set<string>;
   /** A gate activation keeps the path open until this ordered queue is empty. */
   releaseLatched: boolean;
 }
@@ -193,6 +198,7 @@ export class PieceConveyors {
         taken: new Set(),
         released: new Set(),
         overflow: new Set(),
+        basin: new Set(),
         releaseLatched: false,
       });
     }
@@ -211,6 +217,11 @@ export class PieceConveyors {
   /** Pieces a full physical lane is riding on its elevated overflow surface. */
   overflowed(conveyorId: string): readonly string[] {
     return [...(this.states.get(conveyorId)?.overflow ?? [])];
+  }
+
+  /** Accepted pieces still settling in a receiving basin, before the lane. */
+  inBasin(conveyorId: string): readonly string[] {
+    return [...(this.states.get(conveyorId)?.basin ?? [])];
   }
 
   /** Is this conveyor's way out currently open, including a latched release? */
@@ -234,8 +245,9 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
-      this.refreshReleased(spec, state, places, snapshot, world);
+      this.refreshReleased(state, places, snapshot);
       this.blockInboundExit(spec, state, places, snapshot, world);
+      this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       if (this.releaseHeld(spec, snapshot)) state.releaseLatched = true;
       this.takeArrivals(spec, state, places, snapshot, world);
       if (spec.lane === undefined) {
@@ -245,7 +257,7 @@ export class PieceConveyors {
         this.guideLane(spec, state, places, snapshot, world);
         world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
       }
-      if (state.queue.length === 0) state.releaseLatched = false;
+      if (state.queue.length === 0 && state.basin.size === 0) state.releaseLatched = false;
     }
   }
 
@@ -266,13 +278,14 @@ export class PieceConveyors {
 
       if (spec.lane !== undefined) {
         world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
-        if (spec.lane.entryBarrierColliderTag !== undefined) {
-          world.setPieceColliderTagPassable(piece.pieceId, spec.lane.entryBarrierColliderTag, true);
-        }
       }
 
-      if (state.queue.length < spec.capacity) {
-        state.queue.push(piece.pieceId);
+      if (state.queue.length + state.basin.size < spec.capacity) {
+        // An arriving body is captured by its physical receiving basin first.
+        // The basin shell retains it; a bounded guide subsequently feeds the
+        // lane without parking, teleporting, or suspending contact physics.
+        if (spec.lane?.receivingBasin === true) state.basin.add(piece.pieceId);
+        else state.queue.push(piece.pieceId);
         continue;
       }
 
@@ -294,11 +307,9 @@ export class PieceConveyors {
 
   /** Forget authorization once a released piece has completed the exit path. */
   private refreshReleased(
-    spec: PieceConveyorSpec,
     state: ConveyorState,
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
-    world: ConveyorWorld,
   ): void {
     for (const pieceId of state.released) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -318,11 +329,6 @@ export class PieceConveyors {
       state.taken.delete(pieceId);
       state.released.add(pieceId);
       if (state.overflow.has(pieceId)) state.overflow.delete(pieceId);
-      if (spec.lane?.entryBarrierColliderTag !== undefined) {
-        // It has crossed into the public return, so it no longer has any
-        // privilege to re-enter the GOAL from the field side.
-        world.setPieceColliderTagPassable(pieceId, spec.lane.entryBarrierColliderTag, false);
-      }
     }
     for (const pieceId of state.overflow) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -330,9 +336,6 @@ export class PieceConveyors {
       state.overflow.delete(pieceId);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
-      if (spec.lane?.entryBarrierColliderTag !== undefined) {
-        world.setPieceColliderTagPassable(pieceId, spec.lane.entryBarrierColliderTag, false);
-      }
     }
   }
 
@@ -370,6 +373,29 @@ export class PieceConveyors {
           publicMouth.y + direction.y * piece.radiusM,
         ),
       );
+    }
+  }
+
+  /**
+   * A receiving lane can be physically open to its basin but closed to loose
+   * field pieces.  This is the same boundary correction a static wall performs:
+   * only a piece that never completed the declared entry is projected back to
+   * the public side.  Accepted pieces are never kinematic and retain ordinary
+   * ball contacts before, during, and after this check.
+   */
+  private blockUnauthorisedLanePieces(
+    spec: PieceConveyorSpec,
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+    world: ConveyorWorld,
+  ): void {
+    const rejectPoint = spec.lane?.inboundRejectPointM;
+    if (rejectPoint === undefined) return;
+    for (const piece of snapshot.pieces) {
+      if (piece.heldByRobotId !== null || state.taken.has(piece.pieceId)) continue;
+      if (!regionContains(places.queue, piece.pose.p, piece.heightM)) continue;
+      world.blockPiece(piece.pieceId, rejectPoint);
     }
   }
 
@@ -441,6 +467,32 @@ export class PieceConveyors {
     if (length < 1e-9) return;
     const direction = vec2(lane.travelDirection.x / length, lane.travelDirection.y / length);
     const lateral = vec2(-direction.y, direction.x);
+
+    // The receiving basin meets the queue at the end farthest from the public
+    // exit.  This is a bounded environmental pull only: the pieces remain
+    // ordinary rigid bodies and continue to collide with the basin shell and
+    // one another while they move toward it.
+    const basinTarget = lane.receivingBasinTargetM ?? farEndOf(places.queue, places.exit.centerM);
+    for (const pieceId of [...state.basin]) {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || piece.heldByRobotId !== null) continue;
+      const dx = basinTarget.x - piece.pose.p.x;
+      const dy = basinTarget.y - piece.pose.p.y;
+      const distance = Math.hypot(dx, dy);
+      // The physical GOAL backstop keeps a ball centre one radius inboard of
+      // the geometric channel endpoint.  Two radii therefore means “at the
+      // throat” rather than asking a real disc to overlap the wall just to
+      // board the lane.
+      const handoffDistance = lane.receivingBasinHandoffDistanceM ?? piece.radiusM * 2;
+      if (distance <= handoffDistance) {
+        state.basin.delete(pieceId);
+        state.queue.push(pieceId);
+        continue;
+      }
+      const alongSpeed = piece.vel.v.x * (dx / distance) + piece.vel.v.y * (dy / distance);
+      const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
+      world.guidePiece(pieceId, vec2((dx / distance) * acceleration, (dy / distance) * acceleration));
+    }
 
     const guide = (pieceId: string, overflow: boolean): void => {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);

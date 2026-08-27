@@ -5,12 +5,13 @@ import { createDecodeField } from './decodeCollision.js';
 import { DECODE_REGIONS } from './decode.js';
 import { DECODE_FIELD_REGIONS, DECODE_FIELD_ZONES } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
-import { ScriptedController, createInputTrace } from '../../control/scripted.js';
+import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { createControlInput } from '../../control/controlInput.js';
 import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
+import { NEUTRAL_INPUT } from '../../control/controlInput.js';
 
 const centreOf = (id: string): readonly [number, number] => {
   const shaped = DECODE_FIELD_ZONES.find((z) => z.id === id) ?? DECODE_FIELD_REGIONS.find((r) => r.id === id);
@@ -61,5 +62,38 @@ describe('physical classifier lane smoke test', () => {
     // normal body as it is guided through the classifier.
     expect(sim.score.red).toBeGreaterThan(0);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
+  });
+
+  it('rejects an unaccepted loose ball from the protected classifier lane', () => {
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        alliance: 'red',
+        controller: constantController(NEUTRAL_INPUT),
+        startPose: { p: vec2(inchesToMeters(-40), inchesToMeters(-40)), theta: 0 },
+      }],
+      // This is physically inside the channel, but it did not enter through
+      // the raised GOAL opening. The lane boundary must return it to the field
+      // side rather than treating it as a classifier arrival.
+      pieces: [{
+        pieceId: 'loose',
+        pieceType: 'P',
+        diameterIn: 5,
+        massLb: 0.3,
+        startPositionM: vec2(inchesToMeters(69), inchesToMeters(57)),
+      }],
+    });
+
+    for (let tick = 0; tick < 80; tick++) sim.step();
+
+    const loose = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'loose');
+    if (loose === undefined) throw new Error('loose artifact missing');
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+    expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
+    // The declared public-side correction point is x=63 in, outside the
+    // six-inch channel whose field-side edge is x=66 in.
+    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(66);
+    expect(sim.score.red).toBe(0);
   });
 });

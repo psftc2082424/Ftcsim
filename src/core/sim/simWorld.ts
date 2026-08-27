@@ -237,7 +237,6 @@ export class SimWorld {
    * owns this state; the rigid body remains active and collides normally with
    * every other body, including its rail and gate.
    */
-  private readonly piecePassableStaticBodies = new Map<string, Set<EntityId>>();
   private readonly battery: Battery;
   /** Actions produced by mechanisms this tick, consumed by MatchSimulation. */
   private pendingPieceActions: PendingPieceAction[] = [];
@@ -614,27 +613,6 @@ export class SimWorld {
     }
   }
 
-  /**
-   * Allow one declared piece through one semantic field barrier.
-   *
-   * This is a directional field-mechanism rule, not a position change: the
-   * piece keeps its real velocity and continues through ordinary integration,
-   * restitution, rolling loss, and every other contact.  It lets a ball that
-   * physically entered a GOAL pass from its hollow basin into the attached
-   * classifier, while a loose ground ball still collides with the same wall.
-   */
-  setPieceColliderTagPassable(pieceId: string, tag: string, passable: boolean): void {
-    const ids = this.field.colliderTags?.[tag];
-    if (ids === undefined) return;
-    const permitted = this.piecePassableStaticBodies.get(pieceId) ?? new Set<EntityId>();
-    for (const id of ids) {
-      if (passable) permitted.add(id);
-      else permitted.delete(id);
-    }
-    if (permitted.size === 0) this.piecePassableStaticBodies.delete(pieceId);
-    else this.piecePassableStaticBodies.set(pieceId, permitted);
-  }
-
   /** Retain part of an active artifact's velocity when a field basin catches it. */
   dampPieceVelocity(pieceId: string, retention: number): void {
     const piece = this.pieceNamed(pieceId);
@@ -992,7 +970,6 @@ export class SimWorld {
         const a = this.bodies.get(idA);
         const b = this.bodies.get(idB);
         if (a === undefined || b === undefined) continue;
-        if (this.pieceMayPassStatic(a, b) || this.pieceMayPassStatic(b, a)) continue;
         if (a.invMass === 0 && b.invMass === 0) continue;
 
         // Bodies only interact if they occupy overlapping heights. In Phase 1
@@ -1010,12 +987,6 @@ export class SimWorld {
       // Nothing was touching, so further passes would find nothing either.
       if (!resolvedAny) break;
     }
-  }
-
-  private pieceMayPassStatic(piece: RigidBody, fieldBody: RigidBody): boolean {
-    if (piece.kind !== 'piece' || fieldBody.kind !== 'static') return false;
-    const pieceId = this.pieces.find((candidate) => candidate.body.id === piece.id)?.spec.pieceId;
-    return pieceId !== undefined && this.piecePassableStaticBodies.get(pieceId)?.has(fieldBody.id) === true;
   }
 
   /** Remove a small, constant floor-roll speed from loose ground artifacts only. */

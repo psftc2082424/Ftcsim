@@ -591,3 +591,20 @@ shoot; then Phase 4 (PDF ingestion).
   `fixtures/decodeCollision.ts`, and `fixtures/decodeMatch.test.ts` first for
   follow-up work. Do not restore fixed slots, virtual drain positioning,
   flywheel/RPM/random shot behaviour, or alter drivetrain physics.
+
+### Latest handoff — 2026-08-27 (GOAL basin capture boundary)
+
+- A valid high GOAL entry now enters a generic `GuidedLaneSpec.receivingBasin`
+  before joining the physical lane. The ball is never parked or teleported:
+  it remains an active rigid body with ordinary restitution, rolling loss and
+  ball contacts while bounded basin guidance feeds the throat.
+- The prior per-piece collider bypass was removed. The GOAL face is physically
+  clipped at the classifier arch and `inboundRejectPointM` rejects only a loose
+  piece that entered the protected lane without the declared GOAL acceptance.
+  This mirrors dSim's ground-ball classifier guard without allowing a robot to
+  push a field ball into the classifier. The drivetrain is unchanged.
+- Inspect `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`,
+  `src/core/game/fixtures/decodeCollision.ts`, and
+  `src/core/game/fixtures/classifierPhysicalLane.test.ts` first. Do not restore
+  the removed tagged-collider permission, fixed slots, or physics-heavy shooter
+  systems. Run `npm run verify` before further field work.
