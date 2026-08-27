@@ -176,12 +176,11 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Complete the dSim-informed UI pass.** Preserve the Canvas renderer and the
-working match pipeline, but reorganise the app around a field-first Play view,
-simple mechanism controls, a bottom broadcast-style score overlay, and a
-separate Configure flow. Inspect dSim first as UX reference only; do not copy
-its code or branding. The GOAL-cluster CAD extraction remains a later
-data-quality task.
+**Refine the functional match flow, if needed.** The dSim-informed UI pass is
+complete: Play is field-first with a broadcast-style bottom score overlay,
+mechanism state card, named keyboard/gamepad/virtual controls and collapsible
+engineering telemetry; Configure contains robot/preset/control editing. The
+GOAL-cluster CAD extraction remains a later data-quality task.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

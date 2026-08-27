@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { DEFAULT_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
+import { COMPETITION_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
 import { DECODE_GAME } from '../core/game/fixtures/decodeGame.js';
 import { stageDecodePieces } from '../core/game/fixtures/decodeStaging.js';
 import { inchesToMeters } from '../core/units/convert.js';
@@ -24,6 +24,7 @@ import { TelemetryPanel } from './components/TelemetryPanel.js';
 import { MatchPanel } from './components/MatchPanel.js';
 import { VirtualGamepad } from './components/VirtualGamepad.js';
 import { ControlsPanel } from './components/ControlsPanel.js';
+import { MechanismPanel } from './components/MechanismPanel.js';
 import { RobotBuilder } from './components/RobotBuilder.js';
 import { PresetPanel } from './components/PresetPanel.js';
 import { PresetRepository } from '../storage/presets.js';
@@ -46,7 +47,9 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [bindings, setBindings] = useState<KeyBindings>(DEFAULT_KEY_BINDINGS);
-  const [robotConfig, setRobotConfig] = useState<RobotConfig>(DEFAULT_ROBOT_CONFIG);
+  const [robotConfig, setRobotConfig] = useState<RobotConfig>(COMPETITION_ROBOT_CONFIG);
+  const [view, setView] = useState<'play' | 'configure'>('play');
+  const [showDebug, setShowDebug] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetrySample | null>(null);
   const [stats, setStats] = useState<RunnerStats | null>(null);
   const [match, setMatch] = useState<MatchStatus | null>(null);
@@ -63,7 +66,7 @@ export function App() {
 
     return {
       runner: new SimRunner(
-        DEFAULT_ROBOT_CONFIG,
+        COMPETITION_ROBOT_CONFIG,
         hub,
         DECODE_GAME,
         LEGAL_START_POSE,
@@ -130,20 +133,23 @@ export function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>FTC Universal 2D Simulator</h1>
-        <span className="phase-badge">Phase 3 — DECODE match</span>
+        <div className="brand"><span className="brand-mark">FTC</span><h1>Simulator</h1><span>DECODE 2025–26</span></div>
+        <nav className="app-nav" aria-label="Main navigation">
+          <button type="button" className={view === 'play' ? 'is-selected' : ''} onClick={() => setView('play')}>Play</button>
+          <button type="button" className={view === 'configure' ? 'is-selected' : ''} onClick={() => setView('configure')}>Configure</button>
+        </nav>
+        <span className="made-by">Made by 10298 Brain Stormz</span>
       </header>
 
-      <main className="app-main">
+      <main className={`app-main ${view === 'configure' ? 'is-configure' : ''}`}>
         <div className="field-column">
           <div className="canvas-wrap">
             <canvas ref={canvasRef} className="field-canvas" />
+            <MatchPanel game={DECODE_GAME} status={match} />
           </div>
 
           <div className="field-toolbar">
-            <button type="button" onClick={() => runner.reset(robotConfig)}>
-              Reset robot
-            </button>
+            <button type="button" onClick={() => runner.reset(robotConfig)}>Restart match</button>
             <label>
               <input
                 type="checkbox"
@@ -152,7 +158,7 @@ export function App() {
                   setRenderOptions({ ...renderOptions, showGrid: event.target.checked })
                 }
               />
-              Tile grid
+              Grid
             </label>
             <label>
               <input
@@ -162,7 +168,7 @@ export function App() {
                   setRenderOptions({ ...renderOptions, showVelocity: event.target.checked })
                 }
               />
-              Velocity vector
+              Velocity
             </label>
             <label>
               <input
@@ -172,7 +178,7 @@ export function App() {
                   setRenderOptions({ ...renderOptions, showGameGeometry: event.target.checked })
                 }
               />
-              Game zones
+              Field zones
             </label>
             <label>
               <input
@@ -182,31 +188,29 @@ export function App() {
                   setRenderOptions({ ...renderOptions, showGeometryLabels: event.target.checked })
                 }
               />
-              Zone labels
+              Labels
             </label>
           </div>
 
-          <p className="muted small field-note">
-            12 ft × 12 ft field, drawn to scale. Origin at centre, +X right, +Y up, headings
-            counter-clockwise.
-          </p>
+          <p className="muted small field-note">Solo driver practice · red alliance · 12 ft × 12 ft</p>
         </div>
 
-        <aside className="side-column">
-          <MatchPanel game={DECODE_GAME} status={match} />
-          <TelemetryPanel sample={telemetry} stats={stats} />
-          <VirtualGamepad source={virtualPad} />
-          <ControlsPanel
-            bindings={bindings}
-            onChange={setBindings}
-            gamepadConnected={gamepadConnected}
-          />
-        </aside>
-
-        <aside className="side-column">
-          <RobotBuilder key={robotConfig.id} applied={robotConfig} onApply={applyRobot} />
-          <PresetPanel repository={presets} current={robotConfig} onLoad={applyRobot} />
-        </aside>
+        {view === 'play' ? (
+          <aside className="side-column play-sidebar">
+            <MechanismPanel sample={telemetry} />
+            <VirtualGamepad source={virtualPad} />
+            <button type="button" className="debug-toggle" onClick={() => setShowDebug(!showDebug)}>
+              {showDebug ? 'Hide engineering telemetry' : 'Show engineering telemetry'}
+            </button>
+            {showDebug && <TelemetryPanel sample={telemetry} stats={stats} />}
+          </aside>
+        ) : (
+          <aside className="side-column configure-sidebar">
+            <RobotBuilder key={robotConfig.id} applied={robotConfig} onApply={applyRobot} />
+            <PresetPanel repository={presets} current={robotConfig} onLoad={applyRobot} />
+            <ControlsPanel bindings={bindings} onChange={setBindings} gamepadConnected={gamepadConnected} />
+          </aside>
+        )}
       </main>
     </div>
   );

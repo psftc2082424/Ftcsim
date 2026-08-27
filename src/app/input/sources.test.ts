@@ -128,6 +128,22 @@ describe('keyboard source', () => {
     expect(source.read()?.drive.x).toBe(1);
   });
 
+  it('maps mechanism keys into the shared control input without driving', () => {
+    const source = new KeyboardSource(DEFAULT_KEY_BINDINGS);
+    const { win, fire } = fakeWindow();
+    source.attach(win);
+
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.intake));
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.gate));
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.shooter));
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.launch));
+
+    expect(source.read()).toMatchObject({
+      drive: { x: 0, y: 0, turn: 0 },
+      buttons: { intake: true, gate: true, shooter: true, launch: true },
+    });
+  });
+
   it('detaches its listeners', () => {
     const source = new KeyboardSource(DEFAULT_KEY_BINDINGS);
     const { win, count } = fakeWindow();

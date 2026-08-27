@@ -39,56 +39,12 @@ export function remainingLabel(game: GameDefinition, status: MatchStatus): strin
 }
 
 export function MatchPanel({ game, status }: Props) {
+  const phase = status?.state.replace('_', ' ') ?? 'PRE-MATCH';
   return (
-    <section className="panel">
-      <h2>Match</h2>
-
-      <div className="telemetry-row">
-        <span className="telemetry-label">Game</span>
-        <span className="telemetry-value">{game.name}</span>
-      </div>
-
-      {status === null ? (
-        <p className="muted small">Waiting for the first tick.</p>
-      ) : (
-        <>
-          <div className="telemetry-row">
-            <span className="telemetry-label">Phase</span>
-            <span className="telemetry-value">{status.state}</span>
-          </div>
-          <div className="telemetry-row">
-            <span className="telemetry-label">Elapsed</span>
-            <span className="telemetry-value">{clock(status.matchTimeSec)}</span>
-          </div>
-          <div className="telemetry-row">
-            <span className="telemetry-label">Remaining</span>
-            <span className="telemetry-value">{remainingLabel(game, status)}</span>
-          </div>
-
-          <h3>Score</h3>
-          <div className="match-score">
-            <span className="match-score-red">{status.red}</span>
-            <span className="match-score-divider">–</span>
-            <span className="match-score-blue">{status.blue}</span>
-          </div>
-
-          <h3>Recent awards</h3>
-          {status.recentAwards.length === 0 ? (
-            <p className="muted small">Nothing scored yet.</p>
-          ) : (
-            <ul className="match-awards">
-              {status.recentAwards.map((award, index) => (
-                // Awards are a rolling window rather than a keyed collection,
-                // and the same rule can appear twice, so position is the key.
-                <li key={`${award.ruleId}-${index}`} className={`match-award ${award.alliance}`}>
-                  <span className="match-award-label">{award.label}</span>
-                  <span className="match-award-points">+{award.points}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </>
-      )}
+    <section className="match-overlay" aria-label="Match scoreboard">
+      <div className="match-side red"><span>RED</span><strong>{status?.red ?? 0}</strong></div>
+      <div className="match-centre"><span className="match-phase">{phase}</span><strong>{status === null ? '—:——' : remainingLabel(game, status)}</strong>{status?.recentAwards[0] !== undefined && <small>{status.recentAwards[0].label} +{status.recentAwards[0].points}</small>}</div>
+      <div className="match-side blue"><strong>{status?.blue ?? 0}</strong><span>BLUE</span></div>
     </section>
   );
 }

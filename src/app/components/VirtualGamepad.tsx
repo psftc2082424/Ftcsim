@@ -2,10 +2,7 @@
  * On-screen PS5-style controller (PRODUCT_SPEC.md §15).
  *
  * The two sticks drive the robot. The face, shoulder, trigger and d-pad
- * controls report real state into `ControlInput.buttons`, but **nothing
- * consumes them in Phase 1** — there are no mechanisms to bind yet. They are
- * wired rather than faked: when the mechanism framework lands in Phase 2, the
- * bindings become meaningful without changing this component.
+ * controls report the same named mechanism actions as keyboard and Gamepad API.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -150,10 +147,10 @@ export function VirtualGamepad({ source }: Props) {
       <h2>Virtual Controller</h2>
 
       <div className="pad-shoulders">
-        <PadButton name="l2" label="L2" className="pad-trigger" source={source} />
-        <PadButton name="l1" label="L1" className="pad-bumper" source={source} />
-        <PadButton name="r1" label="R1" className="pad-bumper" source={source} />
-        <PadButton name="r2" label="R2" className="pad-trigger" source={source} />
+        <PadButton name="intake" label="INTAKE" className="pad-trigger" source={source} />
+        <PadButton name="outtake" label="OUT" className="pad-bumper" source={source} />
+        <PadButton name="gate" label="GATE" className="pad-bumper" source={source} />
+        <PadButton name="shooter" label="SHOOTER" className="pad-trigger" source={source} />
       </div>
 
       <div className="pad-main">
@@ -168,7 +165,7 @@ export function VirtualGamepad({ source }: Props) {
           <PadButton name="triangle" label="△" className="pad-face-up" source={source} />
           <PadButton name="square" label="□" className="pad-face-left" source={source} />
           <PadButton name="circle" label="○" className="pad-face-right" source={source} />
-          <PadButton name="cross" label="✕" className="pad-face-down" source={source} />
+          <PadButton name="launch" label="FIRE" className="pad-face-down" source={source} />
         </div>
       </div>
 
@@ -178,8 +175,7 @@ export function VirtualGamepad({ source }: Props) {
       </div>
 
       <p className="muted small">
-        Sticks drive the robot. Buttons report state but have nothing to control until mechanisms
-        arrive in Phase&nbsp;2.
+        Hold INTAKE, GATE and SHOOTER as needed; press FIRE once for each stored artifact.
       </p>
     </section>
   );

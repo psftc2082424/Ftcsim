@@ -77,14 +77,18 @@ export class KeyboardSource implements InputSource {
     const y = held(this.bindings.strafeLeft) - held(this.bindings.strafeRight);
     const turn = held(this.bindings.turnLeft) - held(this.bindings.turnRight);
 
-    if (x === 0 && y === 0 && turn === 0) return null;
+    const buttons: Record<string, boolean> = {};
+    for (const action of ['intake', 'outtake', 'gate', 'shooter', 'launch'] as const) {
+      if (this.pressed.has(this.bindings[action])) buttons[action] = true;
+    }
+    if (x === 0 && y === 0 && turn === 0 && Object.keys(buttons).length === 0) return null;
 
     // Diagonal keyboard input would otherwise command sqrt(2) on the stick.
     const magnitude = Math.hypot(x, y);
     const normaliser = magnitude > 1 ? 1 / magnitude : 1;
     const scale = this.pressed.has(this.bindings.slow) ? PRECISION_SCALE : 1;
 
-    return createControlInput(x * normaliser * scale, y * normaliser * scale, turn * scale);
+    return createControlInput(x * normaliser * scale, y * normaliser * scale, turn * scale, buttons);
   }
 }
 
@@ -162,13 +166,16 @@ export class GamepadSource implements InputSource {
     const translation = applyRadialDeadzone(-leftY, -leftX, GAMEPAD_DEADZONE);
     const turn = applyAxisDeadzone(-rightX, GAMEPAD_DEADZONE);
 
-    if (translation.x === 0 && translation.y === 0 && turn === 0) return null;
-
     const buttons: Record<string, boolean> = {};
+    const mapping: Readonly<Record<number, string>> = {
+      0: 'launch', 4: 'outtake', 5: 'gate', 6: 'intake', 7: 'shooter',
+    };
     pad.buttons.forEach((button, index) => {
-      if (button.pressed) buttons[`button${index}`] = true;
+      const action = mapping[index];
+      if (button.pressed && action !== undefined) buttons[action] = true;
     });
 
+    if (translation.x === 0 && translation.y === 0 && turn === 0 && Object.keys(buttons).length === 0) return null;
     return createControlInput(translation.x, translation.y, turn, buttons);
   }
 }

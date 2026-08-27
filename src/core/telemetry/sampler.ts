@@ -43,6 +43,16 @@ export interface RobotTelemetry {
   readonly motorTorquesNm: WheelValues;
   readonly motorCurrentsA: WheelValues;
   readonly wheelForcesN: WheelValues;
+
+  /** Match-visible mechanism state, sampled alongside driving telemetry. */
+  readonly mechanisms: {
+    readonly held: readonly string[];
+    readonly capacity: number;
+    readonly intake: 'off' | 'intake' | 'outtake';
+    readonly gateOpen: boolean;
+    readonly shooterRunning: boolean;
+    readonly shooterReady: boolean;
+  };
 }
 
 export interface TelemetrySample {
@@ -77,6 +87,14 @@ export function sampleTelemetry(snapshot: WorldSnapshot): TelemetrySample {
       motorTorquesNm: robot.drive.motorTorques,
       motorCurrentsA: robot.drive.motorCurrents,
       wheelForcesN: robot.drive.wheelForces,
+      mechanisms: {
+        held: robot.mechanisms.held,
+        capacity: robot.mechanisms.capacity,
+        intake: robot.mechanisms.intake,
+        gateOpen: robot.mechanisms.gateOpen,
+        shooterRunning: robot.mechanisms.shooterRunning,
+        shooterReady: robot.mechanisms.shooterReady,
+      },
     })),
   };
 }
