@@ -348,6 +348,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
       lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
       gateColliderTag: `${alliance}-classifier-gate`,
+      entryBarrierColliderTag: `${alliance}-classifier-entry`,
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
       entryVelocityRetention: 0.2,
@@ -378,8 +379,8 @@ const GOAL_CLEARANCE_MARGIN_IN = 6;
  * The game rules make entering a GOAL's open top the scored action (§10.5.1).
  * A capable, enabled launcher gives its held ARTIFACT a real ballistic arc
  * toward that opening (`sim/simWorld.ts`'s `launchPieceTowards`) — high enough
- * to clear the GOAL's own walls, which are only solid up to the lip
- * (`decodeCollision.ts`'s `goalWalls`) — and the normal region event, rules and
+ * to clear the GOAL assembly's 54 in backboard, not merely the 38.75 in scoring
+ * lip — and the normal region event, rules and
  * CLASSIFIER still decide CLASSIFIED versus OVERFLOW from where it actually
  * lands. No score is granted by this route itself.
  */
@@ -391,7 +392,7 @@ export const DECODE_MECHANISM_ACTION_ROUTES: readonly MechanismActionRoute[] = [
       red: DECODE_REGIONS.redGoal,
       blue: DECODE_REGIONS.blueGoal,
     },
-    arcApexHeightM: inchesToMeters(GOAL.topLipHeightIn.value + GOAL_CLEARANCE_MARGIN_IN),
+    arcApexHeightM: inchesToMeters(GOAL.heightIn.value + GOAL_CLEARANCE_MARGIN_IN),
   },
 ];
 

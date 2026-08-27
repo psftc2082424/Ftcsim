@@ -23,6 +23,7 @@ import {
 } from '../matchSimulation.js';
 import { definitionErrors, validateGameDefinition } from '../gameDefinition.js';
 import { DECODE_GAME } from './decodeGame.js';
+import { createDecodeField } from './decodeCollision.js';
 import { validateRuleSet } from '../rulesEngine.js';
 import { createDefaultRegistry } from '../predicates.js';
 import { validateRegions } from '../regions.js';
@@ -939,7 +940,11 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
         mount: { xIn: 8, yIn: 0, facingDeg: 0 },
         actuation: { motorId: 'gobilda-5203-435', motorCount: 1, gearRatio: 1, efficiency: 0.9 },
         capabilities: [
-          { kind: 'acquire', pieceTypes: [], capacity: 3, reachIn: 6, mouthWidthIn: 14, acquisitionRatePerSec: 2 },
+          // High only for these collision-path scenarios: capture completes
+          // before loose setup balls can be displaced by the robot body, so
+          // the test isolates the post-shot physical lane rather than intake
+          // staging clearance.
+          { kind: 'acquire', pieceTypes: [], capacity: 3, reachIn: 6, mouthWidthIn: 14, acquisitionRatePerSec: 200 },
         ],
       },
       {
@@ -957,9 +962,13 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
   it('carries a scored artifact from the GOAL through the queue and down the SECRET TUNNEL', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
-    const startY = goal[1] - standoffIn + 11;
+    // Just ahead of the robot's bumper (and inside the intake's 8–14 in
+    // mouth), so the setup exercises acquisition rather than an initial
+    // robot↔ball overlap.
+    const startY = goal[1] - standoffIn + 12.5;
 
     const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
       robots: [
         {
           config: TUNNEL_SHOOTER,
@@ -1019,37 +1028,38 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
   it('packs three real shots touching, each scoring exactly once with the GATE held shut', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
-    const startY = goal[1] - standoffIn + 11;
 
     const sim = simulationFromDefinition(DECODE_GAME, {
-      robots: [
-        {
-          config: TUNNEL_SHOOTER,
-          alliance: 'red',
-          controller: new ScriptedController(
-            createInputTrace('load and fire three', [
-              { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
-              // Storage is full (3/3) well before this; hold fire until then.
-              { tick: 210, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
-              // Clear the returning classifier path once all three are away.
-              { tick: 420, input: createControlInput(-1, 0, 0) },
-            ]),
-          ),
-          startPose: { p: at(goal[0], goal[1] - standoffIn), theta: Math.PI / 2 },
-        },
-        // No robot ever occupies the GATE ZONE: the classifier stays shut and
-        // every ball has to come to rest packed inside it.
-      ],
+      field: createDecodeField(),
+      // No robot occupies the GATE ZONE: the classifier stays shut and every
+      // ball must come to rest packed inside it. The previous test covers the
+      // actual intake → shoot action; this one isolates three colliding,
+      // physically launched balls after they leave the shooter.
+      robots: [idle('red', -50, -50)],
       pieces: ['a1', 'a2', 'a3'].map((pieceId, index) => ({
         pieceId,
         pieceType: 'P',
         diameterIn: 5,
         massLb: 0.3,
-        startPositionM: at(goal[0], startY + (index - 1) * 4),
+        startPositionM: at(goal[0] + (index - 1) * 6, goal[1] - standoffIn),
       })),
     });
 
-    for (let i = 0; i < 1800; i++) sim.step();
+    const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
+    if (destination === undefined) throw new Error('red GOAL missing');
+    const launches = new Map<number, string>([[0, 'a1'], [300, 'a2'], [600, 'a3']]);
+    for (let i = 0; i < 1800; i++) {
+      const pieceId = launches.get(i);
+      if (pieceId !== undefined) {
+        sim.world.launchPieceTowards(
+          pieceId,
+          destination.centerM,
+          inchesToMeters(60),
+          inchesToMeters(18),
+        );
+      }
+      sim.step();
+    }
 
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(classified).toHaveLength(3);
@@ -1065,14 +1075,14 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     // — every one actually flew, landed, and settled in the classifier.
     for (const artifact of artifacts) {
       expect(artifact.airborne).toBe(false);
-      expect(artifact.pose.p.y).not.toBeCloseTo(inchesToMeters(startY), 2);
+      expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(goal[1] - 8));
     }
 
     // Packed touching, not spread across three invented slots: sorted along
     // the lane, each centre-to-centre gap is close to one ball diameter
     // (5 in) and never wildly more, the way independent parked positions
     // could produce.
-    const sortedY = artifacts.map((a) => metersToInches(a.pose.p.y)).sort((a, b) => b - a);
+    const sortedY = artifacts.map((a) => metersToInches(meters(a.pose.p.y))).sort((a, b) => b - a);
     for (let i = 1; i < sortedY.length; i++) {
       const gapIn = (sortedY[i - 1] as number) - (sortedY[i] as number);
       expect(gapIn).toBeGreaterThan(3);

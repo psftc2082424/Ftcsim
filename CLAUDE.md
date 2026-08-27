@@ -561,3 +561,33 @@ shoot; then Phase 4 (PDF ingestion).
   `core/game/conveyor.ts`, `core/sim/simWorld.ts`, `decodeCollision.ts`, and
   dSim's `src/sim/goal.ts` / `src/sim/field.ts` first. The supplied CAD is
   still required before claiming the GATE panel outline matches the real field.
+
+### Latest handoff — 2026-08-27 (physical guided classifier lane)
+
+- **The DECODE CLASSIFIER no longer parks ARTIFACTS in fixed slots.** A generic
+  `GuidedLaneSpec` in `core/game/conveyor.ts` applies bounded down-lane and
+  centring acceleration to ordinary active pieces. `PieceConveyors` never
+  assigns a lane position: pieces collide, rebound at 0.20 restitution, lose
+  the existing rolling energy, and pack against the real live GATE collider.
+  Nine normal pieces occupy the lane; the tenth and later pieces use the
+  declared elevated overflow path. The drive model was not touched.
+- **Gate and GOAL entry are semantic collision boundaries, not season code in
+  the solver.** `FieldTemplate.colliderTags` names static bodies. The GATE tag
+  is enabled only while closed. A lane may additionally declare an entry
+  barrier: only a piece that entered the lane's declared GOAL is permitted
+  through that one solid face. It still uses ordinary integration, ball↔ball
+  and ball↔field contacts everywhere else. This keeps ground balls and robots
+  out of the tall GOAL/classifier while allowing a legitimate scored ball to
+  roll from its hollow basin into the lane; it is not a teleport or animation.
+- **Shot contract:** `launchPieceTowards` remains the deterministic, perfect
+  accuracy launch. After GOAL membership, no shooter guidance remains; the
+  ball is a normal loose physical piece. `decodeMatch.test.ts` now covers a
+  real one-ball shot through GOAL → live lane → opened gate/tunnel, and three
+  separately launched physical balls scoring once and settling in a closed
+  lane. `conveyor.test.ts` covers lane capacity, overflow, cruise governor,
+  latch/collider state, refill guidance, and backwards return rejection.
+- **Verification:** focused tests, TypeScript, ESLint, and `npm run verify`
+  pass on this state. Inspect `core/game/conveyor.ts`, `sim/simWorld.ts`,
+  `fixtures/decodeCollision.ts`, and `fixtures/decodeMatch.test.ts` first for
+  follow-up work. Do not restore fixed slots, virtual drain positioning,
+  flywheel/RPM/random shot behaviour, or alter drivetrain physics.

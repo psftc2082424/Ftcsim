@@ -87,9 +87,14 @@ class FakeWorld implements ConveyorWorld {
   readonly blocked = new Map<string, Vec2>();
   readonly guided = new Map<
     string,
-    { readonly accelerationMps2: Vec2; readonly targetHeightM?: number; readonly heightRateMps?: number }
+    {
+      readonly accelerationMps2: Vec2;
+      readonly targetHeightM?: number | undefined;
+      readonly heightRateMps?: number | undefined;
+    }
   >();
   readonly colliderStates = new Map<string, boolean>();
+  readonly pieceBarrierPermissions = new Map<string, boolean>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -121,6 +126,10 @@ class FakeWorld implements ConveyorWorld {
 
   setColliderTagActive(tag: string, active: boolean): void {
     this.colliderStates.set(tag, active);
+  }
+
+  setPieceColliderTagPassable(pieceId: string, _tag: string, passable: boolean): void {
+    this.pieceBarrierPermissions.set(pieceId, passable);
   }
 
   dampPieceVelocity(_pieceId: string, _retention: number): void {}
@@ -204,26 +213,6 @@ function run(
   const positions = new Map(pieceIds.map((id, i) => [id, inEntry(i)] as const));
   const world = new FakeWorld(positions, options.robotAt ?? null, options.velocities ?? new Map());
   const conveyors = new PieceConveyors([spec], places(spec), DT);
-
-  for (let tick = 0; tick < ticks; tick++) {
-    if (options.openAt !== undefined && tick === options.openAt) {
-      world.moveRobot(vec2(0, -20 * 0.0254));
-    }
-    conveyors.update(world.snapshot(tick), tick, world);
-  }
-  return { conveyors, world };
-}
-
-/** Same shape as `run`, but against the lane-aligned `LANE_SPEC` geometry. */
-function runLane(
-  pieceIds: readonly string[],
-  ticks: number,
-  options: { spec?: PieceConveyorSpec; openAt?: number } = {},
-): { conveyors: PieceConveyors; world: FakeWorld } {
-  const spec = options.spec ?? LANE_SPEC;
-  const positions = new Map(pieceIds.map((id, i) => [id, inEntry(i)] as const));
-  const world = new FakeWorld(positions);
-  const conveyors = new PieceConveyors([spec], lanePlaces(spec), DT);
 
   for (let tick = 0; tick < ticks; tick++) {
     if (options.openAt !== undefined && tick === options.openAt) {

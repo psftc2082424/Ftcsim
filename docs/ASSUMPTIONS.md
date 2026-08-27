@@ -1636,10 +1636,48 @@ does not already give:
 
 ---
 
+### 10.18 Guided lanes and one-way GOAL-to-classifier entry
+
+| | |
+|---|---|
+| **Values** | lane guide `80 in/s²`, governed at `22 in/s`; overflow surface centre `10 in` |
+| **Confidence** | **INFERRED** from dSim-observed DECODE behaviour; the manual establishes capacity/overflow, not these dynamic values |
+| **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
+
+The CLASSIFIER is a generic `GuidedLaneSpec`, not an ordered holder. A declared
+lane supplies only bounded environmental acceleration and centring toward its
+channel; pieces keep their own positions and velocities and resolve their own
+contacts. The `22 in/s` cap prevents a lone ball from acquiring unbounded speed
+in the frictionless contact solver before it reaches a gate. It is a governed
+ramp/belt approximation, not mechanism or shooter physics.
+
+The first nine balls remain ordinary floor-level bodies and pack against the
+closed live GATE. The tenth and later balls travel on the declared elevated
+overflow surface, because the manual distinguishes OVERFLOW from an additional
+classifier slot. The values for the guide and overflow surface are observations
+of dSim's public DECODE behaviour and are explicitly not manual dimensions.
+
+The GOAL's field-facing solid boundary reaches the stated `38.75 in` top lip;
+its backboard and side panels retain the full `54 in` assembly height. Thus a
+ground robot or loose ARTIFACT cannot enter the GOAL/classifier, while a ball
+that genuinely crossed the high GOAL membership volume is permitted through
+that one semantic barrier into the attached lane. This is a generic
+per-piece/tagged-collider permission, not a positional move: once inside, the
+ball remains subject to the same integration, `0.20` restitution, rolling loss,
+and ball/field contacts as every other loose ball. An unrelated field ball has
+no permission and collides with the GOAL face normally.
+
+The live GATE stays a tagged solid collider until its owner latches it open.
+Opening it does not release or animate any ball; it simply retracts that one
+collider, allowing the already-packed physical balls to roll under their normal
+lane guidance. This preserves the one-way return guard and never changes robot
+or drivetrain collision behaviour.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Added §10.18: CLASSIFIER queues are now generic physical guided lanes with a governed slope, a semantic live GATE, physical nine-ball packing, declared elevated overflow, and a tagged one-way GOAL entry barrier. ARTIFACTS remain normal colliding bodies after scoring; no fixed slot or teleport path remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |
 | 2026-08-24 | Ledger created for Phase 1. |
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |

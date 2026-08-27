@@ -236,14 +236,15 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
   const openingWidthIn = GOAL.openingWidthIn.value;
   const openingDepthIn = GOAL.openingDepthIn.value;
   const thicknessM = inchesToMeters(GOAL_WALL_THICKNESS_IN);
-  const span = { bottom: 0, top: inchesToMeters(GOAL.heightIn.value) };
+  const fullSpan = { bottom: 0, top: inchesToMeters(GOAL.heightIn.value) };
+  const openingSpan = { bottom: 0, top: inchesToMeters(GOAL.topLipHeightIn.value) };
 
   // The back leg runs along the field's own back perimeter (y = half),
   // spanning the opening's width in x.
   const backLeg = createStaticBody({
     id: firstId,
     shape: createObb(inchesToMeters(openingWidthIn), thicknessM),
-    span,
+    span: fullSpan,
     pose: {
       p: {
         x: inchesToMeters(sign * (half - openingWidthIn / 2)),
@@ -258,7 +259,7 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
   const sideLeg = createStaticBody({
     id: firstId + 1,
     shape: createObb(thicknessM, inchesToMeters(openingDepthIn)),
-    span,
+    span: fullSpan,
     pose: {
       p: {
         x: inchesToMeters(sign * half),
@@ -281,7 +282,7 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
   const face = createStaticBody({
     id: firstId + 2,
     shape: createObb(Math.hypot(faceDx, faceDy), thicknessM),
-    span,
+    span: openingSpan,
     pose: {
       p: vec2((faceStart.x + faceEnd.x) / 2, (faceStart.y + faceEnd.y) / 2),
       theta: Math.atan2(faceDy, faceDx),
@@ -358,6 +359,8 @@ export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate
     colliderTags: {
       'red-classifier-gate': [redGate.id],
       'blue-classifier-gate': [blueGate.id],
+      'red-classifier-entry': [redGoal[2]!.id],
+      'blue-classifier-entry': [blueGoal[2]!.id],
     },
   };
 }

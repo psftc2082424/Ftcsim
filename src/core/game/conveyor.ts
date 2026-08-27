@@ -113,6 +113,12 @@ export interface GuidedLaneSpec {
   readonly lateralCenteringAccelerationMps2: number;
   /** Semantic field collider tag retracted while the gate is latched open. */
   readonly gateColliderTag: string;
+  /**
+   * A one-way entry barrier between an elevated receiving basin and this lane.
+   * An arriving piece may pass it under normal physics; loose field pieces may
+   * not enter backward through the same solid assembly.
+   */
+  readonly entryBarrierColliderTag?: string | undefined;
   /** Centre height of an overflow piece riding above the packed lane. */
   readonly overflowHeightM: number;
   /** Vertical approach rate to that overflow surface, m/s. */
@@ -138,6 +144,8 @@ export interface ConveyorWorld {
   ): void;
   /** Enable/disable a semantic static-collider group, e.g. a gate arm. */
   setColliderTagActive(tag: string, active: boolean): void;
+  /** Permit one already-authorised piece through a declared one-way barrier. */
+  setPieceColliderTagPassable(pieceId: string, tag: string, passable: boolean): void;
   /** Inelastic field-basin capture; keeps a piece active at its current pose. */
   dampPieceVelocity(pieceId: string, retention: number): void;
 }
@@ -226,7 +234,7 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
-      this.refreshReleased(state, places, snapshot);
+      this.refreshReleased(spec, state, places, snapshot, world);
       this.blockInboundExit(spec, state, places, snapshot, world);
       if (this.releaseHeld(spec, snapshot)) state.releaseLatched = true;
       this.takeArrivals(spec, state, places, snapshot, world);
@@ -256,7 +264,12 @@ export class PieceConveyors {
 
       state.taken.add(piece.pieceId);
 
-      if (spec.lane !== undefined) world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
+      if (spec.lane !== undefined) {
+        world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
+        if (spec.lane.entryBarrierColliderTag !== undefined) {
+          world.setPieceColliderTagPassable(piece.pieceId, spec.lane.entryBarrierColliderTag, true);
+        }
+      }
 
       if (state.queue.length < spec.capacity) {
         state.queue.push(piece.pieceId);
@@ -281,9 +294,11 @@ export class PieceConveyors {
 
   /** Forget authorization once a released piece has completed the exit path. */
   private refreshReleased(
+    spec: PieceConveyorSpec,
     state: ConveyorState,
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
+    world: ConveyorWorld,
   ): void {
     for (const pieceId of state.released) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -302,6 +317,12 @@ export class PieceConveyors {
       state.queue.splice(index, 1);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
+      if (state.overflow.has(pieceId)) state.overflow.delete(pieceId);
+      if (spec.lane?.entryBarrierColliderTag !== undefined) {
+        // It has crossed into the public return, so it no longer has any
+        // privilege to re-enter the GOAL from the field side.
+        world.setPieceColliderTagPassable(pieceId, spec.lane.entryBarrierColliderTag, false);
+      }
     }
     for (const pieceId of state.overflow) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -309,6 +330,9 @@ export class PieceConveyors {
       state.overflow.delete(pieceId);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
+      if (spec.lane?.entryBarrierColliderTag !== undefined) {
+        world.setPieceColliderTagPassable(pieceId, spec.lane.entryBarrierColliderTag, false);
+      }
     }
   }
 
