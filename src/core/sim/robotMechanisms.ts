@@ -163,19 +163,13 @@ export function readMechanismCommands(input: ControlInput): MechanismCommands {
  * should forbid.
  */
 export function feedAllows(
-  specs: MechanismSpecs,
   state: MechanismState,
   commands: MechanismCommands,
-  tick: number,
-  dtSec: number,
 ): boolean {
-  if (!commands.firing) return false;
-
-  const feedPerSec = specs.feedPerSec;
-  if (feedPerSec === null || feedPerSec <= 0) return !state.firePressed;
-
-  const intervalTicks = 1 / (feedPerSec * dtSec);
-  return tick - state.lastFireTick >= intervalTicks;
+  // Shooting is a discrete driver action. Holding the button does not create an
+  // implicit, physics-derived fire rate; each rising press releases one held
+  // piece when the shooter is enabled.
+  return commands.shooterRunning && commands.firing && !state.firePressed;
 }
 
 /** Target speed after the driver's trim, rad/s. */

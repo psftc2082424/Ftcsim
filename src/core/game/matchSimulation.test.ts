@@ -5,13 +5,14 @@ import { explicit } from './sourced.js';
 import { observationFrom, robotIdOf } from './observation.js';
 import type { MatchStructure } from './matchStructure.js';
 import type { ScoringRule } from './scoring.js';
-import { DEFAULT_ROBOT_CONFIG } from '../robot/robotConfig.js';
+import { COMPETITION_ROBOT_CONFIG, DEFAULT_ROBOT_CONFIG } from '../robot/robotConfig.js';
 import { constantController, createInputTrace, ScriptedController } from '../control/scripted.js';
 import { createControlInput, NEUTRAL_INPUT } from '../control/controlInput.js';
 import { NeutralController } from '../control/controller.js';
 import { SimWorld } from '../sim/simWorld.js';
 import { inchesToMeters } from '../units/convert.js';
 import { vec2 } from '../math/vec2.js';
+import { INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../sim/shooter.js';
 
 /** A short match keeps end-to-end runs fast: 2 s AUTO, 1 s gap, 3 s TELEOP. */
 const SHORT_MATCH: MatchStructure = {
@@ -104,6 +105,50 @@ describe('pipeline wiring', () => {
 
   it('scores nothing when nothing happens', () => {
     expect(simulation().run().score.red).toBe(0);
+  });
+
+  it('routes a functional launch through region events and the rules engine', () => {
+    const controller = new ScriptedController(
+      createInputTrace('intake then score', [
+        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
+        { tick: 1, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [LAUNCH_BUTTON]: true }) },
+      ]),
+    );
+    const sim = simulation({
+      robots: [
+        {
+          config: COMPETITION_ROBOT_CONFIG,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      pieces: [
+        {
+          pieceId: 'p',
+          pieceType: 'P',
+          diameterIn: 4.9,
+          massLb: 0.165,
+          startPositionM: vec2(inchesToMeters(11), 0),
+        },
+      ],
+      mechanismActionRoutes: [
+        {
+          id: 'own-goal',
+          action: 'launch',
+          destinationRegionByAlliance: { red: 'goal', blue: 'goal' },
+        },
+      ],
+    });
+
+    sim.step();
+    expect(sim.world.heldPieces(0)).toEqual(['p']);
+    sim.step();
+
+    expect(sim.score.red).toBe(3);
+    expect(sim.events).toContainEqual(
+      expect.objectContaining({ kind: 'PieceEnteredRegion', pieceId: 'p', regionId: 'goal' }),
+    );
   });
 
   /** The point of the chunk: a score derived from real simulated positions. */

@@ -36,7 +36,7 @@
  */
 
 import { Battery, type BatteryConfig } from '../motor/battery.js';
-import { Pcg32, SubStream, type SubStreamId } from '../math/rng.js';
+import { Pcg32, type SubStreamId } from '../math/rng.js';
 import { StateHasher } from '../math/hash.js';
 import { solveDrivetrain, type DrivetrainSolution } from '../drive/drivetrain.js';
 import { IdealTraction, type TractionModel } from '../drive/traction.js';
@@ -52,7 +52,7 @@ import {
   type Pose,
   type RigidBody,
 } from '../physics/body.js';
-import { amps, volts } from '../units/si.js';
+import { amps } from '../units/si.js';
 import { createCircle, createObb } from '../physics/shapes.js';
 import { inchesToMeters, poundsToKilograms } from '../units/convert.js';
 import { SpatialHash } from '../physics/broadphase.js';
@@ -60,7 +60,7 @@ import { collide } from '../physics/sat.js';
 import { resolveContact } from '../physics/resolve.js';
 import { integrateBody } from '../physics/integrate.js';
 import { isAirborne, launchComponents, stepVertical, type VerticalState } from '../physics/ballistics.js';
-import { aimShot, launchHeightM, launcherAccepts, pointVelocity } from './shooter.js';
+import { launcherAccepts, pointVelocity } from './shooter.js';
 import {
   deriveMechanismSpecs,
   feedAllows,
@@ -70,16 +70,12 @@ import {
   type MechanismSpecs,
   type MechanismState,
 } from './robotMechanisms.js';
-import { exitSpeedMps, shotEnergyJ, afterShot, stepFlywheel } from '../mechanism/flywheel.js';
+import { exitSpeedMps } from '../mechanism/flywheel.js';
 import {
-  ROLLER_TRANSFER_RATIO,
-  drawDirection,
   ejectionPointM,
   hopperSlotM,
   intakeAccepts,
   mouthContains,
-  rollerForceN,
-  surfaceSpeedMps,
   type IntakeSpec,
 } from '../mechanism/intake.js';
 import { createStandardField, type FieldTemplate } from '../field/fieldTemplate.js';
@@ -158,6 +154,16 @@ export interface SimWorldOptions {
   readonly seed?: number | undefined;
 }
 
+/** A mechanism action awaiting the game-definition route that resolves it. */
+export interface PendingPieceAction {
+  readonly kind: 'launch';
+  readonly pieceId: string;
+  readonly robotId: EntityId;
+  readonly alliance: Alliance;
+  /** Where an unrouted action returns its piece to the field. */
+  readonly originM: Vec2;
+}
+
 interface SimRobot {
   readonly derived: DerivedRobot;
   readonly body: RigidBody;
@@ -218,6 +224,8 @@ export class SimWorld {
   private readonly pieces: SimPiece[] = [];
   private readonly bodies = new Map<EntityId, RigidBody>();
   private readonly battery: Battery;
+  /** Actions produced by mechanisms this tick, consumed by MatchSimulation. */
+  private pendingPieceActions: PendingPieceAction[] = [];
   private readonly broadphase = new SpatialHash();
   private readonly traction: TractionModel;
   private readonly subStreams = new Map<SubStreamId, Pcg32>();
@@ -543,6 +551,7 @@ export class SimWorld {
       heightM: Math.max(piece.radiusM, fromHeightM),
       velocityMps: verticalMps,
     };
+    this.cachedSnapshot = null;
   }
 
   /**
@@ -558,6 +567,7 @@ export class SimWorld {
     piece.parked = true;
     piece.carriedBy = null;
     this.settlePiece(piece, positionM);
+    this.cachedSnapshot = null;
   }
 
   /** Put a parked piece back into play at rest. */
@@ -566,6 +576,37 @@ export class SimWorld {
     piece.parked = false;
     piece.carriedBy = null;
     this.settlePiece(piece, positionM);
+  }
+
+  /**
+   * Move a piece to a game-defined destination without simulating a trajectory.
+   *
+   * The caller supplies a region's height band where it has one. A scoring
+   * action can therefore enter an elevated goal as a deterministic state
+   * transition; it does not need an invented launch speed or target collision.
+   */
+  deliverPiece(pieceId: string, positionM: Vec2, heightM?: number): void {
+    const piece = this.pieceNamed(pieceId);
+    piece.parked = false;
+    piece.carriedBy = null;
+    this.settlePiece(piece, positionM);
+    this.cachedSnapshot = null;
+    if (heightM !== undefined) {
+      piece.vertical = { heightM: Math.max(piece.radiusM, heightM), velocityMps: 0 };
+      piece.body.span = {
+        bottom: piece.vertical.heightM - piece.radiusM,
+        top: piece.vertical.heightM + piece.radiusM,
+      };
+      piece.previousHeightM = piece.vertical.heightM;
+    }
+    this.cachedSnapshot = null;
+  }
+
+  /** Take the mechanism actions produced since the previous read. */
+  drainPieceActions(): readonly PendingPieceAction[] {
+    const actions = this.pendingPieceActions;
+    this.pendingPieceActions = [];
+    return actions;
   }
 
   private settlePiece(piece: SimPiece, positionM: Vec2): void {
@@ -672,10 +713,9 @@ export class SimWorld {
   /**
    * Step 3 of the tick: run this robot's mechanisms against the driver's input.
    *
-   * Order inside the step matters. The flywheel spins first so a shot taken this
-   * tick leaves at this tick's speed; the intake then acts on loose pieces; and
-   * firing comes last so a piece collected this tick is in the hopper before the
-   * feeder looks for one.
+   * Order inside the step matters. Readiness changes first, then an intake may
+   * collect a loose piece, and firing comes last so one input can collect and
+   * score through the normal game pipeline on the same tick.
    */
   private updateMechanisms(robot: SimRobot, input: ControlInput): void {
     const commands = readMechanismCommands(input);
@@ -687,14 +727,13 @@ export class SimWorld {
     const launcher = robot.specs.launcher;
     if (launcher !== null) {
       const spec = trimmedTarget(launcher.flywheel, commands.speedScale);
-      const step = stepFlywheel(
-        spec,
-        { radPerSec: state.flywheel.radPerSec, running: commands.shooterRunning },
-        DT_SECONDS,
-        volts(this.battery.voltage),
-      );
-      state.flywheel = step.state;
-      robot.shooterCurrentA = step.currentA;
+      // A functional shooter is ready when it is enabled. Its target setting is
+      // retained for builder telemetry, but firing is not derived from torque,
+      // wheel inertia, random spread or a projectile trajectory.
+      state.flywheel = {
+        radPerSec: commands.shooterRunning ? spec.targetRadPerSec : 0,
+        running: commands.shooterRunning,
+      };
     }
 
     const intake = robot.specs.intake;
@@ -703,19 +742,18 @@ export class SimWorld {
       if (commands.intake === 'outtake') this.ejectPiece(robot, intake);
     }
 
-    if (feedAllows(robot.specs, state, commands, this.tickCount, DT_SECONDS)) {
+    if (feedAllows(state, commands)) {
       this.firePiece(robot);
     }
     state.firePressed = commands.firing;
   }
 
   /**
-   * Drag loose pieces toward the mouth, and collect the ones that arrive.
+   * Collect loose pieces whose centres are in the enabled intake mouth.
    *
-   * The roller force is a real force on a real body: a piece accelerates into
-   * the intake and the robot feels the reaction. How long collecting takes is
-   * therefore not a parameter — it is however long that force needs to move that
-   * mass across the mouth.
+   * The mouth, accepted piece types and capacity are functional constraints a
+   * driver can observe. Roller force, ball mass and contact transients are not:
+   * acquisition is therefore the deterministic `FIELD -> HELD` transition.
    */
   private runIntake(
     robot: SimRobot,
@@ -724,9 +762,6 @@ export class SimWorld {
   ): void {
     const state = robot.mechanisms;
     const pose = robot.body.pose;
-    const halfLength = robot.derived.lengthM / 2;
-    const halfWidth = robot.derived.widthM / 2;
-
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked) continue;
       if (!intakeAccepts(spec, piece.spec.pieceType)) continue;
@@ -739,47 +774,7 @@ export class SimWorld {
       );
       if (!mouthContains(spec, bodyP)) continue;
 
-      if (command !== 'off') {
-        const offsetWorld = vec2(
-          piece.body.pose.p.x - pose.p.x,
-          piece.body.pose.p.y - pose.p.y,
-        );
-        const carrier = pointVelocity(robot.body.vel.v, robot.body.vel.omega, offsetWorld);
-        const relativeWorld = vec2(
-          piece.body.vel.v.x - carrier.x,
-          piece.body.vel.v.y - carrier.y,
-        );
-
-        const force = rollerForceN(
-          spec,
-          command,
-          piece.body.mass,
-          rotate(relativeWorld, -pose.theta),
-          DT_SECONDS,
-        );
-        const worldForce = rotate(force, pose.theta);
-        piece.forceX += worldForce.x;
-        piece.forceY += worldForce.y;
-
-        // Newton's third law. Small for a 75 g ball, and free to be right.
-        robot.body.vel = {
-          v: vec2(
-            robot.body.vel.v.x - (worldForce.x / robot.body.mass) * DT_SECONDS,
-            robot.body.vel.v.y - (worldForce.y / robot.body.mass) * DT_SECONDS,
-          ),
-          omega: robot.body.vel.omega,
-        };
-      }
-
-      // Collected once the roller has dragged it into contact with the robot:
-      // inside the footprint grown by the piece's own radius is exactly
-      // "resting against it", which needs no tolerance of its own.
-      const arrived =
-        command === 'intake' &&
-        Math.abs(bodyP.x) <= halfLength + piece.radiusM &&
-        Math.abs(bodyP.y) <= halfWidth + piece.radiusM;
-
-      if (arrived && state.held.length < spec.capacity) {
+      if (command === 'intake' && state.held.length < spec.capacity) {
         state.held.push(piece.spec.pieceId);
         piece.carriedBy = robot.body.id;
         piece.forceX = 0;
@@ -788,7 +783,7 @@ export class SimWorld {
     }
   }
 
-  /** Push the oldest held piece back out of the mouth at roller speed. */
+  /** Return the oldest held piece to the field just outside the intake mouth. */
   private ejectPiece(robot: SimRobot, spec: IntakeSpec): void {
     const state = robot.mechanisms;
     if (state.held.length === 0) return;
@@ -805,18 +800,12 @@ export class SimWorld {
 
     const pose = robot.body.pose;
     const offsetWorld = rotate(ejectionPointM(spec, piece.radiusM), pose.theta);
-    const inward = drawDirection(spec);
-    const outWorld = rotate(vec2(-inward.x, -inward.y), pose.theta);
-
-    const speed = Math.abs(surfaceSpeedMps(spec, 'outtake')) * ROLLER_TRANSFER_RATIO;
-    const carrier = pointVelocity(robot.body.vel.v, robot.body.vel.omega, offsetWorld);
-
     piece.body.pose = {
       p: vec2(pose.p.x + offsetWorld.x, pose.p.y + offsetWorld.y),
       theta: piece.body.pose.theta,
     };
     piece.body.vel = {
-      v: vec2(carrier.x + outWorld.x * speed, carrier.y + outWorld.y * speed),
+      v: vec2(robot.body.vel.v.x, robot.body.vel.v.y),
       omega: piece.body.vel.omega,
     };
     piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
@@ -828,9 +817,10 @@ export class SimWorld {
   /**
    * Fire the oldest held piece.
    *
-   * Exit speed is read off the flywheel as it is *now*, so a shot taken before
-   * spin-up finishes falls short. The energy that shot carries comes back out of
-   * the wheel, which is the whole of the recovery model.
+   * A launch is a deterministic `HELD -> TRANSFERRING` transition. The match
+   * layer resolves it through the season's action route, then the ordinary
+   * membership detector and rules engine score its destination. No projectile
+   * or score mutation lives here.
    */
   private firePiece(robot: SimRobot): void {
     const launcher = robot.specs.launcher;
@@ -844,62 +834,18 @@ export class SimWorld {
     if (piece === undefined) return;
     if (!launcherAccepts(launcher.capability, piece.spec.pieceType)) return;
 
-    const spec = trimmedTarget(launcher.flywheel, state.speedScale);
-    const speed = exitSpeedMps(spec, state.flywheel);
-
-    const pose = robot.body.pose;
-    const muzzleWorld = rotate(launcher.mountM, pose.theta);
-    const muzzleVelocity = pointVelocity(robot.body.vel.v, robot.body.vel.omega, muzzleWorld);
-
-    const shot = aimShot(
-      {
-        capability: launcher.capability,
-        exitSpeedMps: speed,
-        aimRad: pose.theta + launcher.facingRad,
-        muzzleVelocity,
-        omegaRadPerSec: robot.body.vel.omega,
-        pieceDiameterM: piece.radiusM * 2,
-        // Clear of the robot's own envelope: the piece leaves from the roof, so
-        // its underside is level with the robot's top and the two spans do not
-        // overlap.
-        fromHeightM: launchHeightM(robot.derived.heightM) + piece.radiusM,
-      },
-      // Its own sub-stream, so adding a shooter cannot shift the numbers any
-      // other system draws (ARCHITECTURE.md §9.1).
-      this.rng(SubStream.Launch),
-    );
-
     state.held.shift();
     state.lastFireTick = this.tickCount;
     piece.carriedBy = null;
-    piece.body.pose = {
-      p: vec2(pose.p.x + muzzleWorld.x, pose.p.y + muzzleWorld.y),
-      theta: piece.body.pose.theta,
-    };
-    piece.previousPose = piece.body.pose;
-
-    const beforeX = piece.body.vel.v.x;
-    const beforeY = piece.body.vel.v.y;
-    this.launchPiece(pieceId, shot);
-    piece.previousHeightM = piece.vertical.heightM;
-
-    // Momentum conservation: the robot takes the equal and opposite impulse. A
-    // 75 g ball at 9 m/s shifts a 15 kg robot by 45 mm/s, which is small and
-    // exactly right.
-    const massRatio = piece.body.mass / robot.body.mass;
-    robot.body.vel = {
-      v: vec2(
-        robot.body.vel.v.x - (piece.body.vel.v.x - beforeX) * massRatio,
-        robot.body.vel.v.y - (piece.body.vel.v.y - beforeY) * massRatio,
-      ),
-      omega: robot.body.vel.omega,
-    };
-
-    state.flywheel = afterShot(
-      spec,
-      state.flywheel,
-      shotEnergyJ(piece.body.mass, speed, spec.transferRatio),
-    );
+    piece.parked = true;
+    this.settlePiece(piece, robot.body.pose.p);
+    this.pendingPieceActions.push({
+      kind: 'launch',
+      pieceId,
+      robotId: robot.body.id,
+      alliance: robot.alliance,
+      originM: robot.body.pose.p,
+    });
   }
 
   /** Ticks between successive pieces leaving the feeder. */

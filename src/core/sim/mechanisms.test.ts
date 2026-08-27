@@ -2,14 +2,14 @@
  * Intake and shooter, end to end in the world.
  *
  * The chain the product depends on: a button in a `ControlInput` reaches a
- * mechanism, the mechanism puts a force on a real body, the body ends up in a
- * hopper, and firing it produces a trajectory. Everything here drives the
+ * mechanism, the mechanism puts it in a hopper, and firing it emits a
+ * deterministic action for the game layer to route. Everything here drives the
  * simulation the way a person does — through named buttons on the control
  * input — so nothing is asserted through a back door the UI does not have.
  */
 
 import { describe, expect, it } from 'vitest';
-import { DT_SECONDS, SimWorld, type GamePieceSpec, type RobotSpec } from './simWorld.js';
+import { SimWorld, type GamePieceSpec, type RobotSpec } from './simWorld.js';
 import { INTAKE_BUTTON, LAUNCH_BUTTON, OUTTAKE_BUTTON, SHOOTER_BUTTON } from './shooter.js';
 import { COMPETITION_ROBOT_CONFIG, type RobotConfig } from '../robot/robotConfig.js';
 import { ScriptedController, constantController, createInputTrace } from '../control/scripted.js';
@@ -111,16 +111,11 @@ describe('the intake collects', () => {
     expect(sim.heldPieces(0)).toEqual([]);
   });
 
-  /** Far enough out that the roller has to work before the piece arrives. */
-  it('drags the piece toward the robot before it arrives', () => {
+  it('acquires an eligible piece immediately when it enters the mouth', () => {
     const sim = collecting([artifact('a', 13.5, 0)]);
-    const startX = sim.snapshot().pieces[0]?.pose.p.x ?? 0;
-    sim.stepMany(4);
+    sim.step();
 
-    const piece = sim.snapshot().pieces[0];
-    expect(sim.heldPieces(0)).toEqual([]);
-    expect(piece?.pose.p.x).toBeLessThan(startX);
-    expect(piece?.vel.v.x).toBeLessThan(0);
+    expect(sim.heldPieces(0)).toEqual(['a']);
   });
 
   it('fills up to capacity and no further', () => {
@@ -134,12 +129,7 @@ describe('the intake collects', () => {
     expect(sim.snapshot().pieces.filter((p) => p.heldByRobotId === null)).toHaveLength(1);
   });
 
-  /**
-   * Collection time is not a parameter: it is however long the roller force
-   * needs to drag that mass across the mouth. Gearing the intake down slows the
-   * roller, so the same ball takes longer.
-   */
-  it('collects more slowly when the intake is geared down', () => {
+  it('does not depend on motor gearing once a piece is inside the mouth', () => {
     const geared = (gearRatio: number): RobotConfig => ({
       ...COMPETITION_ROBOT_CONFIG,
       mechanisms: COMPETITION_ROBOT_CONFIG.mechanisms.map((mechanism) =>
@@ -149,23 +139,18 @@ describe('the intake collects', () => {
       ),
     });
 
-    const ticksToCollect = (gearRatio: number): number => {
+    const collects = (gearRatio: number): boolean => {
       const sim = world({
         pieces: [artifact('a', 13, 0)],
         config: geared(gearRatio),
         robot: { controller: constantController(INTAKING) },
       });
-      for (let i = 0; i < 2000; i++) {
-        sim.step();
-        if (sim.heldPieces(0).length === 1) return i;
-      }
-      return Infinity;
+      sim.step();
+      return sim.heldPieces(0).length === 1;
     };
 
-    const fast = ticksToCollect(1);
-    const slow = ticksToCollect(6);
-    expect(fast).toBeLessThan(slow);
-    expect(slow).toBeLessThan(Infinity);
+    expect(collects(1)).toBe(true);
+    expect(collects(6)).toBe(true);
   });
 
   it('does not collect for a robot with no intake at all', () => {
@@ -242,12 +227,12 @@ describe('the outtake', () => {
     expect(piece?.pose.p.x ?? 0).toBeGreaterThan(0);
   });
 
-  it('sends it out at the roller speed rather than dropping it', () => {
+  it('returns it at rest rather than injecting a physical roller impulse', () => {
     const sim = collectThenEject(100);
     sim.stepMany(102);
 
     const piece = sim.snapshot().pieces[0];
-    expect(piece?.vel.v.x ?? 0).toBeGreaterThan(0.1);
+    expect(piece?.vel.v.x ?? 0).toBeCloseTo(0, 12);
   });
 
   it('does nothing with an empty hopper', () => {
@@ -274,59 +259,42 @@ describe('the shooter', () => {
       },
     });
 
-  it('spins up over time rather than instantly', () => {
+  it('is ready at its configured setting when enabled', () => {
     const sim = world({ pieces: [], robot: { controller: constantController(SPINNING) } });
 
-    sim.stepMany(10);
-    const early = sim.snapshot().robots[0]?.mechanisms.flywheelRadPerSec ?? 0;
-    sim.stepMany(400);
-    const later = sim.snapshot().robots[0]?.mechanisms.flywheelRadPerSec ?? 0;
+    sim.step();
+    const shooter = sim.snapshot().robots[0]?.mechanisms;
 
-    expect(early).toBeGreaterThan(0);
-    expect(later).toBeGreaterThan(early * 5);
+    expect(shooter?.shooterRunning).toBe(true);
+    expect(shooter?.flywheelRadPerSec).toBeCloseTo(shooter?.flywheelTargetRadPerSec ?? 0, 12);
   });
 
-  it('draws current from the same pack the drivetrain uses', () => {
+  it('does not create a hidden battery-load model for a functional shooter', () => {
     const spinning = world({ pieces: [], robot: { controller: constantController(SPINNING) } });
     const idle = world({ pieces: [] });
     spinning.stepMany(50);
     idle.stepMany(50);
 
-    expect(spinning.snapshot().robots[0]?.mechanisms.shooterCurrentA ?? 0).toBeGreaterThan(1);
-    expect(spinning.batteryVolts).toBeLessThan(idle.batteryVolts);
+    expect(spinning.snapshot().robots[0]?.mechanisms.shooterCurrentA ?? 0).toBe(0);
+    expect(spinning.batteryVolts).toBeCloseTo(idle.batteryVolts, 12);
   });
 
-  it('launches the held piece into the air', () => {
+  it('queues a launch action instead of creating a projectile', () => {
     const sim = collectAndShoot(500);
     sim.stepMany(520);
 
-    const piece = sim.snapshot().pieces[0];
     expect(sim.heldPieces(0)).toEqual([]);
-    expect(piece?.airborne).toBe(true);
-    expect(piece?.verticalVelocityMps ?? 0).toBeGreaterThan(0);
+    expect(sim.drainPieceActions()).toMatchObject([{ kind: 'launch', pieceId: 'a', alliance: 'red' }]);
   });
 
-  it('throws it further the longer the shooter has spun up', () => {
-    const rangeOf = (spinUpTicks: number): number => {
-      const sim = collectAndShoot(spinUpTicks);
-      sim.stepMany(spinUpTicks + 600);
-      return sim.snapshot().pieces[0]?.pose.p.x ?? 0;
-    };
-
-    const early = rangeOf(60);
-    const late = rangeOf(600);
-    expect(late).toBeGreaterThan(early * 2);
-  });
-
-  it('slows the flywheel by the energy the shot took', () => {
+  it('keeps the enabled setting after an action', () => {
     const sim = collectAndShoot(600);
     sim.stepMany(600);
     const before = sim.snapshot().robots[0]?.mechanisms.flywheelRadPerSec ?? 0;
     sim.step();
     const after = sim.snapshot().robots[0]?.mechanisms.flywheelRadPerSec ?? 0;
 
-    expect(after).toBeLessThan(before);
-    expect(after).toBeGreaterThan(before * 0.5);
+    expect(after).toBeCloseTo(before, 12);
   });
 
   it('fires nothing at all with an empty hopper', () => {
@@ -336,28 +304,26 @@ describe('the shooter', () => {
     });
     sim.stepMany(400);
 
-    expect(sim.snapshot().pieces[0]?.airborne).toBe(false);
+    expect(sim.drainPieceActions()).toEqual([]);
   });
 
-  /** Recoil is momentum conservation, not a flourish: it is small and present. */
-  it('pushes the robot back by the momentum the shot carried', () => {
+  it('does not apply artificial recoil for a functional action', () => {
     const sim = collectAndShoot(600);
     sim.stepMany(600);
     const before = sim.snapshot().robots[0]?.vel.v.x ?? 0;
     sim.step();
     const after = sim.snapshot().robots[0]?.vel.v.x ?? 0;
 
-    expect(after).toBeLessThan(before);
-    expect(before - after).toBeLessThan(0.2);
+    expect(after).toBeCloseTo(before, 12);
   });
 });
 
 describe('the whole sequence, the way a driver runs it', () => {
   /**
-   * Drive at a ball with the intake running, collect it, spin up, fire. This is
-   * the loop the product promises, asserted through the control input alone.
+   * Drive at a ball with the intake running, collect it, enable and fire. This
+   * is the loop the product promises, asserted through the control input alone.
    */
-  it('drives, collects, spins up, fires and puts the piece downrange', () => {
+  it('drives, collects, enables and produces a launch action', () => {
     const sim = world({
       pieces: [artifact('a', 30, 0)],
       robot: {
@@ -381,13 +347,7 @@ describe('the whole sequence, the way a driver runs it', () => {
     expect(sim.heldPieces(0)).toEqual(['a']);
 
     sim.stepMany(520);
-    const airborneAt = sim.snapshot().pieces[0];
-    expect(airborneAt?.airborne).toBe(true);
-
-    sim.stepMany(400);
-    const landed = sim.snapshot().pieces[0];
-    expect(landed?.airborne).toBe(false);
-    expect(landed?.pose.p.x ?? 0).toBeGreaterThan(inchesToMeters(60));
+    expect(sim.drainPieceActions()).toMatchObject([{ kind: 'launch', pieceId: 'a' }]);
   });
 
   it('reproduces the same state hash from the same seed and inputs', () => {
@@ -421,8 +381,8 @@ describe('the whole sequence, the way a driver runs it', () => {
   });
 });
 
-describe('the feeder sets the fire rate', () => {
-  it('fires repeatedly while held, on the intake throughput cadence', () => {
+describe('the shoot control', () => {
+  it('releases one piece for each fire-button press', () => {
     const sim = world({
       pieces: [artifact('a', 11, 0), artifact('b', 11, 5), artifact('c', 11, -5)],
       robot: {
@@ -430,6 +390,8 @@ describe('the feeder sets the fire rate', () => {
           createInputTrace('collect three then hold fire', [
             { tick: 0, input: button(INTAKE_BUTTON, SHOOTER_BUTTON) },
             { tick: 600, input: SPIN_AND_FIRE },
+            { tick: 601, input: SPINNING },
+            { tick: 602, input: SPIN_AND_FIRE },
           ]),
         ),
       },
@@ -438,15 +400,12 @@ describe('the feeder sets the fire rate', () => {
     sim.stepMany(600);
     expect(sim.heldPieces(0)).toHaveLength(3);
 
-    const feedPerSec = sim.mechanismSpecs(0).feedPerSec ?? 0;
-    expect(feedPerSec).toBeGreaterThan(0);
-
-    // Long enough for three at that cadence, with a tick of slack either side.
-    sim.stepMany(Math.ceil(3 / (feedPerSec * DT_SECONDS)) + 4);
-    expect(sim.heldPieces(0)).toEqual([]);
+    sim.stepMany(3);
+    expect(sim.heldPieces(0)).toEqual(['c']);
+    expect(sim.drainPieceActions()).toHaveLength(2);
   });
 
-  it('does not empty the hopper in a single tick', () => {
+  it('does not empty the hopper while the fire button remains held', () => {
     const sim = world({
       pieces: [artifact('a', 11, 0), artifact('b', 11, 5)],
       robot: {
@@ -461,5 +420,6 @@ describe('the feeder sets the fire rate', () => {
 
     sim.stepMany(601);
     expect(sim.heldPieces(0)).toHaveLength(1);
+    expect(sim.drainPieceActions()).toHaveLength(1);
   });
 });

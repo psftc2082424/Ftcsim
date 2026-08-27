@@ -26,7 +26,12 @@
 import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sourced.js';
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
-import type { MatchSetupSpec, PenaltyValues, RankingPointRules } from '../gameDefinition.js';
+import type {
+  MatchSetupSpec,
+  MechanismActionRoute,
+  PenaltyValues,
+  RankingPointRules,
+} from '../gameDefinition.js';
 import { ARTIFACT, CLASSIFIER, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
 import type { PieceConveyorSpec } from '../conveyor.js';
 import { STANDARD_GRAVITY } from '../../units/convert.js';
@@ -344,6 +349,25 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     drainIntervalSec: RAMP_DRAIN_INTERVAL_SEC.value,
   }),
 );
+
+/**
+ * DECODE scoring actions use the owning alliance's GOAL.
+ *
+ * The game rules make entering a GOAL's open top the scored action (§10.5.1).
+ * In the functionality-first model a capable, enabled launcher routes its held
+ * ARTIFACT to that opening; the normal region event, rules and CLASSIFIER still
+ * decide CLASSIFIED versus OVERFLOW. No score is granted by this route itself.
+ */
+export const DECODE_MECHANISM_ACTION_ROUTES: readonly MechanismActionRoute[] = [
+  {
+    id: 'own-goal-launch',
+    action: 'launch',
+    destinationRegionByAlliance: {
+      red: DECODE_REGIONS.redGoal,
+      blue: DECODE_REGIONS.blueGoal,
+    },
+  },
+];
 
 // ------------------------------------------------------------ match timing ---
 

@@ -46,6 +46,7 @@ import type { Effect, ScoreState } from './effects.js';
 import type { FieldTemplate } from '../field/fieldTemplate.js';
 import type { SimEvent } from './events.js';
 import type { GameDefinition } from './gameDefinition.js';
+import type { MechanismActionRoute } from './gameDefinition.js';
 
 /**
  * How a game assigns ordered slots within a region.
@@ -64,6 +65,8 @@ export interface MatchSimulationOptions {
   readonly zones: readonly FieldZone[];
   /** Field mechanisms that move pieces about (`conveyor.ts`). */
   readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
+  /** Deterministic destinations for actions emitted by robot mechanisms. */
+  readonly mechanismActionRoutes?: readonly MechanismActionRoute[] | undefined;
 
   readonly robots: readonly RobotSpec[];
   readonly pieces?: readonly GamePieceSpec[] | undefined;
@@ -184,6 +187,9 @@ export class MatchSimulation {
    *   3. If this tick ends a period, current occupancy and resting pieces are
    *      restated as facts — end-of-period assessment needs the final position,
    *      not the long-past moment of arrival — again before the clock moves.
+   *   3a. Mechanism actions resolve through the game's declared destinations.
+   *      A functional shot becomes an ordinary region entry; it does not
+   *      synthesize a score or a projectile.
    *   3b. Field mechanisms take and release pieces. **After** the detector, so
    *      a piece that entered a scoring region this tick has already produced
    *      its event and been judged against the state before it arrived. Moving
@@ -203,7 +209,16 @@ export class MatchSimulation {
     const observation = observationFrom(snapshot, { attribution: this.attribution });
     this.ingestAll(this.detector.update(observation, this.world.tick));
 
-    this.conveyors.update(snapshot, this.world.tick, this.world);
+    this.routeMechanismActions(this.options.mechanismActionRoutes ?? []);
+
+    // Action routing moved one or more pieces. A second diff on the same tick
+    // emits only those transitions and preserves the event -> rules boundary.
+    const routedSnapshot = this.world.snapshot();
+    this.ingestAll(
+      this.detector.update(observationFrom(routedSnapshot, { attribution: this.attribution }), this.world.tick),
+    );
+
+    this.conveyors.update(routedSnapshot, this.world.tick, this.world);
 
     if (this.endsAPeriod(this.world.tick)) {
       this.ingestAll(this.detector.restateRestingPieces(this.world.tick, this.options.slotAssignment));
@@ -241,6 +256,35 @@ export class MatchSimulation {
     for (const event of events) {
       this.eventLog.push(event);
       this.runner.ingest(event);
+    }
+  }
+
+  /** Resolve a pending robot action only through data on the GameDefinition. */
+  private routeMechanismActions(routes: readonly MechanismActionRoute[]): void {
+    for (const action of this.world.drainPieceActions()) {
+      const route = routes.find((candidate) => candidate.action === action.kind);
+      if (route === undefined) {
+        // A generic world has no promise that every launch scores. An action
+        // without a declared route simply returns its piece to the field.
+        this.world.releasePiece(action.pieceId, action.originM);
+        continue;
+      }
+
+      const destinationId = route.destinationRegionByAlliance[action.alliance];
+      const destination = this.options.regions.find((region) => region.id === destinationId);
+      if (destination === undefined) {
+        // Definition validation catches this before a normal match begins; the
+        // guard keeps direct MatchSimulation construction fail-safe as well.
+        throw new Error(
+          `Mechanism action route "${route.id}" needs region "${destinationId}" for ${action.alliance}.`,
+        );
+      }
+
+      this.world.deliverPiece(
+        action.pieceId,
+        destination.centerM,
+        destination.span?.bottomM,
+      );
     }
   }
 
@@ -301,6 +345,7 @@ export function simulationFromDefinition(
     slottedRegions: definition.slottedRegions,
 
     conveyors: definition.conveyors,
+    mechanismActionRoutes: definition.mechanismActionRoutes,
 
     robots: setup.robots,
     pieces: setup.pieces,

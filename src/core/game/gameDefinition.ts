@@ -181,6 +181,21 @@ export interface RobotConstraints {
   readonly horizontalExpansionIn: Sourced<number>;
 }
 
+/**
+ * Destination for a deterministic mechanism action.
+ *
+ * A launch is a match action, not a ballistic calculation: once a capable
+ * robot has a held piece and the driver fires, the definition says which
+ * scoring region that action reaches. The region detector then publishes the
+ * ordinary `PieceEnteredRegion` fact and rules decide what, if anything, it
+ * scores. This keeps both the action and the scoring data-driven.
+ */
+export interface MechanismActionRoute {
+  readonly id: string;
+  readonly action: 'launch';
+  readonly destinationRegionByAlliance: Readonly<Record<'red' | 'blue', string>>;
+}
+
 export interface GameDefinition {
   readonly id: string;
   readonly season: string;
@@ -201,6 +216,8 @@ export interface GameDefinition {
    * (`game/conveyor.ts`).
    */
   readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
+  /** Deterministic destinations for mechanism actions, when a game has them. */
+  readonly mechanismActionRoutes?: readonly MechanismActionRoute[] | undefined;
 
   readonly rules: readonly ScoringRule[];
   readonly objectives: readonly Objective[];
@@ -417,6 +434,23 @@ export function validateGameDefinition(
   for (const zoneId of referenced.zones) {
     if (!placedZones.has(zoneId)) {
       error('rules', `References zone "${zoneId}", which has no geometry.`);
+    }
+  }
+
+  // --- mechanism action routes -------------------------------------------
+  const routeIds = new Set<string>();
+  for (const route of definition.mechanismActionRoutes ?? []) {
+    if (routeIds.has(route.id)) error('mechanismActionRoutes', `Duplicate route "${route.id}".`);
+    routeIds.add(route.id);
+
+    for (const alliance of ['red', 'blue'] as const) {
+      const regionId = route.destinationRegionByAlliance[alliance];
+      if (!placedRegions.has(regionId)) {
+        error(
+          `mechanismActionRoutes.${route.id}`,
+          `Destination region "${regionId}" for ${alliance} has no geometry.`,
+        );
+      }
     }
   }
 
