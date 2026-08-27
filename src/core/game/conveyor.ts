@@ -97,6 +97,8 @@ export interface GuidedLaneSpec {
   readonly receivingBasin?: boolean | undefined;
   /** Physical throat where a declared receiving basin hands into this lane. */
   readonly receivingBasinTargetM?: Vec2 | undefined;
+  /** Centre height of the receiving surface, when its basin is elevated. */
+  readonly receivingBasinHeightM?: number | undefined;
   /** Distance from the throat at which the shared guide surface takes over. */
   readonly receivingBasinHandoffDistanceM?: number | undefined;
   /** Public-side correction point for a loose piece that intrudes into a protected lane. */
@@ -122,6 +124,10 @@ export interface GuidedLaneSpec {
   readonly maxDriveSpeedMps: number;
   /** Maximum lateral centring acceleration toward the queue region centreline. */
   readonly lateralCenteringAccelerationMps2: number;
+  /** Centre height of the normal lane surface, when it is raised above the field. */
+  readonly surfaceHeightM?: number | undefined;
+  /** Vertical approach rate to a declared normal lane surface, m/s. */
+  readonly surfaceHeightRateMps?: number | undefined;
   /** Semantic field collider tag retracted while the gate is latched open. */
   readonly gateColliderTag: string;
   /** Centre height of an overflow piece riding above the packed lane. */
@@ -510,7 +516,12 @@ export class PieceConveyors {
       }
       const alongSpeed = piece.vel.v.x * (dx / distance) + piece.vel.v.y * (dy / distance);
       const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
-      world.guidePiece(pieceId, vec2((dx / distance) * acceleration, (dy / distance) * acceleration));
+      world.guidePiece(
+        pieceId,
+        vec2((dx / distance) * acceleration, (dy / distance) * acceleration),
+        lane.receivingBasinHeightM,
+        lane.surfaceHeightRateMps,
+      );
     }
 
     const guide = (pieceId: string, overflow: boolean): void => {
@@ -536,8 +547,8 @@ export class PieceConveyors {
           direction.x * driveAcceleration + lateral.x * lateralAcceleration,
           direction.y * driveAcceleration + lateral.y * lateralAcceleration,
         ),
-        overflow ? lane.overflowHeightM : undefined,
-        overflow ? lane.overflowHeightRateMps : undefined,
+        overflow ? lane.overflowHeightM : lane.surfaceHeightM,
+        overflow ? lane.overflowHeightRateMps : lane.surfaceHeightRateMps,
       );
     };
 

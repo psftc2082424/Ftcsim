@@ -1640,7 +1640,7 @@ does not already give:
 
 | | |
 |---|---|
-| **Values** | lane guide `80 in/s²`, governed at `22 in/s`; overflow surface centre `10 in` |
+| **Values** | lane guide `80 in/s²`, governed at `22 in/s`; GOAL basin centre `14 in`, classifier rail centre `10 in`, overflow centre `13.5 in` |
 | **Confidence** | **INFERRED** from dSim-observed DECODE behaviour; the manual establishes capacity/overflow, not these dynamic values |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
 
@@ -1681,6 +1681,7 @@ drivetrain collision behaviour.
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: GATE contact is edge-triggered. One activation drains the current physical batch, then the tagged collider closes as soon as the lane and basin are empty, even if the robot stays parked at the release zone. |
 | 2026-08-27 | Updated §10.18: a generic receiving basin now retains a valid GOAL entry before feeding its physical lane. The GOAL face is clipped at the classifier throat and a data-declared public-side guard rejects loose, unaccepted lane intrusions; no per-piece collider bypass remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |

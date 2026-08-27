@@ -645,3 +645,19 @@ shoot; then Phase 4 (PDF ingestion).
   profile to DECODE. Accepted balls must stay active and collidable; elevation
   gates access, but must never become a parked queue or animation. Inspect
   `conveyor.ts`, `simWorld.ts`, `decode.ts`, and `decodeCollision.ts` first.
+
+### Latest handoff — 2026-08-27 (raised GOAL/classifier surfaces)
+
+- `GuidedLaneSpec` now declares optional receiving-basin and normal-lane
+  surface heights/rates. DECODE uses a 14 in basin, 10 in classifier rail, and
+  13.5 in overflow surface, matching dSim's observable elevation model.
+  `SimWorld.guidePiece` maintains those surfaces while accepted ARTIFACTS stay
+  active and collidable. No robot or drivetrain code changed.
+- The full STEP model was successfully loaded and measured (overall bounding
+  box about 144 × 153 × 54 in), confirming a tall field assembly. The setup
+  guide confirms GOAL/RAMP are assemblies and SECRET TUNNEL ZONE is tape;
+  retain the existing floor-level, one-way return zone rather than inventing an
+  elevated tunnel floor.
+- Targeted TypeScript, conveyor and DECODE tests pass. Run `npm run verify`
+  before claiming the elevation pass complete; add an integration regression
+  observing accepted ball height through basin → rail → gate exit.

@@ -173,10 +173,23 @@ export const CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2 = inferred(
   72,
 );
 
+/** Raised centre heights observed in dSim and confirmed as assemblies by the STEP model. */
+export const CLASSIFIER_BASIN_HEIGHT_M = inferred(
+  inchesToMeters(14),
+  'dSim models the retained GOAL basin floor at 14 in; the STEP assembly confirms GOAL/RAMP are elevated physical assemblies, not field-floor regions.',
+  72,
+);
+
+export const CLASSIFIER_SURFACE_HEIGHT_M = inferred(
+  inchesToMeters(10),
+  'dSim models normal classifier balls on a 10 in raised rail; the STEP model contains the corresponding upper/lower ramp assemblies.',
+  72,
+);
+
 /** A tenth ball rides the upper physical overflow path above the packed column. */
 export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
-  inchesToMeters(10),
-  'dSim renders the overflow/rail surface at 10 in. The manual establishes overflow but not its exact ball-centre height.',
+  inchesToMeters(13.5),
+  'dSim places overflow above the 10 in classifier rail at 13.5 in. The manual establishes overflow but not its exact ball-centre height.',
   72,
 );
 
@@ -373,6 +386,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
         inchesToMeters(CLASSIFIER_BASIN_THROAT.value.yIn),
       ),
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
+      receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
       inboundRejectPointM: vec2(
         inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
         inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
@@ -385,6 +399,8 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       // than the piece it eventually hands off to the SECRET TUNNEL.
       maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
       lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
+      surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,
+      surfaceHeightRateMps: inchesToMeters(30),
       gateColliderTag: `${alliance}-classifier-gate`,
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
