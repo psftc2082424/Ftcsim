@@ -8,7 +8,7 @@ https://sim.team4414.com/
 
 The simulator must NOT be hard-coded for one FTC season.
 
-The user should be able to upload an FTC Game Manual and have the application analyze it, generate a structured representation of the game, and create a playable physics-based simulation.
+The user should be able to upload an FTC Game Manual and have the application analyze it, generate a structured representation of the game, and create a playable match simulation.
 
 The goal is to let FTC teams experiment with robot designs and answer:
 
@@ -16,15 +16,40 @@ The goal is to let FTC teams experiment with robot designs and answer:
 
 Prioritize:
 
-1. Physics
+1. Functional match behavior
 2. Accurate game rules
 3. Accurate field geometry
-4. Realistic mechanisms
-5. Useful game-specific metrics
-6. Usability
+4. Useful game-specific metrics
+5. Usability
+6. Deterministic, comprehensible simulation
 7. Rendering
 
 Visual quality is low priority.
+
+### 1.1 Functional match-simulation model
+
+This product models the **observable behavior of an FTC robot in a match**, not
+the hidden physical process inside every subsystem. A detail belongs in the
+simulation only when it changes a driver-visible or rule-visible outcome.
+
+- Keep the existing deterministic mecanum drive and collision model where it
+  governs where a robot can drive and what it can contact.
+- Model game pieces as deterministic stateful objects (for example `FIELD`,
+  `HELD`, `TRANSFERRING`, `SCORED`, and `RETURNING`), not as a general-purpose
+  rigid-body problem.
+- Model mechanisms through their capabilities and valid state transitions. An
+  intake acquires eligible nearby pieces, a shooter becomes ready and performs a
+  valid scoring action, and an arm/turret moves toward a bounded target.
+- A scoring action must still travel through the core event and rules pipeline;
+  the UI and a mechanism never write a score directly.
+- Default to ideal, repeatable operation. Randomness, probabilistic success,
+  detailed launch trajectories, aerodynamic effects, contact-force models,
+  motor-load models, and material properties are out of scope unless a
+  documented gameplay requirement explicitly needs one.
+
+When a simple transition produces the same observable match behavior, it is the
+required model. Any more detailed model must document the gameplay behavior it
+adds and remain deterministic.
 
 ---
 
@@ -664,7 +689,7 @@ Adding a new FTC season should ideally require generating a new GameDefinition r
 
 ## 20. Development Roadmap
 
-### Phase 1 — Core Physics
+### Phase 1 — Driving and field interaction
 
 Build:
 
@@ -736,17 +761,18 @@ Build:
 - Game-specific statistics
 - Tradeoff modeling
 
-### Phase 6 — Advanced Simulation
+### Phase 6 — Optional calibrated simulation
 
-Eventually improve:
+Only add a calibrated detail when it demonstrably changes a gameplay decision:
 
-- Mechanism physics
-- Projectile physics
-- Battery modeling
-- Motor heating/current
-- More detailed collision
+- Measured drive/battery calibration
+- Field-element constraints that affect access or scoring
+- Mechanism timing calibration
 - Analytics
 - Robot comparison
+
+Projectile simulation, motor heating, material properties, and general-purpose
+mechanism/contact physics are not roadmap goals by themselves.
 
 The roadmap may be changed if a better engineering sequence is identified.
 
@@ -788,7 +814,7 @@ Before modifying anything:
 
 If the repository is empty, choose the stack based on:
 
-- Physics capability
+- Functional match-simulation capability
 - 2D rendering
 - UI
 - Performance
@@ -812,7 +838,7 @@ Do not:
 - Hard-code archetypes to one game
 - Generate arbitrary stats
 - Hide assumptions
-- Use fake physics
+- Add decorative or unneeded physics
 - Couple game rules to physics
 - Force unnecessary robot parameters
 - Prioritize graphics over simulation
@@ -844,7 +870,7 @@ Upload FTC Game Manual
 → Generates baseline robot
 → User modifies robot
 → User drives robot
-→ Simulation produces realistic behavior
+→ Simulation produces predictable match behavior
 → Game-specific statistics + score
 → Compare robot designs
 
@@ -854,7 +880,7 @@ The central question the simulator should answer is:
 
 Optimize for:
 
-**Physics + game accuracy + functional archetypes + meaningful metrics + engineering tradeoffs + extensibility**
+**Functional match behavior + game accuracy + functional archetypes + meaningful metrics + engineering tradeoffs + extensibility**
 
 over graphical polish.
 

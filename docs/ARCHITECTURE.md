@@ -31,6 +31,7 @@ enumerated in §0.1, and were explicitly approved.
 | 9 | **Height is explicit** on robots, scoring targets, and traversable clearances. |
 | 10 | **One `ControlInput` abstraction** from keyboard, virtual pad, Gamepad API, and scripted traces. No Java/FTC SDK execution. |
 | 11 | **Human-in-the-loop manual pipeline.** The PDF is never assumed to contain precise field geometry. |
+| 12 | **Function-first game mechanisms.** A mechanism and game piece use deterministic capability/state transitions unless a physical detail changes a documented match outcome. |
 
 ### 0.1 Deliberate deviations from PRODUCT_SPEC.md
 
@@ -42,6 +43,24 @@ enumerated in §0.1, and were explicitly approved.
 | §4 | Moment of inertia, centre of mass, track and wheelbase are *derived*, not removed | §4 forbids requiring the user to configure them. It does not require pretending they are absent from the physics. |
 | §16 | Entity model is `robots[]` with alliance from day 1 | Multi-robot support is cheap now and expensive to retrofit. Phase 1 constructs an array of length one. |
 | §15 | A `ScriptedController` implements the same `Controller` interface | Required by headless metric probes and determinism tests. Still no Java/FTC SDK execution. |
+
+### 0.2 Functional-gameplay boundary
+
+The core retains its existing drive and contact solver because driving paths,
+wall constraints, and field access are observable match behavior. It does not
+make the physics layer the implementation model for every game action.
+
+Game pieces and mechanism capabilities are represented by deterministic states
+and events wherever that produces the required match behavior. In particular,
+acquisition, holding, transfer through a field element, scoring, and return may
+be state transitions; they do not require a general rigid-body, flywheel,
+projectile, or material-contact model. A mechanism must still expose real
+functional constraints (capacity, accepted piece types, target/position limits,
+readiness, phase and rule restrictions), and every scoring outcome must flow
+through `SimEvent` → rules → score.
+
+Detailed modelling is permitted only when its added gameplay behavior is named,
+tested, deterministic, and cannot be represented by a simpler transition.
 
 ---
 
@@ -838,7 +857,7 @@ browser and headless:**
 ```
  1  matchClock.advance(dt)                 period / sub-phase transitions
  2  controller.sample(tick) per robot      → ControlInput
- 3  mechanisms.update(dt)                  capability states, current draw, events
+ 3  mechanisms.update(dt)                  capability states and events
  4  drivetrain.solve(dt)                   wheel cmds → torques → body wrench
                                            (uses battery voltage from tick n−1)
  5  traction.limit(...)                    IdealTraction: identity in Phase 1
