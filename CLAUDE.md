@@ -661,3 +661,18 @@ shoot; then Phase 4 (PDF ingestion).
 - Targeted TypeScript, conveyor and DECODE tests pass. Run `npm run verify`
   before claiming the elevation pass complete; add an integration regression
   observing accepted ball height through basin → rail → gate exit.
+
+### Latest handoff — 2026-08-27 (GOAL capture funnel)
+
+- **Fixed the GOAL → classifier overshoot boundary.** A valid high entry still
+  crosses the rules-defined opening and remains a normal physical body, but its
+  internal GOAL-funnel impact now retains only 5% horizontal speed and applies
+  the bounded `1150 in/s²` dSim-observed basin guide. This prevents a shot from
+  carrying launch speed across the hollow 2D basin and escaping through the
+  field-facing opening before the classifier throat can capture it. The guide
+  is generic `GuidedLaneSpec` data; DECODE alone supplies the value.
+- Ground balls are unchanged: the vertical GOAL entry band and unauthorized
+  lane guard keep them out of the raised basin/classifier path. Targeted
+  classifier and complete `decodeMatch.test.ts` suites pass. Next: add a
+  multi-origin 20-shot integration regression and browser verification, then
+  run `npm run verify` and commit.

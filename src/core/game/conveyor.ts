@@ -101,6 +101,8 @@ export interface GuidedLaneSpec {
   readonly receivingBasinHeightM?: number | undefined;
   /** Distance from the throat at which the shared guide surface takes over. */
   readonly receivingBasinHandoffDistanceM?: number | undefined;
+  /** Bounded funnel acceleration used only inside a declared receiving basin. */
+  readonly receivingBasinAccelerationMps2?: number | undefined;
   /** Public-side correction point for a loose piece that intrudes into a protected lane. */
   readonly inboundRejectPointM?: Vec2 | undefined;
   /** Unit-ish world-frame direction from the entry toward the release gate. */
@@ -515,7 +517,8 @@ export class PieceConveyors {
         continue;
       }
       const alongSpeed = piece.vel.v.x * (dx / distance) + piece.vel.v.y * (dy / distance);
-      const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
+      const basinAcceleration = lane.receivingBasinAccelerationMps2 ?? lane.driveAccelerationMps2;
+      const acceleration = alongSpeed < lane.maxDriveSpeedMps ? basinAcceleration : 0;
       world.guidePiece(
         pieceId,
         vec2((dx / distance) * acceleration, (dy / distance) * acceleration),

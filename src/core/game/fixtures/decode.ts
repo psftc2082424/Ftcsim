@@ -173,6 +173,13 @@ export const CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2 = inferred(
   72,
 );
 
+/** dSim's stronger GOAL-funnel surface pulls accepted balls toward the arch. */
+export const GOAL_BASIN_FUNNEL_ACCELERATION_MPS2 = inferred(
+  inchesToMeters(1150),
+  'dSim uses 1150 in/s² for its retained GOAL basin funnel. It represents the equivalent of the sloped/funnel surfaces, not a launcher force.',
+  72,
+);
+
 /** Raised centre heights observed in dSim and confirmed as assemblies by the STEP model. */
 export const CLASSIFIER_BASIN_HEIGHT_M = inferred(
   inchesToMeters(14),
@@ -387,6 +394,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       ),
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
       receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
+      receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
       inboundRejectPointM: vec2(
         inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
         inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
@@ -404,7 +412,9 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       gateColliderTag: `${alliance}-classifier-gate`,
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
-      entryVelocityRetention: 0.2,
+      // A scored shot strikes the GOAL's internal funnel rather than retaining
+      // enough across-basin momentum to cross the open plan-view footprint.
+      entryVelocityRetention: 0.05,
     },
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers
