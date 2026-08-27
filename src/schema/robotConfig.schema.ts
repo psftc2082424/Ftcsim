@@ -89,6 +89,10 @@ const capabilitySchema = z.discriminatedUnion('kind', [
     pieceTypes: pieceTypesSchema,
     capacity: z.number().int().min(0).max(500),
     reachIn: z.number().finite().min(0).max(60),
+    mouthWidthIn: z.number().finite().min(0).max(60),
+    // Positive: surface speed is w*r and grip is tau/r, so a zero-radius roller
+    // divides by zero in both.
+    rollerDiameterIn: z.number().finite().gt(0).max(24),
   }),
   z.object({
     kind: z.literal('release'),
@@ -101,6 +105,11 @@ const capabilitySchema = z.discriminatedUnion('kind', [
     exitSpeedFtPerSec: z.number().finite().min(0).max(200),
     exitAngleDeg: z.number().finite().min(-90).max(90),
     spreadDeg: z.number().finite().min(0).max(90),
+    flywheelDiameterIn: z.number().finite().gt(0).max(24),
+    flywheelMassLb: z.number().finite().gt(0).max(20),
+    // Zero would demand infinite surface speed for any exit speed at all.
+    transferRatio: z.number().finite().gt(0).max(1),
+    shootOnMoveCompensation: z.number().finite().min(0).max(1),
   }),
   z.object({
     kind: z.literal('elevate'),

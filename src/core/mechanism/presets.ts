@@ -50,7 +50,20 @@ export const MECHANISM_PRESETS: readonly MechanismPreset[] = [
     gearRatio: 1,
     efficiency: 0.9,
     mount: { xIn: 8, yIn: 0, facingDeg: 0 },
-    capabilities: [{ kind: 'acquire', pieceTypes: [], capacity: 3, reachIn: 6 }],
+    capabilities: [
+      {
+        kind: 'acquire',
+        pieceTypes: [],
+        capacity: 3,
+        reachIn: 6,
+        // Spans most of an 18 in front rail, inside the bumpers.
+        mouthWidthIn: 14,
+        // A 2 in compliant wheel, the commonest FTC intake roller. Small and
+        // strong: surface speed is w*r and grip is tau/r, so this is the one
+        // number that trades the two off (`mechanism/intake.ts`).
+        rollerDiameterIn: 2,
+      },
+    ],
   },
   {
     preset: 'outtake',
@@ -69,13 +82,29 @@ export const MECHANISM_PRESETS: readonly MechanismPreset[] = [
     label: 'Shooter / flywheel',
     summary: 'Launches pieces at range. Wants free speed, so a low reduction.',
     massLb: 5,
-    motorId: 'gobilda-5203-1150',
+    // The bare 6000 RPM gearbox. A flywheel is the one mechanism that wants raw
+    // speed: exit velocity is w*r*transferRatio, so a geared-down motor simply
+    // cannot throw far however much torque it has.
+    motorId: 'gobilda-5203-6000',
     motorCount: 1,
     gearRatio: 1,
     efficiency: 0.92,
     mount: { xIn: 4, yIn: 0, facingDeg: 0 },
     capabilities: [
-      { kind: 'launch', pieceTypes: [], exitSpeedFtPerSec: 30, exitAngleDeg: 45, spreadDeg: 3 },
+      {
+        kind: 'launch',
+        pieceTypes: [],
+        exitSpeedFtPerSec: 30,
+        exitAngleDeg: 45,
+        spreadDeg: 3,
+        /** A 4 in goBILDA compliant wheel, the standard FTC flywheel. */
+        flywheelDiameterIn: 4,
+        flywheelMassLb: 0.6,
+        /** One wheel against a fixed hood: the ball leaves at half surface speed. */
+        transferRatio: 0.5,
+        /** No motion compensation until the builder pays for the odometry. */
+        shootOnMoveCompensation: 0,
+      },
     ],
   },
   {

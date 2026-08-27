@@ -16,6 +16,7 @@
  * sync (PRODUCT_SPEC.md §4 and §11).
  */
 
+import { getMechanismPreset, instantiateMechanism } from '../mechanism/presets.js';
 import type { MechanismConfig } from '../mechanism/mechanism.js';
 
 export const ROBOT_CONFIG_SCHEMA_VERSION = 2;
@@ -72,4 +73,27 @@ export const DEFAULT_ROBOT_CONFIG: RobotConfig = Object.freeze({
     wheelDiameterIn: 3.78,
   }),
   mechanisms: Object.freeze([]),
+});
+
+/**
+ * The default robot with an intake and a shooter bolted on.
+ *
+ * `DEFAULT_ROBOT_CONFIG` is deliberately a bare drivetrain: it is the fixture
+ * the analytic reference tests measure against, and adding mass to it would
+ * change every one of those numbers. This is what the application starts with
+ * instead — a robot that can actually play, assembled from the same mechanism
+ * templates the builder UI offers, so nothing here is a number the user cannot
+ * also reach and change.
+ *
+ * Four drive motors plus one each for the intake and the shooter is six of the
+ * eight ports, which leaves the tradeoff visible rather than spent.
+ */
+export const COMPETITION_ROBOT_CONFIG: RobotConfig = Object.freeze({
+  ...DEFAULT_ROBOT_CONFIG,
+  id: 'competition-mecanum',
+  name: 'Competition Mecanum',
+  mechanisms: Object.freeze([
+    instantiateMechanism(getMechanismPreset('intake'), 'intake-1'),
+    instantiateMechanism(getMechanismPreset('shooter'), 'shooter-1'),
+  ]),
 });

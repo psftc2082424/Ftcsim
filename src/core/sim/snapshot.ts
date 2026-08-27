@@ -54,6 +54,34 @@ export interface RobotSnapshot {
   readonly wheelRadiusM: number;
 
   readonly drive: DriveSnapshot;
+  readonly mechanisms: MechanismSnapshot;
+}
+
+/**
+ * What a robot's intake and shooter are doing.
+ *
+ * Present for every robot; a robot with no such mechanism reports a shooter that
+ * is not running and a hopper that is empty, so a consumer never has to ask
+ * whether the fields exist.
+ */
+export interface MechanismSnapshot {
+  /** Piece ids in the hopper, oldest first. */
+  readonly held: readonly string[];
+  readonly capacity: number;
+  readonly intake: 'off' | 'intake' | 'outtake';
+  readonly hasIntake: boolean;
+  readonly hasLauncher: boolean;
+  readonly shooterRunning: boolean;
+  /** Flywheel speed now, rad/s. */
+  readonly flywheelRadPerSec: number;
+  /** Flywheel speed the controller is driving toward, rad/s. */
+  readonly flywheelTargetRadPerSec: number;
+  /** Speed a piece would leave at right now, m/s. */
+  readonly exitSpeedMps: number;
+  /** Speed a piece would leave at once the wheel reaches its target, m/s. */
+  readonly targetExitSpeedMps: number;
+  /** Current the shooter is drawing, A. */
+  readonly shooterCurrentA: number;
 }
 
 /**
@@ -84,6 +112,14 @@ export interface PieceSnapshot {
   readonly verticalVelocityMps: number;
   /** Off the floor — in flight, or bouncing. */
   readonly airborne: boolean;
+  /**
+   * Robot carrying this piece, or `null` when it is loose on the field.
+   *
+   * Authoritative: a carried piece is held by a mechanism rather than merely
+   * touching a robot, so nothing downstream has to infer possession from
+   * geometry for one that has actually been collected.
+   */
+  readonly heldByRobotId: EntityId | null;
 }
 
 export interface WorldSnapshot {

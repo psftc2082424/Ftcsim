@@ -25,7 +25,16 @@ function mechanism(patch: Partial<MechanismConfig> = {}): MechanismConfig {
     massLb: 4,
     mount: { xIn: 8, yIn: 0, facingDeg: 0 },
     actuation: { motorId: 'gobilda-5203-435', motorCount: 1, gearRatio: 1, efficiency: 0.9 },
-    capabilities: [{ kind: 'acquire', pieceTypes: [], capacity: 3, reachIn: 6 }],
+    capabilities: [
+      {
+        kind: 'acquire',
+        pieceTypes: [],
+        capacity: 3,
+        reachIn: 6,
+        mouthWidthIn: 14,
+        rollerDiameterIn: 2,
+      },
+    ],
     ...patch,
   };
 }

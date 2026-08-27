@@ -888,16 +888,166 @@ them with their own CAD weights. Motor selection follows obvious engineering
 logic rather than measurement — flywheels take the 1150 RPM unit, lifts and
 climbers the 117/60 RPM units, intakes the 435 RPM unit.
 
-**Values nothing consumes yet.** Capacity, reach, exit speed, launch angle,
-spread, travel time, climb time and success rate are *declarative descriptors*.
-No Phase 2 code reads them; they are consumed by the rules engine in Phase 3
-once game pieces exist. They are recorded here so they are not later mistaken
-for calibrated figures — an exit speed of 30 ft/s is a placeholder, not a
-prediction.
+**Values the physics consumes as of the mechanism pass.** Capacity, reach, mouth
+width, roller diameter, exit speed, launch angle, spread, flywheel diameter and
+mass, transfer ratio and shoot-on-move compensation are now all read by real
+mechanism physics (§9.5–§9.7). They remain *editable starting points* rather than
+measurements — an exit speed of 30 ft/s is a plausible FTC shooter, not a
+prediction — but changing one now changes what the simulation does, which is the
+point.
+
+**Values still inert.** Elevate travel time, climb time and success rate are
+declarative descriptors; no code reads them yet.
 
 **Consequence.** A mechanism's contribution to simulated performance in Phase 2
 is entirely through mass and motor ports. Its throughput number is derived
 (§9.1) and directional; its other capability figures are inert.
+
+---
+
+### 9.5 Flywheel transfer ratio, inertia and shot energy
+
+| | |
+|---|---|
+| **Values** | `transferRatio` (0.5 hooded / 1.0 dual), `I = ½mr²`, `E = mv²(0.5 + 0.2((1−t)/t)²)` |
+| **Confidence** | **DERIVED**, with one geometric declaration |
+| **Location** | `src/core/mechanism/flywheel.ts` |
+
+A shooter is a rotating inertia driven by the same `k_t`/`k_e`/`R` motor model
+the drivetrain uses (§7). Everything a shooter is usually given as a constant is
+computed here instead:
+
+- **Exit speed.** A ball squeezed between a surface moving at `v₁` and one moving
+  at `v₂` leaves with its centre at `(v₁+v₂)/2`, because the contact points must
+  match the surfaces and the centre is midway between them. One wheel against a
+  fixed hood gives half the surface speed; two counter-rotating wheels give all
+  of it. `transferRatio` names which build it is — a *geometric* property of the
+  design, not an efficiency fudge.
+- **Spin-up.** `J dω/dt = kT·G·η·N·(duty·V − kE·G·ω)/R` is first order, with
+  steady state `duty·V/(kE·G)` and time constant `J·R/(kT·kE·G²·η·N)`. There is
+  no `spinUpTimeSec`; the test measures the integrator against that closed form.
+- **Recovery.** A shot carries away `E = ½mv² + ⅕mv²(1−t)²/t²` — translation plus
+  the backspin the transfer imparts — and that energy comes out of the wheel:
+  `½Jω'² = ½Jω² − E`. So fire rate, shot-to-shot consistency and the value of a
+  heavy wheel all fall out of conservation of energy. There is no cooldown
+  constant anywhere in the shooter.
+- **Duty.** Full power below target, then exactly `ω_target·kE·G/V` — the duty
+  whose back-EMF balances the target. That is the steady state of the motor
+  equation, so the controller contributes no gain of its own.
+
+**The one declaration.** The wheel is treated as a solid disc, `I = ½mr²`. Every
+FTC flywheel is closer to a disc than to a ring, and the alternative is to ask a
+user for a second geometry figure they have no way to measure. A ring would give
+twice the inertia, so this errs toward a wheel that spins up fast and recovers
+fast.
+
+**Consequence.** A target exit speed above what the motor can reach is simply
+never reached — the wheel saturates at its own free speed and the shot falls
+short. That is deliberate: an unreachable design should be visible to the
+builder rather than quietly granted.
+
+---
+
+### 9.6 Intake roller force, and why collection has no timer
+
+| | |
+|---|---|
+| **Values** | `ROLLER_TRANSFER_RATIO = 0.5`, `F_max = τ/r`, `v_drive = ωr/2` |
+| **Confidence** | **DERIVED** |
+| **Location** | `src/core/mechanism/intake.ts` |
+
+The intake applies a real force to a real body, derived exactly the way the
+drivetrain derives wheel force: torque at the output over the radius it acts at.
+The roller drives the piece's velocity *relative to the robot* toward half the
+roller's surface speed — the same pinch geometry as §9.5, a ball between a
+moving roller and a stationary surface — and the force is whatever that demands,
+capped at `τ/r`.
+
+**There is no acquisition rate and no capture probability.** How long collecting
+takes is however long that force needs to move that mass across the mouth, so
+gearing an intake down genuinely slows it: surface speed falls and grip rises,
+both off the one number. A test asserts a geared-down intake takes longer on the
+same ball.
+
+**Capture is contact, not a threshold.** A piece is collected once it is inside
+the robot's footprint grown by its own radius, which is exactly "resting against
+the robot" and needs no tolerance of its own.
+
+**What is declared rather than derived:** the mouth's `reachIn` and
+`mouthWidthIn`, and the `rollerDiameterIn`. These are geometry — the shape of a
+design — and belong to the user the same way chassis length does. Preset values
+follow §9.4: editable starting points, not measurements.
+
+---
+
+### 9.7 Shot accuracy is a velocity, never a probability
+
+| | |
+|---|---|
+| **Values** | mechanical `spreadDeg`; carried velocity `v + ω×r`; transit time `D/v` |
+| **Confidence** | **DERIVED**, with one declared length scale |
+| **Location** | `src/core/sim/shooter.ts` |
+
+There is no hit probability anywhere in this simulator. A shot is composed into a
+velocity, it flies (§5.9), and it lands where it lands. Three terms decide it and
+only the first is random:
+
+1. **Mechanical spread.** A uniform cone of `spreadDeg`, drawn from the world's
+   seeded `Launch` sub-stream so a replay reproduces every shot. This is the
+   shooter's own repeatability — compression, ball seam, feed alignment.
+2. **Carried velocity.** A ball leaving a moving robot keeps the robot's velocity
+   *at the muzzle*, `v + ω×r`. This is exact and is not a penalty: it is what
+   leaving a moving vehicle means. A robot strafing at 1 m/s while shooting at
+   8 m/s throws the ball `atan(1/8) ≈ 7°` off.
+3. **Yaw during transit.** The robot turns while the ball is being accelerated,
+   so the ball leaves pointing where the barrel had got to.
+
+`shootOnMoveCompensation` ∈ [0,1] cancels a fraction of (2) and (3) — a shooter
+that measures its own motion aims off to compensate. What is left is a real
+velocity error. Stationary is best, slow movement degrades a little, fast
+movement degrades a lot, and a high compensation reduces it, all without a
+percentage being subtracted anywhere.
+
+**The declared length scale.** Transit time is taken as `D/v`: the ball travels
+about its own radius through the acceleration zone at a mean speed of `v/2`. It
+is the only figure in the accuracy model that is not measured, it is bounded by
+the ball's own size, and it only ever matters for a robot firing while turning.
+A shooter with a longer acceleration zone would smear more; one with a shorter
+zone, less.
+
+**What is not modelled:** a turret. The shooter fires along its mount facing, so
+the driver aims by turning the robot. Adding a turret would be a second
+capability rather than a change here.
+
+---
+
+### 9.8 A held piece is carried kinematically
+
+| | |
+|---|---|
+| **Value** | Held pieces are placed at hopper slots and excluded from contact |
+| **Confidence** | **ASSUMED** |
+| **Location** | `src/core/sim/simWorld.ts` |
+
+A collected piece stays a real body — still counted, still drawn, still there
+when the robot lets go — but it stops being integrated. Each tick it is placed at
+its slot in the robot's body frame and given the robot's velocity *at that slot*,
+`v + ω×r`, so a piece released by a spinning robot leaves with the velocity it
+really had.
+
+It is skipped by contact resolution, because a piece inside the robot holding it
+has no contact worth resolving: it is held by a mechanism, not resting against a
+surface. Letting the solver see it pushed it straight back out of the hopper,
+which is how this was found.
+
+**Consequence.** A robot's hopper is rigid: pieces do not jostle, and a violent
+collision cannot shake one loose. Capacity is enforced by count rather than by
+whether they physically fit. Both err toward a robot that keeps what it collects.
+
+**What *is* physical about it:** the mass is real and rides on the robot, the
+reaction force from the intake roller is applied to the robot (Newton's third
+law), and firing applies the equal and opposite impulse — a 75 g ball at 9 m/s
+shifts a 15 kg robot by 45 mm/s.
 
 ---
 
@@ -1397,4 +1547,5 @@ match against the lowest bar.
 | 2026-08-26 | G408's CONTROL limit assessed from sustained possession, and ranking-point criteria measured from a match. §10.14 extended with the MOMENTARY proxy the foul rules use for intent. |
 | 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |
 | 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
+| 2026-08-26 | Added §9.5–§9.8 as intake and shooter physics landed: flywheel transfer ratio, inertia and shot energy; roller force with no acquisition timer; shot accuracy as a velocity rather than a probability; and the kinematic carry for held pieces. `PIECES_PER_OUTPUT_REVOLUTION` (§9.1) gained a second consumer — it is now the feeder cadence that sets fire rate. |
 | 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |

@@ -51,7 +51,7 @@ import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
-import { LAUNCH_BUTTON } from '../../sim/launcher.js';
+import { INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
@@ -312,16 +312,34 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
     ...DEFAULT_ROBOT_CONFIG,
     mechanisms: [
       {
+        id: 'intake',
+        name: 'Intake',
+        preset: 'intake',
+        massLb: 4,
+        mount: { xIn: 8, yIn: 0, facingDeg: 0 },
+        actuation: { motorId: 'gobilda-5203-435', motorCount: 1, gearRatio: 1, efficiency: 0.9 },
+        capabilities: [
+          {
+            kind: 'acquire',
+            pieceTypes: [],
+            capacity: 3,
+            reachIn: 6,
+            mouthWidthIn: 14,
+            rollerDiameterIn: 2,
+          },
+        ],
+      },
+      {
         id: 'shooter',
         name: 'Shooter',
         preset: 'shooter',
         massLb: 6,
-        mount: { xIn: 9, yIn: 0, facingDeg: 0 },
+        mount: { xIn: 4, yIn: 0, facingDeg: 0 },
         actuation: {
-          motorId: 'gobilda-5203-312',
-          motorCount: 2,
+          motorId: 'gobilda-5203-6000',
+          motorCount: 1,
           gearRatio: 1,
-          efficiency: 0.95,
+          efficiency: 0.92,
         },
         capabilities: [
           {
@@ -329,37 +347,60 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
             pieceTypes: [],
             // Enough to clear the lip at this range; the trajectory is
             // integrated, not assumed.
-            exitSpeedFtPerSec: 20,
+            exitSpeedFtPerSec: 26,
             exitAngleDeg: 45,
             spreadDeg: 0,
+            flywheelDiameterIn: 4,
+            flywheelMassLb: 0.6,
+            transferRatio: 0.5,
+            shootOnMoveCompensation: 0,
           },
         ],
       },
     ],
   };
 
-  /** A robot lined up on the red GOAL with an artifact loaded, firing. */
+  /**
+   * Collect, spin up, then fire. Firing is a physical sequence now, so the
+   * trace is the sequence a driver would run: the intake and the shooter come
+   * on together, the flywheel takes about a second and a half to reach speed,
+   * and only then does the fire button do anything worth scoring.
+   */
+  const SPIN_UP_TICKS = 500;
+
+  const SHOOT_TRACE = createInputTrace('shoot', [
+    { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
+    {
+      tick: SPIN_UP_TICKS,
+      input: createControlInput(0, 0, 0, {
+        [SHOOTER_BUTTON]: true,
+        [LAUNCH_BUTTON]: true,
+      }),
+    },
+  ]);
+
+  /** A robot lined up on the red GOAL with an artifact in its mouth, firing. */
   const shootingAtGoal = () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
+    const standoffIn = 48;
     return decodeMatch({
       robots: [
         {
           config: SHOOTER_ROBOT,
           alliance: 'red',
-          controller: constantController(
-            createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }),
-          ),
+          controller: new ScriptedController(SHOOT_TRACE),
           // Facing the GOAL down the side wall.
-          startPose: { p: at(goal[0], goal[1] - 38.5), theta: Math.PI / 2 },
+          startPose: { p: at(goal[0], goal[1] - standoffIn), theta: Math.PI / 2 },
         },
       ],
-      pieces: [artifact('a1', goal[0], goal[1] - 38.5 + 11.5)],
+      // In the mouth, so the intake has it within a few ticks.
+      pieces: [artifact('a1', goal[0], goal[1] - standoffIn + 11)],
     });
   };
 
   it('awards CLASSIFIED for an artifact shot through the GOAL', () => {
     const sim = shootingAtGoal();
-    for (let i = 0; i < 400; i++) sim.step();
+    for (let i = 0; i < SPIN_UP_TICKS + 400; i++) sim.step();
 
     const breakdown = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(breakdown.length).toBeGreaterThan(0);
