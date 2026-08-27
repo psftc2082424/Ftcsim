@@ -6,21 +6,21 @@
  * drive *this* class, differing only in what advances the clock
  * (ARCHITECTURE.md §9.2).
  *
- * ── Determinism ────────────────────────────────────────────────────────────
+ * ── Determinism ──────────────────────────────────────────────────────────
  * The integer tick counter is the only clock. Wall-clock access, `Math.random`
  * and ambient entropy are lint-banned throughout `core/`. Contacts are resolved
  * in id order, never in hash-bucket order. Given the same seed, the same robot
  * configurations and the same controller outputs, `stateHash()` is identical on
  * every run.
  *
- * ── Tick order ─────────────────────────────────────────────────────────────
+ * ── Tick order ──────────────────────────────────────────────────────────
  * The canonical order is fixed in ARCHITECTURE.md §9. Phase 1 implements the
  * subset whose systems exist; the omitted steps are listed so the sequence is
  * auditable rather than lost:
  *
  *    1  match clock                      — Phase 3, not implemented
  *    2  controller.sample                ✓
- *    3  mechanisms.update                — Phase 2, not implemented
+ *    3  mechanisms.update                ✓  (functional state machine)
  *    4  drivetrain.solve                 ✓  (uses tick n-1 battery voltage)
  *    5  traction.limit                   ✓  (identity in Phase 1)
  *    6  integrate                        ✓
@@ -66,11 +66,9 @@ import {
   feedAllows,
   initialMechanismState,
   readMechanismCommands,
-  trimmedTarget,
   type MechanismSpecs,
   type MechanismState,
 } from './robotMechanisms.js';
-import { exitSpeedMps } from '../mechanism/flywheel.js';
 import {
   ejectionPointM,
   hopperSlotM,
@@ -174,8 +172,6 @@ interface SimRobot {
   accelerationMps2: number;
   solution: DrivetrainSolution;
   mechanisms: MechanismState;
-  /** Current the shooter drew this tick, added to the pack draw. */
-  shooterCurrentA: number;
 }
 
 interface SimPiece {
@@ -209,9 +205,6 @@ interface SimPiece {
    * resting on the floor and is not something a robot can reach.
    */
   parked: boolean;
-  /** Force accumulated by mechanisms this tick, world frame, newtons. */
-  forceX: number;
-  forceY: number;
 }
 
 export class SimWorld {
@@ -266,7 +259,6 @@ export class SimWorld {
         accelerationMps2: 0,
         solution: this.solveFor(derived, { vx: 0, vy: 0, omega: 0 }, { x: 0, y: 0, turn: 0 }),
         mechanisms: initialMechanismState(),
-        shooterCurrentA: 0,
       });
     });
 
@@ -321,8 +313,6 @@ export class SimWorld {
       previousHeightM: heightM,
       carriedBy: null,
       parked: false,
-      forceX: 0,
-      forceY: 0,
     });
   }
 
@@ -386,8 +376,7 @@ export class SimWorld {
     }
 
     // 6b. Pieces integrate freely: nothing drives them, so they carry whatever
-    // velocity a collision last gave them. Note there is no damping — see
-    // ASSUMPTIONS.md §5.5.
+    // velocity a collision last gave them.
     for (const piece of this.pieces) {
       piece.previousPose = piece.body.pose;
       piece.previousHeightM = piece.vertical.heightM;
@@ -397,13 +386,7 @@ export class SimWorld {
       // being integrated here. A parked one is held by a field mechanism.
       if (piece.carriedBy !== null || piece.parked) continue;
 
-      // Mechanism forces are the only external ones a piece ever sees: an
-      // intake roller dragging it in. They are cleared after use so a force is
-      // never applied twice.
-      const wrench = { fx: piece.forceX, fy: piece.forceY, mz: 0 };
-      piece.forceX = 0;
-      piece.forceY = 0;
-      integrateBody(piece.body, wrench, DT_SECONDS);
+      integrateBody(piece.body, { fx: 0, fy: 0, mz: 0 }, DT_SECONDS);
 
       // 6c. Height, under gravity. A piece in flight keeps its horizontal
       //     velocity — with no drag the two are independent — and its span
@@ -427,11 +410,9 @@ export class SimWorld {
     // 7. Collision.
     this.resolveCollisions();
 
-    // 11. Battery voltage for the *next* tick (ARCHITECTURE.md §5.2). The
-    //     shooter draws from the same pack as the drivetrain, so spinning up
-    //     while accelerating really does sag the voltage both of them see.
+    // 11. Battery voltage for the *next* tick (ARCHITECTURE.md §5.2).
     let packCurrent = 0;
-    for (const robot of this.robots) packCurrent += robot.solution.totalCurrent + robot.shooterCurrentA;
+    for (const robot of this.robots) packCurrent += robot.solution.totalCurrent;
     this.battery.update(amps(packCurrent));
 
     // 13.
@@ -614,8 +595,6 @@ export class SimWorld {
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
     piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
-    piece.forceX = 0;
-    piece.forceY = 0;
     piece.previousPose = piece.body.pose;
     piece.previousHeightM = piece.vertical.heightM;
   }
@@ -657,25 +636,19 @@ export class SimWorld {
       hasher.pushInt32(robot.body.id);
       hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
-      // Mechanism state is state, and divergence in it has to be caught. Only
-      // hashed for a robot that has a mechanism, so a bare drivetrain robot
-      // digests exactly as it did before mechanisms existed and the Phase 1
-      // golden value still holds.
+      // Mechanism state is state.
       if (robot.specs.launcher !== null || robot.specs.intake !== null) {
-        hasher.pushFloat(robot.mechanisms.flywheel.radPerSec);
         hasher.pushInt32(robot.mechanisms.held.length);
       }
     }
 
-    // Pieces contribute in creation order. A world with none hashes exactly as
-    // it did before pieces existed, so the Phase 1 golden digest still holds.
+    // Pieces contribute in creation order.
     for (const piece of this.pieces) {
       const { pose, vel } = piece.body;
       hasher.pushInt32(piece.body.id);
       hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
-      // Height is state like any other; leaving it out would let a shot
-      // diverge without the determinism canary noticing.
+      // Height is state like any other.
       hasher.pushFloat(piece.vertical.heightM).pushFloat(piece.vertical.velocityMps);
     }
 
@@ -713,28 +686,12 @@ export class SimWorld {
   /**
    * Step 3 of the tick: run this robot's mechanisms against the driver's input.
    *
-   * Order inside the step matters. Readiness changes first, then an intake may
-   * collect a loose piece, and firing comes last so one input can collect and
-   * score through the normal game pipeline on the same tick.
+   * Functional state machine: intake collects when active, shooter fires on button.
    */
   private updateMechanisms(robot: SimRobot, input: ControlInput): void {
     const commands = readMechanismCommands(input);
     const state = robot.mechanisms;
     state.intake = commands.intake;
-    state.speedScale = commands.speedScale;
-    robot.shooterCurrentA = 0;
-
-    const launcher = robot.specs.launcher;
-    if (launcher !== null) {
-      const spec = trimmedTarget(launcher.flywheel, commands.speedScale);
-      // A functional shooter is ready when it is enabled. Its target setting is
-      // retained for builder telemetry, but firing is not derived from torque,
-      // wheel inertia, random spread or a projectile trajectory.
-      state.flywheel = {
-        radPerSec: commands.shooterRunning ? spec.targetRadPerSec : 0,
-        running: commands.shooterRunning,
-      };
-    }
 
     const intake = robot.specs.intake;
     if (intake !== null) {
@@ -751,9 +708,8 @@ export class SimWorld {
   /**
    * Collect loose pieces whose centres are in the enabled intake mouth.
    *
-   * The mouth, accepted piece types and capacity are functional constraints a
-   * driver can observe. Roller force, ball mass and contact transients are not:
-   * acquisition is therefore the deterministic `FIELD -> HELD` transition.
+   * The mouth, accepted piece types and capacity are functional constraints.
+   * Acquisition is the deterministic `FIELD -> HELD` transition.
    */
   private runIntake(
     robot: SimRobot,
@@ -777,8 +733,6 @@ export class SimWorld {
       if (command === 'intake' && state.held.length < spec.capacity) {
         state.held.push(piece.spec.pieceId);
         piece.carriedBy = robot.body.id;
-        piece.forceX = 0;
-        piece.forceY = 0;
       }
     }
   }
@@ -787,7 +741,8 @@ export class SimWorld {
   private ejectPiece(robot: SimRobot, spec: IntakeSpec): void {
     const state = robot.mechanisms;
     if (state.held.length === 0) return;
-    if (this.tickCount - state.lastEjectTick < this.feedIntervalTicks(robot)) return;
+    // Simple cadence: eject one piece per tick on outtake
+    if (this.tickCount - state.lastEjectTick < 10) return;
 
     const pieceId = state.held[0];
     if (pieceId === undefined) return;
@@ -819,8 +774,7 @@ export class SimWorld {
    *
    * A launch is a deterministic `HELD -> TRANSFERRING` transition. The match
    * layer resolves it through the season's action route, then the ordinary
-   * membership detector and rules engine score its destination. No projectile
-   * or score mutation lives here.
+   * membership detector and rules engine score its destination.
    */
   private firePiece(robot: SimRobot): void {
     const launcher = robot.specs.launcher;
@@ -848,20 +802,11 @@ export class SimWorld {
     });
   }
 
-  /** Ticks between successive pieces leaving the feeder. */
-  private feedIntervalTicks(robot: SimRobot): number {
-    const feedPerSec = robot.specs.feedPerSec;
-    if (feedPerSec === null || feedPerSec <= 0) return Infinity;
-    return 1 / (feedPerSec * DT_SECONDS);
-  }
-
   /**
    * Move held pieces to their hopper slots, after the robot has integrated.
    *
    * A kinematic constraint rather than a contact: the piece is inside the robot
-   * and there is nothing meaningful for the contact solver to resolve. It takes
-   * the robot's velocity at its own slot, so a piece released by a spinning
-   * robot leaves with the velocity it really had. ASSUMPTIONS.md §9.8.
+   * and there is nothing meaningful for the contact solver to resolve.
    */
   private carryHeldPieces(robot: SimRobot): void {
     const spec = robot.specs.intake;
@@ -923,12 +868,7 @@ export class SimWorld {
 
     // Several passes over the whole set, not one. A body with two contacts —
     // a game piece pinned between a robot and a wall — cannot be satisfied by
-    // resolving each contact once: the correction for one undoes the other, and
-    // single-pass resolution walked the piece through the perimeter
-    // (ASSUMPTIONS.md §5.8). Narrowphase re-runs each pass because the previous
-    // one moved things; the broadphase does not, because a positional
-    // correction is bounded by the penetration it is removing and cannot carry
-    // a body into a cell it was not already overlapping.
+    // resolving each contact once: the correction for one undoes the other.
     for (let pass = 0; pass < CONTACT_PASSES; pass++) {
       let resolvedAny = false;
 
@@ -960,26 +900,22 @@ export class SimWorld {
  * What a robot's mechanisms are doing, for the read model.
  *
  * Every robot reports one of these, including a robot with no mechanisms — it
- * reports a shooter that is not running and an empty hopper, so nothing
- * downstream has to test whether the fields are there.
+ * reports an empty hopper, so nothing downstream has to test whether the fields
+ * are there.
  */
 function mechanismSnapshotOf(robot: SimRobot): MechanismSnapshot {
-  const launcher = robot.specs.launcher;
-  const spec = launcher === null ? null : trimmedTarget(launcher.flywheel, robot.mechanisms.speedScale);
-
   return {
     held: [...robot.mechanisms.held],
     capacity: robot.specs.intake?.capacity ?? 0,
     intake: robot.mechanisms.intake,
     hasIntake: robot.specs.intake !== null,
-    hasLauncher: launcher !== null,
-    shooterRunning: robot.mechanisms.flywheel.running,
-    flywheelRadPerSec: robot.mechanisms.flywheel.radPerSec,
-    flywheelTargetRadPerSec: spec?.targetRadPerSec ?? 0,
-    exitSpeedMps: spec === null ? 0 : exitSpeedMps(spec, robot.mechanisms.flywheel),
-    targetExitSpeedMps:
-      spec === null ? 0 : exitSpeedMps(spec, { radPerSec: spec.targetRadPerSec, running: true }),
-    shooterCurrentA: robot.shooterCurrentA,
+    hasLauncher: robot.specs.launcher !== null,
+    shooterRunning: false,
+    flywheelRadPerSec: 0,
+    flywheelTargetRadPerSec: 0,
+    exitSpeedMps: robot.specs.launcher?.exitSpeedMps ?? 0,
+    targetExitSpeedMps: robot.specs.launcher?.exitSpeedMps ?? 0,
+    shooterCurrentA: 0,
   };
 }
 
