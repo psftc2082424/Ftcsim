@@ -401,16 +401,6 @@ function presentationKind(id: string): 'goal' | 'structure' | 'gate' | 'tape' | 
   return 'zone';
 }
 
-/**
- * How much bigger a piece is drawn per metre of height, as a fraction.
- *
- * A top-down view has no way to show that something is in the air, so a shot
- * would look identical to a piece skidding across the floor. Growing it — and
- * leaving a shadow behind on the ground — is the usual convention and reads
- * immediately. Purely presentational: nothing reads this back.
- */
-const HEIGHT_SCALE_PER_M = 0.6;
-
 function drawPiece(
   ctx: CanvasRenderingContext2D,
   camera: Camera,
@@ -438,7 +428,8 @@ function drawPiece(
 
   const { fill, outline } = pieceColors(piece.pieceType);
   ctx.beginPath();
-  ctx.arc(screenX, screenY, groundRadius * (1 + airborneM * HEIGHT_SCALE_PER_M), 0, Math.PI * 2);
+  // Top-down elevation changes gameplay access, never apparent ball diameter.
+  ctx.arc(screenX, screenY, groundRadius, 0, Math.PI * 2);
   ctx.fillStyle = fill;
   ctx.fill();
   ctx.strokeStyle = outline;

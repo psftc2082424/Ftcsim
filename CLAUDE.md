@@ -625,3 +625,23 @@ shoot; then Phase 4 (PDF ingestion).
 - **Verification:** focused conveyor test passes. Run `npm run verify` after
   this handoff before continuing field/UI work. Inspect
   `src/core/game/conveyor.ts` and `src/core/game/conveyor.test.ts` first.
+
+### Latest handoff — 2026-08-27 (field-elevation source audit)
+
+- **Ground truth reviewed before further collision changes:** the Event FIELD
+  Setup Guide identifies GOAL and upper/lower RAMP as assemblies, while the
+  SECRET TUNNEL *ZONE* is tape. The local full-field STEP contains the GOAL
+  Internal Ramp, Goal Archway, Gate Arm, Lower Ramp Blocker, and upper/lower
+  ramp assemblies for both alliances. dSim source (`src/sim/goal.ts` and
+  `src/sim/field.ts`, commit `7a1c112`) independently models a 38.75 in GOAL
+  opening, 14 in basin floor, 10 in classifier rail, and separate overflow
+  level; released balls use the floor strip beneath the gate. Do not turn the
+  tape zone itself into an elevated obstacle.
+- **Fixed the immediate top-down visual defect:** `fieldRenderer.ts` no longer
+  scales an ARTIFACT radius by height. An elevated ball retains its true 2D
+  diameter and may only cast a shadow; `renderer.test.ts` guards this.
+- **Highest-priority next step:** add reusable receiving-basin and lane-surface
+  heights to `GuidedLaneSpec`, then connect the CAD-derived GOAL/classifier
+  profile to DECODE. Accepted balls must stay active and collidable; elevation
+  gates access, but must never become a parked queue or animation. Inspect
+  `conveyor.ts`, `simWorld.ts`, `decode.ts`, and `decodeCollision.ts` first.

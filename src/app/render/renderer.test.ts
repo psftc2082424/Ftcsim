@@ -538,14 +538,7 @@ describe('DECODE presentation: balls, the GATE, and a piece in flight', () => {
     expect(withUnrelatedOpenSet.calls).toEqual(noneOpen.calls);
   });
 
-  /**
-   * A shot is a real piece in real flight — `sim/simWorld.ts`'s
-   * `launchPieceTowards` gives it an actual height and vertical velocity — so
-   * the renderer needs no separate cosmetic path for it. It only needs to keep
-   * drawing a piece bigger, with a ground shadow, the higher its real height
-   * climbs, which `drawPiece` already does for every piece unconditionally.
-   */
-  it('draws an airborne piece larger than a grounded one, with a shadow', () => {
+  it('keeps an airborne piece at a constant top-down radius, with a shadow', () => {
     const grounded = runHeadless({
       robots: [
         {
@@ -598,6 +591,6 @@ describe('DECODE presentation: balls, the GATE, and a piece in flight', () => {
 
     const bodyRadius = (calls: readonly DrawCall[]) =>
       pieceArcs(calls)[pieceArcs(calls).length - 1]?.args[2] ?? 0;
-    expect(bodyRadius(airborneDraw.calls)).toBeGreaterThan(bodyRadius(groundedDraw.calls));
+    expect(bodyRadius(airborneDraw.calls)).toBeCloseTo(bodyRadius(groundedDraw.calls), 12);
   });
 });
