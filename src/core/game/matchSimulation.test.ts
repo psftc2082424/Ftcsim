@@ -12,7 +12,7 @@ import { NeutralController } from '../control/controller.js';
 import { SimWorld } from '../sim/simWorld.js';
 import { inchesToMeters } from '../units/convert.js';
 import { vec2 } from '../math/vec2.js';
-import { INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../sim/shooter.js';
+import { GATE_BUTTON, INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../sim/shooter.js';
 
 /** A short match keeps end-to-end runs fast: 2 s AUTO, 1 s gap, 3 s TELEOP. */
 const SHORT_MATCH: MatchStructure = {
@@ -111,7 +111,14 @@ describe('pipeline wiring', () => {
     const controller = new ScriptedController(
       createInputTrace('intake then score', [
         { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
-        { tick: 1, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [LAUNCH_BUTTON]: true }) },
+        {
+          tick: 1,
+          input: createControlInput(0, 0, 0, {
+            [SHOOTER_BUTTON]: true,
+            [GATE_BUTTON]: true,
+            [LAUNCH_BUTTON]: true,
+          }),
+        },
       ]),
     );
     const sim = simulation({
@@ -149,6 +156,52 @@ describe('pipeline wiring', () => {
     expect(sim.events).toContainEqual(
       expect.objectContaining({ kind: 'PieceEnteredRegion', pieceId: 'p', regionId: 'goal' }),
     );
+  });
+
+  it('scores three stored balls through three deterministic shot actions', () => {
+    const controller = new ScriptedController(
+      createInputTrace('three functional shots', [
+        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
+        {
+          tick: 1,
+          input: createControlInput(0, 0, 0, {
+            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+          }),
+        },
+        { tick: 2, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true }) },
+        {
+          tick: 3,
+          input: createControlInput(0, 0, 0, {
+            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+          }),
+        },
+        { tick: 4, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true }) },
+        {
+          tick: 5,
+          input: createControlInput(0, 0, 0, {
+            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+          }),
+        },
+      ]),
+    );
+    const sim = simulation({
+      robots: [{ config: COMPETITION_ROBOT_CONFIG, controller, alliance: 'red' }],
+      pieces: ['a', 'b', 'c'].map((pieceId, index) => ({
+        pieceId,
+        pieceType: 'P',
+        diameterIn: 4.9,
+        massLb: 0.165,
+        startPositionM: vec2(inchesToMeters(11), inchesToMeters((index - 1) * 4)),
+      })),
+      mechanismActionRoutes: [
+        { id: 'own-goal', action: 'launch', destinationRegionByAlliance: { red: 'goal', blue: 'goal' } },
+      ],
+    });
+
+    for (let tick = 0; tick < 6; tick++) sim.step();
+    expect(sim.world.heldPieces(0)).toEqual([]);
+    expect(sim.score.red).toBe(9);
+    expect(sim.events.filter((event) => event.kind === 'PieceEnteredRegion')).toHaveLength(3);
   });
 
   /** The point of the chunk: a score derived from real simulated positions. */

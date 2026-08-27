@@ -59,8 +59,7 @@ import { SpatialHash } from '../physics/broadphase.js';
 import { collide } from '../physics/sat.js';
 import { resolveContact } from '../physics/resolve.js';
 import { integrateBody } from '../physics/integrate.js';
-import { isAirborne, launchComponents, stepVertical, type VerticalState } from '../physics/ballistics.js';
-import { launcherAccepts, pointVelocity } from './shooter.js';
+import { launcherAccepts } from './shooter.js';
 import {
   deriveMechanismSpecs,
   feedAllows,
@@ -179,14 +178,8 @@ interface SimPiece {
   readonly body: RigidBody;
   readonly radiusM: number;
   previousPose: Pose;
-  /**
-   * Height and climb rate, integrated separately from the planar body.
-   *
-   * A robot never leaves the floor and a launched piece does, so a piece
-   * carries the one extra degree of freedom rather than the physics gaining a
-   * third dimension it would not use (`physics/ballistics.ts`).
-   */
-  vertical: VerticalState;
+  /** Fixed centre height used for region-height constraints and rendering. */
+  heightM: number;
   previousHeightM: number;
   /**
    * Robot holding this piece, or `null` when it is loose.
@@ -309,7 +302,7 @@ export class SimWorld {
       body,
       radiusM,
       previousPose: body.pose,
-      vertical: { heightM, velocityMps: 0 },
+      heightM,
       previousHeightM: heightM,
       carriedBy: null,
       parked: false,
@@ -379,7 +372,7 @@ export class SimWorld {
     // velocity a collision last gave them.
     for (const piece of this.pieces) {
       piece.previousPose = piece.body.pose;
-      piece.previousHeightM = piece.vertical.heightM;
+      piece.previousHeightM = piece.heightM;
 
       // A carried piece is driven by its robot rather than by its own dynamics,
       // so it is placed after the robot has moved (`carryHeldPieces`) instead of
@@ -388,20 +381,6 @@ export class SimWorld {
 
       integrateBody(piece.body, { fx: 0, fy: 0, mz: 0 }, DT_SECONDS);
 
-      // 6c. Height, under gravity. A piece in flight keeps its horizontal
-      //     velocity — with no drag the two are independent — and its span
-      //     rises with it, which is what lets it pass over a robot rather
-      //     than through one.
-      piece.vertical = stepVertical(
-        piece.vertical,
-        piece.radiusM,
-        DT_SECONDS,
-        piece.body.restitution,
-      ).state;
-      piece.body.span = {
-        bottom: Math.max(0, piece.vertical.heightM - piece.radiusM),
-        top: piece.vertical.heightM + piece.radiusM,
-      };
     }
 
     // 6d. Held pieces ride with their robot, which has now moved.
@@ -468,10 +447,10 @@ export class SimWorld {
       previousPose: piece.previousPose,
       vel: piece.body.vel,
       radiusM: piece.radiusM,
-      heightM: piece.vertical.heightM,
+      heightM: piece.heightM,
       previousHeightM: piece.previousHeightM,
-      verticalVelocityMps: piece.vertical.velocityMps,
-      airborne: isAirborne(piece.vertical, piece.radiusM),
+      verticalVelocityMps: 0,
+      airborne: false,
       heldByRobotId: piece.carriedBy,
     }));
 
@@ -485,54 +464,6 @@ export class SimWorld {
     };
     this.cachedSnapshot = snapshot;
     return snapshot;
-  }
-
-  /**
-   * Throw a piece: give it a horizontal velocity and a climb rate.
-   *
-   * The physics of a shot, with none of the policy. Who may launch, from what
-   * height, how accurately and whether they possessed the piece first are all
-   * questions for the layer above — this only puts a piece in the air.
-   *
-   * `elevationRad` is measured up from the floor and `headingRad` is a world
-   * bearing, so a caller launching from a robot passes the robot's heading
-   * plus whatever its mechanism adds.
-   */
-  launchPiece(
-    pieceId: string,
-    options: {
-      readonly speedMps: number;
-      readonly elevationRad: number;
-      readonly headingRad: number;
-      readonly fromHeightM?: number | undefined;
-    },
-  ): void {
-    const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
-    if (piece === undefined) throw new Error(`No game piece "${pieceId}" to launch.`);
-    if (!(options.speedMps >= 0)) {
-      throw new Error(`Launch speed must be non-negative, got ${options.speedMps}.`);
-    }
-
-    const { horizontalMps, verticalMps } = launchComponents(
-      options.speedMps,
-      options.elevationRad,
-    );
-
-    piece.body.vel = {
-      v: vec2(
-        horizontalMps * Math.cos(options.headingRad),
-        horizontalMps * Math.sin(options.headingRad),
-      ),
-      omega: piece.body.vel.omega,
-    };
-
-    // Released at the mechanism's height, or from where it already is.
-    const fromHeightM = options.fromHeightM ?? piece.vertical.heightM;
-    piece.vertical = {
-      heightM: Math.max(piece.radiusM, fromHeightM),
-      velocityMps: verticalMps,
-    };
-    this.cachedSnapshot = null;
   }
 
   /**
@@ -573,12 +504,12 @@ export class SimWorld {
     this.settlePiece(piece, positionM);
     this.cachedSnapshot = null;
     if (heightM !== undefined) {
-      piece.vertical = { heightM: Math.max(piece.radiusM, heightM), velocityMps: 0 };
+      piece.heightM = Math.max(piece.radiusM, heightM);
       piece.body.span = {
-        bottom: piece.vertical.heightM - piece.radiusM,
-        top: piece.vertical.heightM + piece.radiusM,
+        bottom: piece.heightM - piece.radiusM,
+        top: piece.heightM + piece.radiusM,
       };
-      piece.previousHeightM = piece.vertical.heightM;
+      piece.previousHeightM = piece.heightM;
     }
     this.cachedSnapshot = null;
   }
@@ -593,10 +524,10 @@ export class SimWorld {
   private settlePiece(piece: SimPiece, positionM: Vec2): void {
     piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
-    piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
+    piece.heightM = piece.radiusM;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
-    piece.previousHeightM = piece.vertical.heightM;
+    piece.previousHeightM = piece.heightM;
   }
 
   private pieceNamed(pieceId: string): SimPiece {
@@ -609,7 +540,7 @@ export class SimWorld {
   pieceHeightM(pieceId: string): number {
     const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
     if (piece === undefined) throw new Error(`No game piece "${pieceId}".`);
-    return piece.vertical.heightM;
+    return piece.heightM;
   }
 
   /** Derived robot data, for callers that need the analytic reference values. */
@@ -649,7 +580,7 @@ export class SimWorld {
       hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
       // Height is state like any other.
-      hasher.pushFloat(piece.vertical.heightM).pushFloat(piece.vertical.velocityMps);
+      hasher.pushFloat(piece.heightM);
     }
 
     return hasher.digestHex();
@@ -692,6 +623,8 @@ export class SimWorld {
     const commands = readMechanismCommands(input);
     const state = robot.mechanisms;
     state.intake = commands.intake;
+    state.gateOpen = commands.gateOpen;
+    state.shooterRunning = commands.shooterRunning;
 
     const intake = robot.specs.intake;
     if (intake !== null) {
@@ -721,9 +654,6 @@ export class SimWorld {
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked) continue;
       if (!intakeAccepts(spec, piece.spec.pieceType)) continue;
-      // A piece in flight passes over the intake rather than through it.
-      if (isAirborne(piece.vertical, piece.radiusM)) continue;
-
       const bodyP = rotate(
         vec2(piece.body.pose.p.x - pose.p.x, piece.body.pose.p.y - pose.p.y),
         -pose.theta,
@@ -763,10 +693,10 @@ export class SimWorld {
       v: vec2(robot.body.vel.v.x, robot.body.vel.v.y),
       omega: piece.body.vel.omega,
     };
-    piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
+    piece.heightM = piece.radiusM;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
-    piece.previousHeightM = piece.vertical.heightM;
+    piece.previousHeightM = piece.heightM;
   }
 
   /**
@@ -824,10 +754,10 @@ export class SimWorld {
         theta: pose.theta,
       };
       piece.body.vel = {
-        v: pointVelocity(robot.body.vel.v, robot.body.vel.omega, offsetWorld),
+        v: robot.body.vel.v,
         omega: robot.body.vel.omega,
       };
-      piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
+      piece.heightM = piece.radiusM;
       piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     });
   }
@@ -910,12 +840,9 @@ function mechanismSnapshotOf(robot: SimRobot): MechanismSnapshot {
     intake: robot.mechanisms.intake,
     hasIntake: robot.specs.intake !== null,
     hasLauncher: robot.specs.launcher !== null,
-    shooterRunning: false,
-    flywheelRadPerSec: 0,
-    flywheelTargetRadPerSec: 0,
-    exitSpeedMps: robot.specs.launcher?.exitSpeedMps ?? 0,
-    targetExitSpeedMps: robot.specs.launcher?.exitSpeedMps ?? 0,
-    shooterCurrentA: 0,
+    gateOpen: robot.mechanisms.gateOpen,
+    shooterRunning: robot.mechanisms.shooterRunning,
+    shooterReady: robot.mechanisms.shooterRunning,
   };
 }
 

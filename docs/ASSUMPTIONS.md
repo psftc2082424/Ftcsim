@@ -1051,6 +1051,34 @@ shifts a 15 kg robot by 45 mm/s.
 
 ---
 
+### 9.9 Functionality-first mechanism model
+
+| | |
+|---|---|
+| **Model** | Deterministic capability and state transitions |
+| **Confidence** | **PRODUCT DECISION** |
+| **Location** | `core/sim/robotMechanisms.ts`, `core/game/matchSimulation.ts` |
+
+The simulator models the observable game result, not the internal mechanics of
+an intake or shooter. The active path is:
+
+`FIELD → HELD (capacity-limited storage) → GATE → launch action → game-defined destination → rules → score`.
+
+An eligible piece centred in an active intake mouth is acquired immediately.
+Outtake releases the oldest stored piece. An enabled shooter is ready
+immediately; one rising-edge fire command with the gate open consumes one
+eligible stored piece. A `GameDefinition` supplies the deterministic action
+route, and normal region-membership events let the rules engine determine the
+score. No UI or mechanism directly changes a score.
+
+This supersedes the experimental mechanism-physics assumptions in §§9.1 and
+9.4–9.8: there is no roller-force acquisition model, flywheel energy/RPM
+model, launch velocity, projectile trajectory, accuracy RNG, recoil, or
+shoot-on-move correction. These effects do not create a needed match behavior
+in the current product and are intentionally absent. Drivetrain and collision
+models remain only where they make driver navigation and field constraints
+observable.
+
 ## 10. Game layer and the DECODE fixture
 
 ### 10.1 What is *not* assumed
@@ -1548,4 +1576,5 @@ match against the lowest bar.
 | 2026-08-26 | Added §10.14 (possession from contact and motion). Piece attribution now comes from simulation state: `PieceEnteredRegion.byRobotId` / `byAlliance` have existed unfilled since the event model was written, and a possession tracker fills them. |
 | 2026-08-26 | §2.2 replaced: the strafe penalty is now modelled. The mecanum roller degree of freedom was missing entirely, and its slip `√2(v_y ± aω)` has no `v_x` term, so a single roller-path resistance makes strafing slower while leaving forward performance bit-identical. Phase 1 golden digest rebaselined. |
 | 2026-08-26 | Added §9.5–§9.8 as intake and shooter physics landed: flywheel transfer ratio, inertia and shot energy; roller force with no acquisition timer; shot accuracy as a velocity rather than a probability; and the kinematic carry for held pieces. `PIECES_PER_OUTPUT_REVOLUTION` (§9.1) gained a second consumer — it is now the feeder cadence that sets fire rate. |
+| 2026-08-27 | §9.9 supersedes the experimental mechanism physics with the functionality-first model: deterministic intake/storage/gate/shooter state transitions and game-defined action routes. Ballistics, flywheel energy/RPM, shot RNG and roller-force acquisition are deliberately removed. |
 | 2026-08-26 | Added §5.7 (contact manifolds and normal-solver sweeps) with the wall-spin defect it fixes; §5.1 now points at it for where a normal impulse acts, and §5.6 records that the pinned-piece defect survives the change. Phase 1 golden digest rebaselined. |

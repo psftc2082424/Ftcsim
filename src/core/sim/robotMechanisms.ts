@@ -15,12 +15,11 @@ import { deriveIntake, intakeOf, type IntakeCommand, type IntakeSpec } from '../
 import { deriveLauncher, launcherOf, type LauncherSpec } from '../mechanism/flywheel.js';
 import {
   INTAKE_BUTTON,
+  GATE_BUTTON,
   LAUNCH_BUTTON,
   OUTTAKE_BUTTON,
   SHOOTER_BUTTON,
 } from './shooter.js';
-import { inchesToMeters } from '../units/convert.js';
-import { vec2, type Vec2 } from '../math/vec2.js';
 import type { ControlInput } from '../control/controlInput.js';
 import type { DerivedRobot } from '../robot/derive.js';
 
@@ -31,6 +30,9 @@ export interface MechanismSpecs {
 
 export interface MechanismState {
   intake: IntakeCommand;
+  /** Gate between storage and shooter; only an open gate permits a shot. */
+  gateOpen: boolean;
+  shooterRunning: boolean;
   /** Piece ids in the hopper, oldest first. The next shot is `held[0]`. */
   held: string[];
   /** Tick the last piece was fired. */
@@ -44,6 +46,8 @@ export interface MechanismState {
 export function initialMechanismState(): MechanismState {
   return {
     intake: 'off',
+    gateOpen: false,
+    shooterRunning: false,
     held: [],
     lastFireTick: Number.NEGATIVE_INFINITY,
     lastEjectTick: Number.NEGATIVE_INFINITY,
@@ -72,6 +76,7 @@ export function deriveMechanismSpecs(robot: DerivedRobot): MechanismSpecs {
 
 export interface MechanismCommands {
   readonly intake: IntakeCommand;
+  readonly gateOpen: boolean;
   readonly shooterRunning: boolean;
   readonly firing: boolean;
 }
@@ -87,6 +92,7 @@ export function readMechanismCommands(input: ControlInput): MechanismCommands {
 
   return {
     intake: outtake ? 'outtake' : intake ? 'intake' : 'off',
+    gateOpen: input.buttons[GATE_BUTTON] === true,
     shooterRunning: input.buttons[SHOOTER_BUTTON] === true,
     firing: input.buttons[LAUNCH_BUTTON] === true,
   };
@@ -99,5 +105,5 @@ export function readMechanismCommands(input: ControlInput): MechanismCommands {
  * One press = one shot.
  */
 export function feedAllows(state: MechanismState, commands: MechanismCommands): boolean {
-  return commands.shooterRunning && commands.firing && !state.firePressed;
+  return commands.gateOpen && commands.shooterRunning && commands.firing && !state.firePressed;
 }

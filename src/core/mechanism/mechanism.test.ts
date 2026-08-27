@@ -16,7 +16,7 @@ import { getMotorDatasheet } from '../motor/catalog/goBILDA.js';
 
 const NOMINAL = asVolts(12);
 
-/** A powered mechanism. Defaults are a plausible roller intake. */
+/** A powered mechanism with a functional collector capability. */
 function mechanism(patch: Partial<MechanismConfig> = {}): MechanismConfig {
   return {
     id: 'intake-1',
@@ -32,7 +32,6 @@ function mechanism(patch: Partial<MechanismConfig> = {}): MechanismConfig {
         capacity: 3,
         reachIn: 6,
         mouthWidthIn: 14,
-        rollerDiameterIn: 2,
       },
     ],
     ...patch,

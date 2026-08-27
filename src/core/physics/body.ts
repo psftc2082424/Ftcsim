@@ -56,7 +56,7 @@ export interface RigidBody {
    *
    * Robots never do, but a launched game piece does, and its span has to rise
    * with it or a ball in flight would still collide with everything it passes
-   * over (`physics/ballistics.ts`).
+   * over a raised game-defined destination.
    */
   span: VerticalSpan;
 

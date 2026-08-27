@@ -71,17 +71,11 @@ export interface MechanismSnapshot {
   readonly intake: 'off' | 'intake' | 'outtake';
   readonly hasIntake: boolean;
   readonly hasLauncher: boolean;
+  /** Gate between storage and the shooter. */
+  readonly gateOpen: boolean;
   readonly shooterRunning: boolean;
-  /** Flywheel speed now, rad/s. */
-  readonly flywheelRadPerSec: number;
-  /** Flywheel speed the controller is driving toward, rad/s. */
-  readonly flywheelTargetRadPerSec: number;
-  /** Speed a piece would leave at right now, m/s. */
-  readonly exitSpeedMps: number;
-  /** Speed a piece would leave at once the wheel reaches its target, m/s. */
-  readonly targetExitSpeedMps: number;
-  /** Current the shooter is drawing, A. */
-  readonly shooterCurrentA: number;
+  /** A functional shooter is ready as soon as it is enabled. */
+  readonly shooterReady: boolean;
 }
 
 /**

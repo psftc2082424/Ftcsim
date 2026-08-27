@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "FTC Universal 2D Simulator - season-agnostic, physics-first FIRST Tech Challenge robot simulator",
+  "description": "FTC Universal 2D Simulator - season-agnostic FIRST Tech Challenge match simulator",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",

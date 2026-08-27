@@ -1,43 +1,23 @@
 /**
- * Launcher specification — functionality-first model.
+ * Launcher capability adapter.
  *
- * A shooter has an exit speed and angle. When fired, it releases a held piece
- * and routes it to the scoring region. No physics needed: the game layer
- * handles piece trajectories and scoring via the rules pipeline.
+ * The filename is retained for saved import paths, but a launcher is no longer
+ * modelled as a flywheel. It is a functional capability: when enabled, it can
+ * send an eligible held piece through the game definition's launch route.
  */
 
-import { feetPerSecToMetersPerSec, inchesToMeters } from '../units/convert.js';
 import type { LaunchCapability } from './capability.js';
 import type { DerivedMechanism } from './mechanism.js';
 
-/**
- * A launcher as the gameplay sees it: exit speed and angle.
- *
- * Derived from the config so robots can be built with meaningful shooter specs.
- * The actual firing just reads these values and routes a piece to scoring.
- */
 export interface LauncherSpec {
-  readonly exitSpeedMps: number;
-  readonly exitAngleDeg: number;
-  readonly spreadDeg: number;
-  readonly shootOnMoveCompensation: number;
+  readonly capability: LaunchCapability;
 }
 
-/**
- * Build a launcher spec from a mechanism the user configured.
- *
- * Exit speed is fixed from the config; no motor model or energy calc needed.
- */
 export function deriveLauncher(
-  mechanism: DerivedMechanism,
+  _mechanism: DerivedMechanism,
   capability: LaunchCapability,
 ): LauncherSpec {
-  return {
-    exitSpeedMps: feetPerSecToMetersPerSec(capability.exitSpeedFtPerSec),
-    exitAngleDeg: capability.exitAngleDeg,
-    spreadDeg: capability.spreadDeg,
-    shootOnMoveCompensation: capability.shootOnMoveCompensation,
-  };
+  return { capability };
 }
 
 /** The first launch capability a robot carries, with the mechanism it is on. */

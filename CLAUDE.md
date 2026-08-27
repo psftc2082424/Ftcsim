@@ -141,10 +141,10 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
   force the motor cannot make.
 - **Perimeter walls are 12 in thick** (§5.8), and only the inner face is
   gameplay. Thinner than a game piece lets a squeezed circle tunnel.
-- **Piece flight is 2.5D** (§5.9). A piece carries height and climb rate;
-  robots stay planar. With no drag the two components are independent, so the
-  split is exact rather than a compromise. Vertical spans — there since Phase 1
-  — are what make a ball fly *over* a robot.
+- **Mechanisms are functional state machines** (§9.9). The product path is
+  `FIELD → HELD → GATE → launch action → game route → rules → score`.
+  There is no flywheel/ballistic/shot-spread model: a valid enabled shot is a
+  deterministic action, and only the rules engine changes a score.
 - **Arc driving is slower, and that is correct** (§2.2.1). Saturation scales
   forward speed to `1/(1+turn)`, and a robot on a circular path crabs slightly
   to make its own centripetal force. Do not reach for a multiplier.
@@ -176,15 +176,12 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Pin the GOAL cluster from the full-field CAD.** GOAL, RAMP and DEPOT are the
-only positions still inferred, and every remaining "distances are approximate,
-so cycle times are not predictive" caveat traces to them. The CAD is at
-`Field CADs/` (untracked). A STEP placement walk was started and abandoned —
-`NEXT_ASSEMBLY_USAGE_OCCURRENCE` plus `ITEM_DEFINED_TRANSFORMATION` is the chain,
-and the parts are named ("Blue Alliance Base Zone Blue Tape", "Blue Goal
-AprilTag Sticker - am-5707_id20"), so a working extractor would settle it.
-Region ids are the contract with `decode.ts` and must not change; only `LAYOUT`
-in `decodeField.ts` moves.
+**Complete the dSim-informed UI pass.** Preserve the Canvas renderer and the
+working match pipeline, but reorganise the app around a field-first Play view,
+simple mechanism controls, a bottom broadcast-style score overlay, and a
+separate Configure flow. Inspect dSim first as UX reference only; do not copy
+its code or branding. The GOAL-cluster CAD extraction remains a later
+data-quality task.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

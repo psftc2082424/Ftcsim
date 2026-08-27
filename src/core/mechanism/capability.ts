@@ -10,11 +10,8 @@
  *
  * ── Scope in Phase 2 ───────────────────────────────────────────────────────
  *
- * This phase defines the framework and derives each capability's *rates* from
- * the motor and gearing that drive it. It does **not** simulate mechanisms
- * acting on game pieces, because there are no game pieces until Phase 3. The
- * capabilities are real, derived and testable today; what they act upon arrives
- * with the game engine.
+ * Capabilities describe the match-visible function a mechanism provides. They
+ * do not encode roller, flywheel or projectile construction details.
  *
  * PRODUCT_SPEC.md §8: "Do not over-engineer every mechanism in the first
  * version."
@@ -39,14 +36,6 @@ export interface AcquireCapability {
    * than being derived from the motor.
    */
   readonly mouthWidthIn: number;
-  /**
-   * Diameter of the roller that grips the piece, inches.
-   *
-   * Sets both halves of what the intake can do: surface speed is `w * r`, and
-   * the force it can apply is `tau / r`. A big roller is fast and weak, a small
-   * one slow and strong, from the one number (`mechanism/intake.ts`).
-   */
-  readonly rollerDiameterIn: number;
 }
 
 /** Deposit possessed pieces — an outtake, a dropper, a depositor. */
@@ -57,53 +46,15 @@ export interface ReleaseCapability {
 }
 
 /**
- * Throw a piece — a shooter, a flywheel, a launcher.
+ * Send a held piece to a game-defined target — a shooter or launcher.
  *
- * `exitSpeedFtPerSec` is the speed the *controller aims for*, not a speed the
- * simulation grants. It is turned into the wheel speed that would produce it
- * (`requiredRadPerSec`), and the shooter then has to actually get there against
- * its own inertia. A shot fired early leaves at whatever the wheel has reached,
- * so a target the motor cannot reach is a design that falls short rather than a
- * number that quietly comes true (`mechanism/flywheel.ts`).
+ * Enabling the capability makes it ready and firing routes one eligible held
+ * piece through the current game's declared destination. Accuracy is perfect by
+ * default; range, spin and projectile details are not a functional constraint.
  */
 export interface LaunchCapability {
   readonly kind: 'launch';
   readonly pieceTypes: readonly string[];
-  /** Exit velocity the shooter is commanded to reach, ft/s. */
-  readonly exitSpeedFtPerSec: number;
-  /** Launch angle above horizontal, degrees. */
-  readonly exitAngleDeg: number;
-  /**
-   * Mechanical spread, degrees, total cone width.
-   *
-   * Repeatability of the shooter itself — compression, seam, feed alignment —
-   * and the only random term in the shot. Everything else that moves a shot off
-   * target is computed from the robot's motion.
-   */
-  readonly spreadDeg: number;
-  /** Flywheel diameter, inches. Sets surface speed and inertia together. */
-  readonly flywheelDiameterIn: number;
-  /** Mass of everything that spins, pounds. The wheel's inertia is `½mr²`. */
-  readonly flywheelMassLb: number;
-  /**
-   * Exit speed over flywheel surface speed.
-   *
-   * A geometric property of the build: 0.5 for one wheel against a fixed hood,
-   * 1.0 for two counter-rotating wheels. Also fixes how much energy each shot
-   * takes out of the wheel, because the backspin the transfer imparts is part
-   * of that energy.
-   */
-  readonly transferRatio: number;
-  /**
-   * Fraction of the robot's own velocity the aiming solution cancels, 0-1.
-   *
-   * A ball leaves a moving robot carrying the robot's velocity — that is not a
-   * penalty, it is what "leaving a moving vehicle" means. A shooter that knows
-   * how fast it is travelling can aim off to cancel it. This is how much of it
-   * it cancels: 0 is a robot that must stop to shoot, 1 is a perfect
-   * shoot-on-the-move solution (`sim/shooter.ts`).
-   */
-  readonly shootOnMoveCompensation: number;
 }
 
 /** Present a piece at a height — an elevator, an arm, a lift, a slide. */
@@ -146,7 +97,7 @@ export type Capability =
   | ClimbCapability
   | TraverseCapability;
 
-/** Capabilities whose throughput is set by the motor driving them. */
+/** Capability kinds driven manually by a `ControlInput` action. */
 export const RATE_DRIVEN_KINDS: readonly CapabilityKind[] = ['acquire', 'release', 'launch'];
 
 export function isCapabilityKind(value: string): value is CapabilityKind {

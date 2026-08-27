@@ -51,7 +51,7 @@ import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
-import { INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../../sim/shooter.js';
+import { GATE_BUTTON, INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
@@ -325,7 +325,6 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
             capacity: 3,
             reachIn: 6,
             mouthWidthIn: 14,
-            rollerDiameterIn: 2,
           },
         ],
       },
@@ -345,15 +344,6 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
           {
             kind: 'launch',
             pieceTypes: [],
-            // Enough to clear the lip at this range; the trajectory is
-            // integrated, not assumed.
-            exitSpeedFtPerSec: 26,
-            exitAngleDeg: 45,
-            spreadDeg: 0,
-            flywheelDiameterIn: 4,
-            flywheelMassLb: 0.6,
-            transferRatio: 0.5,
-            shootOnMoveCompensation: 0,
           },
         ],
       },
@@ -361,12 +351,10 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
   };
 
   /**
-   * Collect, spin up, then fire. Firing is a physical sequence now, so the
-   * trace is the sequence a driver would run: the intake and the shooter come
-   * on together, the flywheel takes about a second and a half to reach speed,
-   * and only then does the fire button do anything worth scoring.
+   * Collect, enable, open the gate, then fire. A functional shot is resolved
+   * by the game's route rather than by a fabricated trajectory.
    */
-  const SPIN_UP_TICKS = 500;
+  const SPIN_UP_TICKS = 1;
 
   const SHOOT_TRACE = createInputTrace('shoot', [
     { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
@@ -374,6 +362,7 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
       tick: SPIN_UP_TICKS,
       input: createControlInput(0, 0, 0, {
         [SHOOTER_BUTTON]: true,
+        [GATE_BUTTON]: true,
         [LAUNCH_BUTTON]: true,
       }),
     },
