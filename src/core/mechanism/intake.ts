@@ -24,6 +24,8 @@ export interface IntakeSpec {
   readonly mouthWidthM: number;
   readonly capacity: number;
   readonly pieceTypes: readonly string[];
+  /** Pieces this intake can capture per second, once one is in the mouth. */
+  readonly acquisitionRatePerSec: number;
 }
 
 /** What the driver is asking the intake to do. */
@@ -97,6 +99,7 @@ export function deriveIntake(
     mouthWidthM: inchesToMeters(capability.mouthWidthIn),
     capacity: Math.max(0, Math.floor(capability.capacity)),
     pieceTypes: capability.pieceTypes,
+    acquisitionRatePerSec: capability.acquisitionRatePerSec,
   };
 }
 

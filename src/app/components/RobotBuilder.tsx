@@ -56,7 +56,8 @@ interface Draft {
   wheelDiameterIn: string;
   /**
    * Held as structured config rather than strings: mechanisms are added whole
-   * from a template and only their mass is edited inline, so there is no
+   * from a template and only mass and a few functional capability rates (fire
+   * rate, acquisition rate, reach) are edited inline, so there is no
    * half-typed intermediate state to protect against.
    */
   mechanisms: readonly MechanismConfig[];
@@ -380,6 +381,107 @@ export function RobotBuilder({ applied, onApply }: Props) {
                   {errorFor(errors, `mechanisms.${index}.massLb`)}
                 </span>
               )}
+              {mechanism.capabilities.map((capability, capabilityIndex) => {
+                const capabilityPath = `mechanisms.${index}.capabilities.${capabilityIndex}`;
+
+                if (capability.kind === 'acquire') {
+                  const setField = (field: 'acquisitionRatePerSec' | 'reachIn', value: number) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      mechanisms: previous.mechanisms.map((m, i) =>
+                        i !== index
+                          ? m
+                          : {
+                              ...m,
+                              capabilities: m.capabilities.map((c, ci) =>
+                                ci === capabilityIndex && c.kind === 'acquire' ? { ...c, [field]: value } : c,
+                              ),
+                            },
+                      ),
+                    }));
+
+                  return (
+                    <div key={capabilityIndex} className="mech-detail">
+                      <label className="mech-mass">
+                        <span>Acquire rate</span>
+                        <input
+                          type="number"
+                          step="any"
+                          aria-label={`${mechanism.name} acquisition rate per second`}
+                          value={String(capability.acquisitionRatePerSec)}
+                          onChange={(event) =>
+                            setField('acquisitionRatePerSec', num(event.target.value))
+                          }
+                        />
+                        <span className="telemetry-unit">/s</span>
+                      </label>
+                      <label className="mech-mass">
+                        <span>Reach</span>
+                        <input
+                          type="number"
+                          step="any"
+                          aria-label={`${mechanism.name} reach in inches`}
+                          value={String(capability.reachIn)}
+                          onChange={(event) => setField('reachIn', num(event.target.value))}
+                        />
+                        <span className="telemetry-unit">in</span>
+                      </label>
+                      {errorFor(errors, `${capabilityPath}.acquisitionRatePerSec`) !== undefined && (
+                        <span className="builder-field-error">
+                          {errorFor(errors, `${capabilityPath}.acquisitionRatePerSec`)}
+                        </span>
+                      )}
+                      {errorFor(errors, `${capabilityPath}.reachIn`) !== undefined && (
+                        <span className="builder-field-error">
+                          {errorFor(errors, `${capabilityPath}.reachIn`)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+
+                if (capability.kind === 'launch') {
+                  const setShotsPerSecond = (value: number) =>
+                    setDraft((previous) => ({
+                      ...previous,
+                      mechanisms: previous.mechanisms.map((m, i) =>
+                        i !== index
+                          ? m
+                          : {
+                              ...m,
+                              capabilities: m.capabilities.map((c, ci) =>
+                                ci === capabilityIndex && c.kind === 'launch'
+                                  ? { ...c, shotsPerSecond: value }
+                                  : c,
+                              ),
+                            },
+                      ),
+                    }));
+
+                  return (
+                    <div key={capabilityIndex} className="mech-detail">
+                      <label className="mech-mass">
+                        <span>Shooter BPS</span>
+                        <input
+                          type="number"
+                          step="any"
+                          aria-label={`${mechanism.name} shots per second`}
+                          value={String(capability.shotsPerSecond)}
+                          onChange={(event) => setShotsPerSecond(num(event.target.value))}
+                        />
+                        <span className="telemetry-unit">balls/s</span>
+                      </label>
+                      {errorFor(errors, `${capabilityPath}.shotsPerSecond`) !== undefined && (
+                        <span className="builder-field-error">
+                          {errorFor(errors, `${capabilityPath}.shotsPerSecond`)}
+                        </span>
+                      )}
+                    </div>
+                  );
+                }
+
+                return null;
+              })}
             </li>
           ))}
         </ul>

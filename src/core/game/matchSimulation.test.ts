@@ -107,7 +107,16 @@ describe('pipeline wiring', () => {
     expect(simulation().run().score.red).toBe(0);
   });
 
-  it('routes a functional launch through region events and the rules engine', () => {
+  /** A route needs a real height for the piece to arc through; any positive
+   * value works for this generic (height-unconstrained) test goal. */
+  const OWN_GOAL_ROUTE = {
+    id: 'own-goal',
+    action: 'launch' as const,
+    destinationRegionByAlliance: { red: 'goal', blue: 'goal' },
+    arcApexHeightM: 0.9,
+  };
+
+  it('routes a functional launch through a real flight, region events and the rules engine', () => {
     const controller = new ScriptedController(
       createInputTrace('intake then score', [
         { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
@@ -137,18 +146,18 @@ describe('pipeline wiring', () => {
           startPositionM: vec2(inchesToMeters(11), 0),
         },
       ],
-      mechanismActionRoutes: [
-        {
-          id: 'own-goal',
-          action: 'launch',
-          destinationRegionByAlliance: { red: 'goal', blue: 'goal' },
-        },
-      ],
+      mechanismActionRoutes: [OWN_GOAL_ROUTE],
     });
 
     sim.step();
     expect(sim.world.heldPieces(0)).toEqual(['p']);
+
+    // Not scored the instant it fires: it still has to physically get there.
     sim.step();
+    expect(sim.score.red).toBe(0);
+    expect(sim.world.snapshot().pieces[0]?.airborne).toBe(true);
+
+    for (let i = 0; i < 200 && sim.score.red === 0; i++) sim.step();
 
     expect(sim.score.red).toBe(3);
     expect(sim.events).toContainEqual(
@@ -157,93 +166,23 @@ describe('pipeline wiring', () => {
   });
 
   /**
-   * The launch animation is purely descriptive (PRODUCT_SPEC.md §1.1): the
-   * piece has already made its deterministic `HELD -> destination` move by the
-   * time this exists, so draining it — or never draining it at all — cannot
-   * change the score.
+   * Holding fire — the feature this session adds — empties the hopper on its
+   * own, one shot per configured BPS interval, each a real flight rather than
+   * a teleport.
    */
-  it('records a launch animation from the robot to the destination, without touching the score', () => {
+  it('scores three stored balls by holding fire, each one a real flight', () => {
+    // Competition's intake is 2/s too (100-tick interval): three captures —
+    // immediate, then two 100-tick gaps — finish by tick 200. Fire is held
+    // starting well into TELEOP (AUTO is 400 ticks, the AUTO->TELEOP gap
+    // another 200) so all three shots land in a scored phase: a piece that
+    // crosses the goal during the transition scores nothing, by the DECODE
+    // rule this ANY-phase trigger honours (`isWithinPhase`), so the earlier
+    // timing here landed the third shot in that dead window and only 2 of 3
+    // scored.
     const controller = new ScriptedController(
-      createInputTrace('intake then score', [
+      createInputTrace('intake then hold fire', [
         { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
-        { tick: 1, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
-      ]),
-    );
-    const sim = simulation({
-      robots: [
-        {
-          config: COMPETITION_ROBOT_CONFIG,
-          controller,
-          alliance: 'red',
-          startPose: { p: vec2(inchesToMeters(3), inchesToMeters(2)), theta: 0 },
-        },
-      ],
-      pieces: [
-        {
-          pieceId: 'p',
-          pieceType: 'G',
-          diameterIn: 4.9,
-          massLb: 0.165,
-          startPositionM: vec2(inchesToMeters(14), inchesToMeters(2)),
-        },
-      ],
-      mechanismActionRoutes: [
-        { id: 'own-goal', action: 'launch', destinationRegionByAlliance: { red: 'goal', blue: 'goal' } },
-      ],
-    });
-
-    expect(sim.drainLaunchAnimations()).toEqual([]);
-
-    sim.step();
-    expect(sim.drainLaunchAnimations()).toEqual([]);
-    const scoreBeforeSecondStep = sim.score.red;
-
-    sim.step();
-    const animations = sim.drainLaunchAnimations();
-
-    expect(animations).toHaveLength(1);
-    expect(animations[0]).toMatchObject({
-      pieceId: 'p',
-      pieceType: 'G',
-      alliance: 'red',
-      fromM: { x: inchesToMeters(3), y: inchesToMeters(2) },
-    });
-    expect(animations[0]?.toM).toEqual(
-      sim.world
-        .snapshot()
-        .pieces.find((piece) => piece.pieceId === 'p')?.pose.p,
-    );
-    // Scoring already happened this same step, before the animation is drained.
-    expect(sim.score.red).toBeGreaterThan(scoreBeforeSecondStep);
-
-    // Drained, not merely peeked: a second read finds nothing left.
-    expect(sim.drainLaunchAnimations()).toEqual([]);
-  });
-
-  it('scores three stored balls through three deterministic shot actions', () => {
-    const controller = new ScriptedController(
-      createInputTrace('three functional shots', [
-        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
-        {
-          tick: 1,
-          input: createControlInput(0, 0, 0, {
-            [LAUNCH_BUTTON]: true,
-          }),
-        },
-        { tick: 2, input: createControlInput(0, 0, 0) },
-        {
-          tick: 3,
-          input: createControlInput(0, 0, 0, {
-            [LAUNCH_BUTTON]: true,
-          }),
-        },
-        { tick: 4, input: createControlInput(0, 0, 0) },
-        {
-          tick: 5,
-          input: createControlInput(0, 0, 0, {
-            [LAUNCH_BUTTON]: true,
-          }),
-        },
+        { tick: 610, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
       ]),
     );
     const sim = simulation({
@@ -255,12 +194,16 @@ describe('pipeline wiring', () => {
         massLb: 0.165,
         startPositionM: vec2(inchesToMeters(11), inchesToMeters((index - 1) * 4)),
       })),
-      mechanismActionRoutes: [
-        { id: 'own-goal', action: 'launch', destinationRegionByAlliance: { red: 'goal', blue: 'goal' } },
-      ],
+      mechanismActionRoutes: [OWN_GOAL_ROUTE],
     });
 
-    for (let tick = 0; tick < 6; tick++) sim.step();
+    for (let tick = 0; tick < 610; tick++) sim.step();
+    expect(sim.world.heldPieces(0)).toHaveLength(3);
+
+    // The shooter fires at 2/s (100-tick interval): three shots land around
+    // ticks 610, 710 and 810, each then needing time to fly.
+    for (let i = 0; i < 500 && sim.score.red < 9; i++) sim.step();
+
     expect(sim.world.heldPieces(0)).toEqual([]);
     expect(sim.score.red).toBe(9);
     expect(sim.events.filter((event) => event.kind === 'PieceEnteredRegion')).toHaveLength(3);

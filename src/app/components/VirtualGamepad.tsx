@@ -173,7 +173,8 @@ export function VirtualGamepad({ source }: Props) {
       </div>
 
       <p className="muted small">
-        Hold INTAKE to collect, then press FIRE once for each stored artifact.
+        Hold INTAKE to collect. Hold FIRE to launch every stored artifact at the
+        configured rate; a tap fires just one.
       </p>
     </section>
   );

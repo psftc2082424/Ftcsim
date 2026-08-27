@@ -194,6 +194,18 @@ export interface MechanismActionRoute {
   readonly id: string;
   readonly action: 'launch';
   readonly destinationRegionByAlliance: Readonly<Record<'red' | 'blue', string>>;
+  /**
+   * Apex height of the piece's real flight toward the destination, metres.
+   *
+   * The mechanism stays a functional state transition (PRODUCT_SPEC.md §1.1) —
+   * no flywheel, no aim error — but the piece it releases still has to
+   * physically clear whatever stands between the robot and the destination.
+   * `SimWorld.launchPieceTowards` solves for the exact speed that puts the
+   * piece at this height, at the apex of its arc, directly above the
+   * destination; a season picks the number so it clears its own scoring
+   * opening (e.g. a goal's lip) with a margin, not so it looks a particular way.
+   */
+  readonly arcApexHeightM: number;
 }
 
 export interface GameDefinition {

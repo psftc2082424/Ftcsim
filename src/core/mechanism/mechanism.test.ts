@@ -32,6 +32,7 @@ function mechanism(patch: Partial<MechanismConfig> = {}): MechanismConfig {
         capacity: 3,
         reachIn: 6,
         mouthWidthIn: 14,
+        acquisitionRatePerSec: 2,
       },
     ],
     ...patch,

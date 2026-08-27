@@ -13,6 +13,17 @@
  * runs whatever a season declares. DECODE's CLASSIFIER is one instance of it; so
  * is a human-player return chute or a ball elevator.
  *
+ * ── A piece that leaves is real again ──────────────────────────────────────
+ *
+ * The queue itself stays a virtual, parked state — nine ARTIFACTS packed
+ * against each other on a RAMP is not a rigid-body problem this project takes
+ * on. But the moment a piece is *let out*, it is given a real velocity and
+ * handed back to ordinary physics: it rolls, it can collide with a corridor's
+ * walls, and it comes to rest wherever that motion actually puts it. There is
+ * no teleport-to-a-tidy-slot step here any more, and no virtual travel timer
+ * for an overflowing arrival either — both are replaced by the one thing that
+ * makes them true, a push.
+ *
  * ── What it does not do ────────────────────────────────────────────────────
  *
  * It does not score. Pieces move, the region detector notices they moved, and
@@ -51,10 +62,18 @@ export interface PieceConveyorSpec {
   readonly releaseZoneId?: string | undefined;
   /** Alliance whose robots may open it. Omitted means any robot. */
   readonly releaseAlliance?: 'red' | 'blue' | undefined;
-  /** Zone pieces come out into. */
+  /** Zone a released piece travels through under its own, real motion. */
   readonly exitZoneId: string;
-  /** Seconds an arrival that bypassed the queue takes to reach the way out. */
-  readonly bypassTransitSec: number;
+  /**
+   * The push a piece leaves with, world-frame metres per second.
+   *
+   * A real velocity, not a travel time: the piece becomes an ordinary loose
+   * body the instant it is released and gets wherever this — and then whatever
+   * it collides with — actually carries it. A season derives the number from
+   * its own geometry (e.g. how fast a ball rolls down a known slope over a
+   * known drop) rather than picking one to make a timer come out even.
+   */
+  readonly exitVelocityMps: Vec2;
   /** Seconds between successive pieces leaving a draining queue. */
   readonly drainIntervalSec: number;
 }
@@ -63,8 +82,8 @@ export interface PieceConveyorSpec {
 export interface ConveyorWorld {
   /** Park a piece at a fixed point, out of the contact solver. */
   holdPiece(pieceId: string, positionM: Vec2): void;
-  /** Put a piece back into play at rest. */
-  releasePiece(pieceId: string, positionM: Vec2): void;
+  /** Release a piece into ordinary physics, moving at a given velocity. */
+  releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
 }
 
 export interface ConveyorPlaces {
@@ -74,21 +93,12 @@ export interface ConveyorPlaces {
   readonly release: FieldZone | undefined;
 }
 
-interface Transit {
-  readonly pieceId: string;
-  /** Tick the piece reaches the way out. */
-  readonly arrivesAtTick: number;
-}
-
 interface ConveyorState {
   /** Piece ids in the queue, way-out end first. */
   readonly queue: string[];
-  readonly inTransit: Transit[];
   lastDrainTick: number;
   /** Pieces this conveyor is holding, so an arrival is not counted twice. */
   readonly taken: Set<string>;
-  /** How many have been put out, so returns lay along the exit rather than pile. */
-  emitted: number;
 }
 
 /**
@@ -107,13 +117,7 @@ export class PieceConveyors {
     private readonly dtSec: number,
   ) {
     for (const spec of specs) {
-      this.states.set(spec.id, {
-        queue: [],
-        inTransit: [],
-        lastDrainTick: Number.NEGATIVE_INFINITY,
-        taken: new Set(),
-        emitted: 0,
-      });
+      this.states.set(spec.id, { queue: [], lastDrainTick: Number.NEGATIVE_INFINITY, taken: new Set() });
     }
   }
 
@@ -127,11 +131,6 @@ export class PieceConveyors {
     return [...(this.states.get(conveyorId)?.queue ?? [])];
   }
 
-  /** Pieces on their way to a conveyor's exit but not out yet. */
-  inTransit(conveyorId: string): readonly string[] {
-    return (this.states.get(conveyorId)?.inTransit ?? []).map((transit) => transit.pieceId);
-  }
-
   /** Is this conveyor's way out being held open right now? */
   isOpen(conveyorId: string, snapshot: WorldSnapshot): boolean {
     const spec = this.specs.find((candidate) => candidate.id === conveyorId);
@@ -142,9 +141,9 @@ export class PieceConveyors {
    * Advance every conveyor one tick.
    *
    * Order within a conveyor matters: arrivals are taken first, so a piece that
-   * lands on a full queue this tick bypasses it rather than waiting for the next
-   * one. Conveyors run in declaration order and pieces in snapshot order, so
-   * nothing here depends on map iteration.
+   * lands on a full queue this tick bypasses it immediately rather than waiting
+   * for the next one. Conveyors run in declaration order and pieces in
+   * snapshot order, so nothing here depends on map iteration.
    */
   update(snapshot: WorldSnapshot, tick: number, world: ConveyorWorld): void {
     for (const spec of this.specs) {
@@ -152,8 +151,7 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
-      this.takeArrivals(spec, state, places, snapshot, tick, world);
-      this.deliverTransits(state, places, snapshot, tick, world);
+      this.takeArrivals(spec, state, places, snapshot, world);
       this.drain(spec, state, places, snapshot, tick, world);
       this.holdQueue(state, places, world);
     }
@@ -164,7 +162,6 @@ export class PieceConveyors {
     state: ConveyorState,
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
-    tick: number,
     world: ConveyorWorld,
   ): void {
     for (const piece of snapshot.pieces) {
@@ -180,29 +177,10 @@ export class PieceConveyors {
         continue;
       }
 
-      // The queue was full when this one arrived, so it rides over and comes out
-      // at the far end after however long the trip takes.
-      state.inTransit.push({
-        pieceId: piece.pieceId,
-        arrivesAtTick: tick + Math.round(spec.bypassTransitSec / this.dtSec),
-      });
-      world.holdPiece(piece.pieceId, slotPoint(places.queue, spec.capacity, spec.capacity - 1));
-    }
-  }
-
-  private deliverTransits(
-    state: ConveyorState,
-    places: ConveyorPlaces,
-    snapshot: WorldSnapshot,
-    tick: number,
-    world: ConveyorWorld,
-  ): void {
-    for (let i = state.inTransit.length - 1; i >= 0; i--) {
-      const transit = state.inTransit[i];
-      if (transit === undefined || tick < transit.arrivesAtTick) continue;
-
-      state.inTransit.splice(i, 1);
-      this.emit(state, places, transit.pieceId, snapshot, world);
+      // The queue was full when this one arrived, so it rides straight over —
+      // a real push out through the exit, the same as a piece that drained
+      // from the front of the queue.
+      this.release(spec, state, places, piece.pieceId, world);
     }
   }
 
@@ -224,30 +202,27 @@ export class PieceConveyors {
     if (pieceId === undefined) return;
 
     state.lastDrainTick = tick;
-    this.emit(state, places, pieceId, snapshot, world);
+    this.release(spec, state, places, pieceId, world);
   }
 
   /**
-   * Put a piece out at the exit.
+   * Release a piece into the exit zone under its own real motion.
    *
-   * Successive returns lay out along the exit rather than stacking on one point:
-   * the exit holds as many as its length divided by a piece diameter, and the
-   * count wraps round it. Nothing depends on where they land — a robot collects
-   * them from wherever they are — so this is about them being reachable rather
-   * than about a position the manual states.
+   * It starts at the exit corridor's end nearest the queue — the end an
+   * ARTIFACT would physically reach first — so a robot standing at the far
+   * (field) end can never reach in and grab it from the wrong side; the piece
+   * has to actually travel the corridor's length under `exitVelocityMps`
+   * first, the same as it would in the real game.
    */
-  private emit(
+  private release(
+    spec: PieceConveyorSpec,
     state: ConveyorState,
     places: ConveyorPlaces,
     pieceId: string,
-    snapshot: WorldSnapshot,
     world: ConveyorWorld,
   ): void {
-    const diameterM = pieceDiameterM(snapshot, pieceId);
-    const slots = Math.max(1, Math.floor(extentOf(places.exit).length / diameterM));
-
-    world.releasePiece(pieceId, slotPoint(places.exit, slots, state.emitted % slots));
-    state.emitted++;
+    const origin = nearEndOf(places.exit, places.queue.centerM);
+    world.releasePieceMoving(pieceId, origin, spec.exitVelocityMps);
     state.taken.delete(pieceId);
   }
 
@@ -296,9 +271,26 @@ export function slotPoint(place: Shaped, count: number, index: number): Vec2 {
     : vec2(place.centerM.x, place.centerM.y + fraction * extent.length);
 }
 
-function pieceDiameterM(snapshot: WorldSnapshot, pieceId: string): number {
-  const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-  return (piece?.radiusM ?? 0.05) * 2;
+/**
+ * The end of a shaped place's long axis nearest a reference point.
+ *
+ * Used to start a released piece's real travel at the physically correct end
+ * of a corridor — the end next to whatever fed it — rather than at its centre
+ * or spread across it the way a queue's slots are.
+ */
+export function nearEndOf(place: Shaped, referenceM: Vec2): Vec2 {
+  const a = slotPointAtEdge(place, -1);
+  const b = slotPointAtEdge(place, 1);
+  const distanceTo = (p: Vec2): number => Math.hypot(p.x - referenceM.x, p.y - referenceM.y);
+  return distanceTo(a) <= distanceTo(b) ? a : b;
+}
+
+function slotPointAtEdge(place: Shaped, sign: -1 | 1): Vec2 {
+  const extent = extentOf(place);
+  const half = extent.length / 2;
+  return extent.alongX
+    ? vec2(place.centerM.x + sign * half, place.centerM.y)
+    : vec2(place.centerM.x, place.centerM.y + sign * half);
 }
 
 function extentOf(place: Shaped): { readonly alongX: boolean; readonly length: number } {

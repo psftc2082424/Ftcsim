@@ -141,10 +141,19 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
   force the motor cannot make.
 - **Perimeter walls are 12 in thick** (§5.8), and only the inner face is
   gameplay. Thinner than a game piece lets a squeezed circle tunnel.
-- **Mechanisms are functional state machines** (§9.9). The product path is
-  `FIELD → HELD → launch action → game route → rules → score`.
-  There is no flywheel/ballistic/shot-spread model: a valid enabled shot is a
-  deterministic action, and only the rules engine changes a score.
+- **Mechanisms are functional state machines; the piece they release is not**
+  (§9.9, updated 2026-08-27). Capture and fire are still deterministic,
+  rate-gated actions — `acquisitionRatePerSec` / `shotsPerSecond` gate
+  *consecutive* captures/shots exactly the way a cooldown would, and there is
+  still no flywheel, RPM, motor-derived exit speed, or shot RNG/spread. What
+  changed: the piece a shot releases is no longer teleported to its
+  destination. `SimWorld.launchPieceTowards` solves a closed-form ballistic
+  arc (`physics/ballistics.ts`'s `apexShot`, given only distance and a
+  declared apex height — still zero randomness, still "perfect accuracy") and
+  the piece flies it under the same 2.5D height/gravity integration every
+  other airborne body uses, landing and colliding normally. The product path
+  is `FIELD → HELD → launch action (real arc) → normal physics → region entry
+  → rules → score`.
 - **Arc driving is slower, and that is correct** (§2.2.1). Saturation scales
   forward speed to `1/(1+turn)`, and a robot on a circular path crabs slightly
   to make its own centripetal force. Do not reach for a multiplier.
@@ -235,21 +244,15 @@ never derive an obstacle from a game region.
   every piece drew the same purple regardless of type. Type-keyed, not
   per-instance, so a replay draws identically every time
   (`renderer.test.ts` asserts both the colour split and the determinism).
-- **A shot now visibly travels**, without becoming a second physics model.
-  `MatchSimulation.drainLaunchAnimations()` exposes `PieceLaunchAnimation`
-  (pieceId, pieceType, alliance, `fromM`/`toM`, tick) purely as description —
-  the underlying piece has *already* made its deterministic
-  `HELD -> destination` move (PRODUCT_SPEC.md §1.1) by the time one exists,
-  so a caller that never drains it changes nothing about the match. `App`'s
-  `SimRunner` drains it once per fixed tick, stamps a wall-clock start time,
-  and for 350 ms interpolates a straight line with a small cosmetic parabolic
-  lift (`SHOT_ARC_HEIGHT_M`) between the shot's origin and its resolved
-  destination — real projectile physics, spread and RNG were explicitly kept
-  out of this per the product spec. `fieldRenderer.ts`'s `renderFrame` skips
-  the ordinary draw for any piece with an active animation so it is never
-  drawn twice. Verified end to end with a scripted-controller test that fires
-  a real shot and reads back the animation's `fromM`/`toM`/`pieceType` before
-  asserting the score (`matchSimulation.test.ts`).
+- **Removed 2026-08-27 — see the bottom-most "Latest handoff" below.** This
+  bullet described a *cosmetic* `PieceLaunchAnimation`/`drainLaunchAnimations`
+  interpolation system (`SHOT_ARC_HEIGHT_M`, a 350 ms lerp) built because a
+  shot used to teleport a piece straight to its destination with nothing
+  visible in between. That whole system, and the teleport it was covering
+  for, is gone: a shot now flies a real, physically simulated arc
+  (`SimWorld.launchPieceTowards`), so the existing height-aware `drawPiece`
+  renders it with no animation layer needed. None of the identifiers named
+  above exist any more.
 - **Browser verification, and its limit.** `npm run verify` is clean — 46
   files, 945 tests (some regressed/added this session), typecheck, ESLint —
   and `npm run build` succeeds. Static rendering was inspected directly in
@@ -271,13 +274,15 @@ never derive an obstacle from a game region.
   `RegionMembershipDetector` then emits `PieceEnteredRegion`, and the ordinary
   CLASSIFIED rule scores it. The direct DECODE test harness includes those
   routes now. `oncePerPiece` prevents a parked goal piece scoring repeatedly.
-- **Do not restore removed mechanism physics.** No ballistics, projectile
-  motion, launch velocity, flywheel/RPM/energy model, shot RNG/spread/recoil or
-  roller-force intake model belongs in the current product. Intake, three-piece
-  storage and shooter are deterministic state transitions; UI controls feed
-  the same `ControlInput` path. Shooting is a rising-edge `Space` action: it
-  removes exactly one held artifact and routes it through the normal game
-  event/rule boundary. There is no gate-open, shooter-enable, or ready state.
+- **Superseded 2026-08-27 — see the bottom-most "Latest handoff" below.** This
+  bullet used to say a shot teleports and that firing is single-rising-edge
+  only. Neither is true any more: a released piece now flies a real 2.5D
+  ballistic arc (`SimWorld.launchPieceTowards`), and holding the fire command
+  fires continuously at a configured `shotsPerSecond`. What is still true:
+  intake and shooter stay deterministic, rate-gated state machines — no
+  flywheel/RPM/motor-derived speed, no shot RNG/spread/recoil, no
+  roller-force intake model, and no gate-open/shooter-enable/ready state.
+  Only the piece's post-release motion changed, not the mechanism's own logic.
 - **Verification:** targeted CLASSIFIED tests pass; `npm run verify` is clean
   (typecheck, ESLint, full Vitest). The redesigned UI production build also
   passed before this fixture-only scoring correction.
@@ -323,6 +328,130 @@ never derive an obstacle from a game region.
   `bindingPreferences.test.ts` protects default, round-trip and corrupt-value
   behavior. Browser inspection verified both setup screens and the full
   `npm run verify` suite remains clean.
+
+### Latest handoff — 2026-08-27 (real ballistic flight, hold-to-fire BPS, GOAL shell fix)
+
+- **The core ask: a scored piece had to stop teleporting.** Previously a shot
+  moved a piece directly from `HELD` to its destination region in one step —
+  functional, but exactly the "fake visual-only path" the product now
+  explicitly disallows. Ballistics were restored (they existed before an
+  earlier session removed them): `physics/ballistics.ts` brings back
+  `VerticalState`/`stepVertical`/`isAirborne` under real gravity, and adds one
+  new closed-form solver, `apexShot(distanceM, launchHeightM, apexHeightM)`,
+  which finds the horizontal/vertical launch speed that puts a piece exactly
+  at a declared apex height directly over its target — geometry, not a motor
+  or RNG model, so "perfect accuracy" (PRODUCT_SPEC.md §1.1) still holds.
+  `SimWorld.launchPieceTowards` calls it and gives the piece a real velocity;
+  from there it is an ordinary airborne body — same height integration, same
+  `spansOverlap` collision gating, same rest-and-roll — until it lands. The
+  DECODE game layer supplies the apex height as a new
+  `MechanismActionRoute.arcApexHeightM` (the GOAL's own top-lip height plus an
+  inferred clearance margin), keeping the season-specific number out of
+  `sim/`. The old *cosmetic* shot-flight animation from the previous session
+  (`PieceLaunchAnimation`, `SHOT_ARC_HEIGHT_M`) is deleted outright — it was
+  built to cover for the teleport, and a real arc renders correctly through
+  the pre-existing height-aware `drawPiece` with no animation layer at all.
+- **Hold-to-fire at a configured BPS, matching hold-to-fire for intake.**
+  Firing used to be rising-edge only (one shot per `Space` press,
+  edge-detected). Both intake capture and shooter fire now use the same
+  cadence gate — `tick - lastActionTick >= round(tickRateHz / ratePerSecond)`
+  — so holding the command fires (or captures) continuously at the declared
+  rate and a tap still fires exactly one (a real press always spans more than
+  one tick). The rate itself is a new, purely functional per-mechanism field:
+  `LaunchCapability.shotsPerSecond`, `AcquireCapability.acquisitionRatePerSec`
+  — no torque, RPM, or projectile parameter anywhere near it. Both are now
+  editable in **Configure**: `RobotBuilder.tsx` renders "Shooter BPS" under a
+  `launch` mechanism and "Acquire rate" / "Reach" under an `acquire` one,
+  right beside the existing mass field, validated by the same
+  `robotConfig.schema.ts` (`0–50`, both fields) that guards presets and saved
+  files. Storage capacity is unchanged at 3 (`presets.ts`); no torque/RPM/
+  projectile field was added anywhere, per the explicit constraint.
+- **Found and fixed a real, confirmed bug: the GOAL was a solid filled
+  triangle.** `decodeCollision.ts`'s `goalBody` gave the whole GOAL assembly
+  one collision shape spanning floor to full height (54 in). That was
+  harmless when a scored piece was teleported past it, but the instant a
+  piece can *fly over the lip and land inside the same footprint*, a filled
+  shape has no "inside" — the piece is in deep collision with the fill from
+  the moment its 2D position crosses into the triangle, and the resolver
+  shoves it back out. Traced with a scripted shot through the real
+  `createDecodeField()`: the piece scored correctly (`PieceEnteredRegion`
+  fired right on schedule) and then visibly caromed sideways off the GOAL
+  interior and slid across the entire floor for the rest of the match —
+  confirmed by logging its position tick-by-tick, not inferred. Fixed by
+  replacing the filled triangle with `goalWallBodies`: two thin backstop
+  walls along the triangle's two real legs (the manual's opening
+  width/depth), leaving the diagonal face — the actual shot opening — and the
+  whole interior open. A robot still cannot drive through either leg; a piece
+  landing inside now has nothing to collide with. Regression test:
+  `decodeCollision.test.ts` → "leaves the GOAL interior empty so a scored
+  artifact can rest there" (asserts near-zero displacement for a piece placed
+  in the open interior; a companion test still asserts either leg blocks a
+  robot). `fieldRenderer.ts`'s goal/tunnel-rail colour heuristic, previously
+  keyed on `shape.kind === 'poly'`, is now thickness-banded like the tunnel
+  rail check already was, since the GOAL is no longer a polygon.
+- **A related exploit, partially mitigated, honestly not fully solved:**
+  a robot can approach a SECRET TUNNEL's open (audience-side) mouth head-on
+  and shove a loose piece the entire 46.5 in corridor length onto the RAMP —
+  confirmed the same way, by scripting a robot into the corridor's own axis
+  and watching a piece it never touched directly get carried the whole
+  length once contact happened. The side rails already stop a robot from
+  driving *inside* the corridor (no legal chassis fits the 6.125 in gap), but
+  until this session they ended exactly at the corridor's real boundary, so a
+  wide robot's *bumper* could still reach a piece resting right at the mouth
+  before its own corners caught the rails. `tunnelRailBodies` now extends the
+  rails `TUNNEL_RAIL_OPEN_END_FLARE_IN` (14 in) past the real boundary on the
+  open end only, so that stop happens well back from the mouth. This is a
+  standoff, not a true one-way gate — this engine has no directional/trigger
+  volumes to build one from, and a piece resting exactly at the true mouth
+  can still be nudged a few inches. It removes the case with no defense at
+  all (a full-length carry into the RAMP); it does not claim to remove every
+  case. A future session wanting a real fix should expect to add a
+  game-logic-level guard (e.g. reject/clamp a piece arriving at a RAMP entry
+  region without having gone through `PieceConveyors.release`) rather than
+  chase more physics standoff distance.
+- **A real gap found in the DECODE test harness, not the app.** The real app
+  (`App.tsx` → `simulationFromDefinition(DECODE_GAME)`) wires `conveyors:
+  DECODE_CONVEYORS` and always has. `decodeMatch()`, the test helper nearly
+  every test in `decodeMatch.test.ts` calls, builds a `MatchSimulation`
+  directly and has never passed `conveyors` — every existing CLASSIFIED/
+  OVERFLOW/PATTERN/DEPOT test in that file runs with the CLASSIFIER queue and
+  SECRET TUNNEL drain entirely absent, undetected because none of them assert
+  a piece's post-score position. Left `decodeMatch()` itself unchanged (many
+  tests, real risk of an unrelated regression for no asked-for benefit) and
+  instead added one new, separate suite —
+  `describe('CLASSIFIER -> SECRET TUNNEL conveyor flow')` — built on
+  `simulationFromDefinition(DECODE_GAME)`, that shoots a real artifact through
+  the redesigned GOAL shell, into the CLASSIFIER queue, through an
+  open GATE, and confirms it leaves down the SECRET TUNNEL under real
+  velocity rather than sitting parked or stuck in collision.
+- **Timing bug, not a physics bug, in one inherited failing test.**
+  `matchSimulation.test.ts`'s three-shots-by-holding-fire test failed
+  (6 points instead of 9) because its own timing landed the third shot's
+  flight during the AUTO→TELEOP *transition* window, and `isWithinPhase(...,
+  'ANY')` correctly excludes `TRANSITION` from scoring (a piece that arrives
+  during the gap scores nothing unless the game declares
+  `transitionScoresAs`) — matching DECODE's own real rule for the AUTO/TELEOP
+  gap. Fixed by moving the fire command later so all three shots land inside
+  TELEOP; the sim behavior was already correct.
+- **Verification:** `npm run verify` is clean — 45 files, 948 tests,
+  TypeScript, ESLint. `npm run build` succeeds.
+- **Browser verification, and its limit (same limit as last session).**
+  Configure was inspected directly in Chrome: "Acquire rate", "Reach" and
+  "Shooter BPS" render under the right mechanisms, accept edits, and apply
+  with no validation errors. The field itself (GOAL triangles, tunnel rails,
+  robot, pieces) renders correctly. Live gameplay (drive → intake → hold
+  fire → watch a real arc land) could not be exercised interactively in this
+  session's automated tab: `document.hidden` read `true` throughout, which
+  still suspends `requestAnimationFrame` almost entirely — the same tooling
+  limitation the previous session hit and documented, not a product defect.
+  The deterministic Vitest suite is the authority for the behavior above,
+  including the exact bug-reproduction traces described in this handoff.
+- **Inspect first next time:** `core/physics/ballistics.ts` (`apexShot`) and
+  `core/sim/simWorld.ts` (`launchPieceTowards`, `releasePieceMoving`) for the
+  flight itself; `core/sim/robotMechanisms.ts` for the cadence gate shared by
+  capture and fire; `core/game/fixtures/decodeCollision.ts` (`goalWallBodies`,
+  `tunnelRailBodies`) for the collision fixes above; `core/game/conveyor.ts`
+  for the queue/drain/release model a real one-way tunnel fix would extend.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

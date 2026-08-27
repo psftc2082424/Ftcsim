@@ -2,14 +2,16 @@
  * Piece conveyors: the field's own mechanisms.
  *
  * Two layers are asserted here. The generic one — queue, capacity, bypass,
- * gated drain — is exercised on a made-up conveyor with no season attached, to
- * prove the engine has no idea what a CLASSIFIER is. The DECODE one is in
- * `decodeMatch.test.ts`, where a real shot arrives in a real GOAL.
+ * gated drain, a real push on the way out — is exercised on a made-up
+ * conveyor with no season attached, to prove the engine has no idea what a
+ * CLASSIFIER is. The DECODE one is in `decodeMatch.test.ts`, where a real shot
+ * arrives in a real GOAL and a real ARTIFACT rolls down a real SECRET TUNNEL.
  */
 
 import { describe, expect, it } from 'vitest';
 import {
   PieceConveyors,
+  nearEndOf,
   resolveConveyorPlaces,
   slotPoint,
   type ConveyorWorld,
@@ -26,6 +28,9 @@ const QUEUE = createRectRegion({ id: 'queue', centerXIn: 0, centerYIn: 20, width
 const EXIT = createRectZone({ id: 'exit', centerXIn: 40, centerYIn: 0, widthIn: 8, lengthIn: 48 });
 const OPENER = createRectZone({ id: 'opener', centerXIn: 0, centerYIn: -20, widthIn: 10, lengthIn: 10 });
 
+/** Away from the queue, along the exit corridor's own axis (see below). */
+const EXIT_VELOCITY_MPS = vec2(0, 2);
+
 const SPEC: PieceConveyorSpec = {
   id: 'chute',
   entryRegionId: 'entry',
@@ -33,7 +38,7 @@ const SPEC: PieceConveyorSpec = {
   capacity: 3,
   releaseZoneId: 'opener',
   exitZoneId: 'exit',
-  bypassTransitSec: 0.5,
+  exitVelocityMps: EXIT_VELOCITY_MPS,
   drainIntervalSec: 0.25,
 };
 
@@ -43,7 +48,7 @@ const places = (spec: PieceConveyorSpec = SPEC) =>
 /** A tiny world: pieces at declared points, and one robot that can be moved. */
 class FakeWorld implements ConveyorWorld {
   readonly held = new Map<string, Vec2>();
-  readonly released = new Map<string, Vec2>();
+  readonly released = new Map<string, { readonly positionM: Vec2; readonly velocityM: Vec2 }>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -56,8 +61,8 @@ class FakeWorld implements ConveyorWorld {
     this.positions.set(pieceId, positionM);
   }
 
-  releasePiece(pieceId: string, positionM: Vec2): void {
-    this.released.set(pieceId, positionM);
+  releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
+    this.released.set(pieceId, { positionM, velocityM });
     this.held.delete(pieceId);
     this.positions.set(pieceId, positionM);
   }
@@ -178,31 +183,23 @@ describe('taking pieces in', () => {
     expect(conveyors.queued('chute')).toEqual(['a']);
   });
 
-  it('stops queueing at capacity and sends the rest on', () => {
-    const { conveyors } = run(['a', 'b', 'c', 'd'], 1);
+  it('stops queueing at capacity and pushes the rest straight through', () => {
+    const { conveyors, world } = run(['a', 'b', 'c', 'd'], 1);
 
     expect(conveyors.queued('chute')).toEqual(['a', 'b', 'c']);
-    expect(conveyors.inTransit('chute')).toEqual(['d']);
+    // No virtual transit delay: an overflowing arrival is released the same
+    // tick it would have queued, moving under a real, immediate velocity.
+    expect(world.released.has('d')).toBe(true);
+    expect(world.released.get('d')?.velocityM).toEqual(EXIT_VELOCITY_MPS);
   });
 
-  it('delivers a bypassing piece to the exit after its transit time', () => {
-    const transitTicks = Math.round(SPEC.bypassTransitSec / DT);
-
-    const early = run(['a', 'b', 'c', 'd'], transitTicks - 1);
-    expect(early.world.released.has('d')).toBe(false);
-
-    const late = run(['a', 'b', 'c', 'd'], transitTicks + 1);
-    expect(late.world.released.has('d')).toBe(true);
-    expect(late.conveyors.inTransit('chute')).toEqual([]);
-  });
-
-  it('puts a delivered piece inside the exit zone', () => {
-    const { world } = run(['a', 'b', 'c', 'd'], 200);
-    const at = world.released.get('d');
+  it('releases an overflowing piece at the exit corridor\'s near end', () => {
+    const { world } = run(['a', 'b', 'c', 'd'], 1);
+    const at = world.released.get('d')?.positionM;
 
     expect(at).toBeDefined();
     if (at === undefined) return;
-    expect(Math.abs(at.x - EXIT.centerM.x)).toBeLessThan(0.01);
+    expect(at).toEqual(nearEndOf(EXIT, QUEUE.centerM));
   });
 });
 
@@ -237,6 +234,15 @@ describe('letting pieces out', () => {
     expect(conveyors.queued('chute').length).toBeGreaterThan(0);
   });
 
+  it('gives a drained piece the same real push an overflow gets', () => {
+    const { world } = run(['a'], 15, { openAt: 10 });
+    const released = world.released.get('a');
+
+    expect(released).toBeDefined();
+    expect(released?.velocityM).toEqual(EXIT_VELOCITY_MPS);
+    expect(released?.positionM).toEqual(nearEndOf(EXIT, QUEUE.centerM));
+  });
+
   it('reports whether the way out is open', () => {
     const positions = new Map([['a', inEntry(0)]]);
     const closed = new FakeWorld(positions);
@@ -264,23 +270,11 @@ describe('letting pieces out', () => {
     expect(conveyors.queued('chute')).toEqual([]);
   });
 
-  it('lays successive returns out along the exit rather than stacking them', () => {
-    const { releaseZoneId: _drop, ...ungated } = SPEC;
-    const { world } = run(['a', 'b'], 400, { spec: ungated });
-
-    const first = world.released.get('a');
-    const second = world.released.get('b');
-    expect(first).toBeDefined();
-    expect(second).toBeDefined();
-    expect(first?.y).not.toBe(second?.y);
-  });
-
   it('conserves pieces: everything taken in comes back out', () => {
     const { releaseZoneId: _drop, ...ungated } = SPEC;
     const { conveyors, world } = run(['a', 'b', 'c', 'd', 'e'], 800, { spec: ungated });
 
     expect(conveyors.queued('chute')).toEqual([]);
-    expect(conveyors.inTransit('chute')).toEqual([]);
     expect([...world.released.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
   });
 });
@@ -308,6 +302,23 @@ describe('slot geometry', () => {
 
   it('clamps an index past the end rather than running off the region', () => {
     expect(slotPoint(QUEUE, 3, 99)).toEqual(slotPoint(QUEUE, 3, 2));
+  });
+});
+
+describe('near-end geometry', () => {
+  it('picks whichever end of the exit corridor is closer to the reference point', () => {
+    // EXIT is 8 x 48 in at (40, 0): its long axis is Y, ends at y = ±24 in.
+    const nearHigh = nearEndOf(EXIT, vec2(EXIT.centerM.x, EXIT.centerM.y + 100));
+    const nearLow = nearEndOf(EXIT, vec2(EXIT.centerM.x, EXIT.centerM.y - 100));
+
+    expect(nearHigh.y).toBeGreaterThan(EXIT.centerM.y);
+    expect(nearLow.y).toBeLessThan(EXIT.centerM.y);
+  });
+
+  it('stays on the shape, not merely near it', () => {
+    const at = nearEndOf(EXIT, vec2(1000, 1000));
+    expect(Math.abs(at.x - EXIT.centerM.x)).toBeLessThan(1e-9);
+    expect(Math.abs(at.y - EXIT.centerM.y)).toBeLessThanOrEqual(EXIT.centerM.y + 24 * 0.0254 + 1e-9);
   });
 });
 

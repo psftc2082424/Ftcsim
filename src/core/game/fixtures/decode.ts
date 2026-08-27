@@ -34,7 +34,8 @@ import type {
 } from '../gameDefinition.js';
 import { ARTIFACT, CLASSIFIER, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
 import type { PieceConveyorSpec } from '../conveyor.js';
-import { STANDARD_GRAVITY } from '../../units/convert.js';
+import { inchesToMeters, STANDARD_GRAVITY } from '../../units/convert.js';
+import { vec2 } from '../../math/vec2.js';
 
 // ---------------------------------------------------------------- pieces ---
 
@@ -179,12 +180,23 @@ export const RAMP_DRAIN_INTERVAL_SEC = inferred(
   72,
 );
 
-/** Seconds an OVERFLOW artifact takes to ride the RAMP and reach the way out. */
-export const RAMP_TRANSIT_SEC = inferred(
-  Math.sqrt((2 * (ZONES.secretTunnelLengthIn.value * 0.0254)) / RAMP_ROLL_ACCEL_MPS2),
-  'Time to roll the full RAMP length from rest at the inferred slope. An OVERFLOW ' +
-    'artifact "passes over the top of the GATE to exit the RAMP" (§9.8.3), so it ' +
-    'travels the whole run rather than stopping.',
+/**
+ * Speed an ARTIFACT reaches after rolling the SECRET TUNNEL's length, m/s.
+ *
+ * `v = √(2 a d)` from rest at the inferred RAMP slope — the same kinematics
+ * `RAMP_DRAIN_INTERVAL_SEC` uses, over the tunnel's full sourced length rather
+ * than one ARTIFACT diameter. This is the real push a piece leaves the GATE
+ * with when it overflows or drains: it becomes an ordinary rolling body at
+ * this speed rather than being placed at the far end after a wait
+ * (`game/conveyor.ts`). With no rolling resistance modelled anywhere in this
+ * simulator, it keeps rolling at roughly this speed once released, which is
+ * the correct behaviour for a piece that left the RAMP still moving.
+ */
+export const TUNNEL_EXIT_SPEED_MPS = inferred(
+  Math.sqrt((2 * RAMP_ROLL_ACCEL_MPS2 * inchesToMeters(ZONES.secretTunnelLengthIn.value))),
+  'Speed reached rolling the full SECRET TUNNEL length (46.5 in, §9.3) from rest ' +
+    'at the inferred RAMP slope. An OVERFLOW artifact "passes over the top of the ' +
+    'GATE to exit the RAMP" (§9.8.3) already moving, not placed at the far end.',
   72,
 );
 
@@ -345,18 +357,36 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     // The opposing ALLIANCE'S, per §9.8.3.
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
-    bypassTransitSec: RAMP_TRANSIT_SEC.value,
+    // Every SECRET TUNNEL runs the same way regardless of which side of the
+    // field it is mirrored to: audience-side tiles are the lower seam numbers
+    // (`decodeTiles.ts`), so "out of the tunnel" is toward -Y for both
+    // alliances. Only X mirrors between them; this does not.
+    exitVelocityMps: vec2(0, -TUNNEL_EXIT_SPEED_MPS.value),
     drainIntervalSec: RAMP_DRAIN_INTERVAL_SEC.value,
   }),
 );
 
 /**
+ * Clearance a shot arcs to above the GOAL's top lip, inches.
+ *
+ * Not sourced — the manual gives the lip height (38.75 in, §9.7) but nothing
+ * about how a robot actually aims over it. This is the margin that makes a
+ * correctly-aimed shot clear reliably rather than by luck: enough that the
+ * piece's own radius (about 2.45 in) plus ordinary numerical slack cannot put
+ * it back under the lip at the moment it crosses over.
+ */
+const GOAL_CLEARANCE_MARGIN_IN = 6;
+
+/**
  * DECODE scoring actions use the owning alliance's GOAL.
  *
  * The game rules make entering a GOAL's open top the scored action (§10.5.1).
- * In the functionality-first model a capable, enabled launcher routes its held
- * ARTIFACT to that opening; the normal region event, rules and CLASSIFIER still
- * decide CLASSIFIED versus OVERFLOW. No score is granted by this route itself.
+ * A capable, enabled launcher gives its held ARTIFACT a real ballistic arc
+ * toward that opening (`sim/simWorld.ts`'s `launchPieceTowards`) — high enough
+ * to clear the GOAL's own walls, which are only solid up to the lip
+ * (`decodeCollision.ts`'s `goalWalls`) — and the normal region event, rules and
+ * CLASSIFIER still decide CLASSIFIED versus OVERFLOW from where it actually
+ * lands. No score is granted by this route itself.
  */
 export const DECODE_MECHANISM_ACTION_ROUTES: readonly MechanismActionRoute[] = [
   {
@@ -366,6 +396,7 @@ export const DECODE_MECHANISM_ACTION_ROUTES: readonly MechanismActionRoute[] = [
       red: DECODE_REGIONS.redGoal,
       blue: DECODE_REGIONS.blueGoal,
     },
+    arcApexHeightM: inchesToMeters(GOAL.topLipHeightIn.value + GOAL_CLEARANCE_MARGIN_IN),
   },
 ];
 

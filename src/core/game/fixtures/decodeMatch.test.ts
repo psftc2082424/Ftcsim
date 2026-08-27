@@ -56,6 +56,7 @@ import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
+import { ZONES } from './decodeDimensions.js';
 
 const at = (xIn: number, yIn: number) => vec2(inchesToMeters(xIn), inchesToMeters(yIn));
 
@@ -327,6 +328,7 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
             capacity: 3,
             reachIn: 6,
             mouthWidthIn: 14,
+            acquisitionRatePerSec: 2,
           },
         ],
       },
@@ -346,6 +348,7 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
           {
             kind: 'launch',
             pieceTypes: [],
+            shotsPerSecond: 2,
           },
         ],
       },
@@ -911,5 +914,90 @@ describe('CONTROL limit (G408)', () => {
     // does the fixture; `DECODE_RULE_SET` is the join.
     expect(DECODE_SCORING_RULES.some((rule) => rule.id.includes('control-limit'))).toBe(false);
     expect(DECODE_RULE_SET.length).toBeGreaterThan(DECODE_SCORING_RULES.length);
+  });
+});
+
+describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
+  /**
+   * `decodeMatch()` above builds a `MatchSimulation` directly and never wires
+   * `conveyors` — the real app never does that; it always goes through
+   * `simulationFromDefinition(DECODE_GAME)`, which does. This is the one test
+   * exercising that full physical chain: a shot has to survive the redesigned
+   * (hollow) GOAL shell, actually be taken into the CLASSIFIER queue, drain
+   * through an open GATE, and leave down a real SECRET TUNNEL corridor with a
+   * real velocity, never a teleport.
+   */
+  const TUNNEL_SHOOTER: RobotConfig = {
+    ...DEFAULT_ROBOT_CONFIG,
+    mechanisms: [
+      {
+        id: 'intake',
+        name: 'Intake',
+        preset: 'intake',
+        massLb: 4,
+        mount: { xIn: 8, yIn: 0, facingDeg: 0 },
+        actuation: { motorId: 'gobilda-5203-435', motorCount: 1, gearRatio: 1, efficiency: 0.9 },
+        capabilities: [
+          { kind: 'acquire', pieceTypes: [], capacity: 3, reachIn: 6, mouthWidthIn: 14, acquisitionRatePerSec: 2 },
+        ],
+      },
+      {
+        id: 'shooter',
+        name: 'Shooter',
+        preset: 'shooter',
+        massLb: 6,
+        mount: { xIn: 4, yIn: 0, facingDeg: 0 },
+        actuation: { motorId: 'gobilda-5203-6000', motorCount: 1, gearRatio: 1, efficiency: 0.92 },
+        capabilities: [{ kind: 'launch', pieceTypes: [], shotsPerSecond: 2 }],
+      },
+    ],
+  };
+
+  it('carries a scored artifact from the GOAL through the queue and down the SECRET TUNNEL', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const standoffIn = 48;
+    const startY = goal[1] - standoffIn + 11;
+
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      robots: [
+        {
+          config: TUNNEL_SHOOTER,
+          alliance: 'red',
+          controller: new ScriptedController(
+            createInputTrace('shoot', [
+              { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
+              { tick: 1, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
+            ]),
+          ),
+          startPose: { p: at(goal[0], goal[1] - standoffIn), theta: Math.PI / 2 },
+        },
+        // Parked in its own GATE ZONE the whole match, so the CLASSIFIER's
+        // drain is open from the moment anything is queued (G417: only the
+        // owning alliance may open its own GATE).
+        idle('red', ...centreOf(DECODE_ZONES.redGateZone)),
+      ],
+      pieces: [{ pieceId: 'a1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(goal[0], startY) }],
+    });
+
+    for (let i = 0; i < 600; i++) sim.step();
+
+    const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
+    expect(classified.length).toBeGreaterThan(0);
+
+    const artifact = sim.world.snapshot().pieces.find((p) => p.pieceId === 'a1');
+    if (artifact === undefined) throw new Error('artifact missing');
+
+    // The GATE panel is CAD-only and body-free (see decodeCollision.ts), so
+    // nothing here can assert the piece crossed a physical gate threshold —
+    // only that it left where it scored and is headed down the tunnel.
+    expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(startY) - inchesToMeters(6));
+
+    // §9.8.3: an alliance's own CLASSIFIER exits down the *opposing*
+    // alliance's SECRET TUNNEL.
+    const tunnel = centreOf(DECODE_ZONES.blueSecretTunnel);
+    const tunnelHalfWidthIn = ZONES.secretTunnelWidthIn.value / 2 + 2;
+    expect(Math.abs(metersToInches(meters(artifact.pose.p.x)) - tunnel[0])).toBeLessThan(tunnelHalfWidthIn);
+    expect(Number.isFinite(artifact.pose.p.x)).toBe(true);
+    expect(Number.isFinite(artifact.pose.p.y)).toBe(true);
   });
 });

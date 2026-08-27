@@ -16,7 +16,6 @@ import { worldVertices } from '../../core/physics/shapes.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
 import type { FieldTemplate } from '../../core/field/fieldTemplate.js';
 import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
-import type { Vec2 } from '../../core/math/vec2.js';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera } from './camera.js';
 
 /** FTC fields are laid out on 24 in foam tiles, 6 x 6 of them. */
@@ -67,26 +66,6 @@ export interface FieldOverlay {
   readonly openConveyorIds?: ReadonlySet<string> | undefined;
 }
 
-/**
- * A ball's visible flight from a mechanism launch to where it lands.
- *
- * Purely cosmetic, per PRODUCT_SPEC.md §1.1: the underlying piece has already
- * made its deterministic `HELD -> destination` transition by the time this
- * exists (`MatchSimulation.drainLaunchAnimations`). This only tells the
- * renderer to draw that one piece along an interpolated arc instead of at its
- * true (already-resolved) position while `progress` runs from 0 to 1 — never a
- * second, competing physics model.
- */
-export interface ShotAnimation {
-  readonly pieceId: string;
-  readonly pieceType: string;
-  readonly radiusM: number;
-  readonly fromM: Vec2;
-  readonly toM: Vec2;
-  /** 0 at the moment of launch, 1 on arrival. Advanced by wall-clock time. */
-  readonly progress: number;
-}
-
 export interface RenderOptions {
   readonly showVelocity: boolean;
   readonly showGrid: boolean;
@@ -110,7 +89,6 @@ export function renderFrame(
   alpha: number,
   options: RenderOptions = DEFAULT_RENDER_OPTIONS,
   overlay?: FieldOverlay | undefined,
-  shotAnimations?: readonly ShotAnimation[] | undefined,
 ): void {
   const width = ctx.canvas.clientWidth;
   const height = ctx.canvas.clientHeight;
@@ -127,16 +105,13 @@ export function renderFrame(
     drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true, field.id === 'ftc-decode-2025-26');
   }
 
-  // A piece with an active flight animation is drawn along its arc instead of
-  // at its already-resolved position, so it is skipped in the ordinary pass.
-  const animating = new Set((shotAnimations ?? []).map((shot) => shot.pieceId));
-  for (const piece of snapshot.pieces) {
-    if (!animating.has(piece.pieceId)) drawPiece(ctx, camera, piece, alpha);
-  }
+  // Every piece draws from its own real position and height — a shot is an
+  // ordinary simulated piece the instant it leaves the shooter
+  // (`sim/simWorld.ts`'s `launchPieceTowards`), not a separate cosmetic path.
+  for (const piece of snapshot.pieces) drawPiece(ctx, camera, piece, alpha);
   for (const robot of snapshot.robots) {
     drawRobot(ctx, camera, robot, alpha, options.showVelocity);
   }
-  for (const shot of shotAnimations ?? []) drawShotAnimation(ctx, camera, shot);
 }
 
 /**
@@ -297,45 +272,6 @@ function pieceColors(pieceType: string): { fill: string; outline: string } {
   return { fill: COLORS.piecePurple, outline: COLORS.piecePurpleOutline };
 }
 
-/**
- * Draw a piece mid-flight, along a straight line from launch to landing with a
- * simple cosmetic lift — not a trajectory the physics computed.
- *
- * `progress` is driven by wall-clock time in the caller (`simRunner.ts`), which
- * is exactly why this cannot read `piece.pose`: the underlying piece already
- * sits at its resolved destination the instant the shot is queued
- * (PRODUCT_SPEC.md §1.1), and only the *drawing* takes the animation's time to
- * catch up.
- */
-const SHOT_ARC_HEIGHT_M = 0.5;
-
-function drawShotAnimation(ctx: CanvasRenderingContext2D, camera: Camera, shot: ShotAnimation): void {
-  const t = Math.min(1, Math.max(0, shot.progress));
-  const x = shot.fromM.x + (shot.toM.x - shot.fromM.x) * t;
-  const y = shot.fromM.y + (shot.toM.y - shot.fromM.y) * t;
-  // A parabola that is zero at both ends and peaks at the midpoint — a visual
-  // hop, not an integrated height.
-  const liftM = SHOT_ARC_HEIGHT_M * 4 * t * (1 - t);
-
-  const screenX = worldToScreenX(camera, x);
-  const screenY = worldToScreenY(camera, y);
-  const groundRadius = Math.max(2, metersToPixels(camera, shot.radiusM));
-  const { fill, outline } = pieceColors(shot.pieceType);
-
-  ctx.beginPath();
-  ctx.arc(screenX, screenY, groundRadius, 0, Math.PI * 2);
-  ctx.fillStyle = COLORS.pieceShadow;
-  ctx.fill();
-
-  ctx.beginPath();
-  ctx.arc(screenX, screenY, groundRadius * (1 + liftM * HEIGHT_SCALE_PER_M), 0, Math.PI * 2);
-  ctx.fillStyle = fill;
-  ctx.fill();
-  ctx.strokeStyle = outline;
-  ctx.lineWidth = 1;
-  ctx.stroke();
-}
-
 /** Presentation-only classification; game rules and collision never read this. */
 function presentationKind(id: string): 'goal' | 'structure' | 'gate' | 'tape' | 'zone' {
   if (id.endsWith('-goal')) return 'goal';
@@ -444,21 +380,29 @@ function drawField(
   for (const body of field.bodies) {
     if (body.shape.kind === 'circle') continue;
     const vertices = worldVertices(body.shape, body.pose.p, body.pose.theta);
-    const goal = field.id === 'ftc-decode-2025-26' && body.shape.kind === 'poly';
-    // A field body carries no alliance tag, only geometry, so colour is guessed
-    // from which side of the field it sits on. Red is -X (`decodeCollision.ts`'s
-    // `goalSide`, which follows `decodeField.ts`'s `SIDE`), so a shell whose
-    // vertices sum negative is red's.
-    const redGoal = goal && vertices.reduce((sum, vertex) => sum + vertex.x, 0) < 0;
+    const minHalfExtentM =
+      body.shape.kind === 'obb' ? Math.min(body.shape.halfExtents.x, body.shape.halfExtents.y) : null;
     // A SECRET TUNNEL rail is a thin OBB — `tunnelRailBodies`' rails are ~1 in
     // thick, far slimmer than the 6 in classifier channel or the 12 in
     // perimeter — so it reads apart from an ordinary wall rather than as more
     // of one. Drawn as a neutral colour: the tunnel is shared floor, not
     // territory either alliance owns outright.
     const tunnelRail =
+      field.id === 'ftc-decode-2025-26' && minHalfExtentM !== null && minHalfExtentM < inchesToMeters(0.75);
+    // The GOAL's own two backstop legs (`goalWallBodies`) are thicker than a
+    // tunnel rail (~2 in) but far thinner than the 6 in classifier channel or
+    // the 12 in perimeter, so the same thickness-banding trick that finds a
+    // tunnel rail finds these too.
+    const goal =
       field.id === 'ftc-decode-2025-26' &&
-      body.shape.kind === 'obb' &&
-      Math.min(body.shape.halfExtents.x, body.shape.halfExtents.y) < inchesToMeters(1);
+      !tunnelRail &&
+      minHalfExtentM !== null &&
+      minHalfExtentM < inchesToMeters(2.5);
+    // A field body carries no alliance tag, only geometry, so colour is
+    // guessed from which side of the field it sits on. Red is -X
+    // (`decodeCollision.ts`'s `goalSide`, which follows `decodeField.ts`'s
+    // `SIDE`).
+    const redGoal = goal && body.pose.p.x < 0;
     ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
     ctx.strokeStyle = goal ? '#f3f7fb' : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
     ctx.beginPath();

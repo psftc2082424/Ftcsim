@@ -90,6 +90,7 @@ const capabilitySchema = z.discriminatedUnion('kind', [
     capacity: z.number().int().min(0).max(500),
     reachIn: z.number().finite().min(0).max(60),
     mouthWidthIn: z.number().finite().min(0).max(60),
+    acquisitionRatePerSec: z.number().finite().min(0).max(50),
   }),
   z.object({
     kind: z.literal('release'),
@@ -99,6 +100,7 @@ const capabilitySchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('launch'),
     pieceTypes: pieceTypesSchema,
+    shotsPerSecond: z.number().finite().min(0).max(50),
   }),
   z.object({
     kind: z.literal('elevate'),

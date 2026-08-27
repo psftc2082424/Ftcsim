@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY } from './camera.js';
-import { DEFAULT_RENDER_OPTIONS, renderFrame, type ShotAnimation } from './fieldRenderer.js';
+import { DEFAULT_RENDER_OPTIONS, renderFrame } from './fieldRenderer.js';
 import { createDecodeField } from '../../core/game/fixtures/decodeCollision.js';
 import { DECODE_ZONES } from '../../core/game/fixtures/decode.js';
 import {
@@ -377,13 +377,13 @@ describe('game overlay and pieces', () => {
 });
 
 /**
- * Ball colour, the GATE's live-state arm, and a shot's cosmetic flight.
+ * Ball colour, the GATE's live-state arm, and a piece actually in flight.
  *
  * All three read state the renderer is handed — piece type, `openConveyorIds`,
- * a `ShotAnimation` list — and none of it can change a score: this file only
+ * a piece's own height — and none of it can change a score: this file only
  * ever asserts what gets drawn, never what gets scored.
  */
-describe('DECODE presentation: balls, the GATE, and a shot in flight', () => {
+describe('DECODE presentation: balls, the GATE, and a piece in flight', () => {
   const decodeField = createDecodeField();
 
   const twoColourSnapshot = () =>
@@ -538,69 +538,66 @@ describe('DECODE presentation: balls, the GATE, and a shot in flight', () => {
     expect(withUnrelatedOpenSet.calls).toEqual(noneOpen.calls);
   });
 
-  it('draws a shot in flight along its arc, and skips its resolved position', () => {
-    const snapshot = twoColourSnapshot();
-    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
-    expect(purple).toBeDefined();
-    if (purple === undefined) return;
+  /**
+   * A shot is a real piece in real flight — `sim/simWorld.ts`'s
+   * `launchPieceTowards` gives it an actual height and vertical velocity — so
+   * the renderer needs no separate cosmetic path for it. It only needs to keep
+   * drawing a piece bigger, with a ground shadow, the higher its real height
+   * climbs, which `drawPiece` already does for every piece unconditionally.
+   */
+  it('draws an airborne piece larger than a grounded one, with a shadow', () => {
+    const grounded = runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(-1.0, 0.5), theta: 0 },
+        },
+      ],
+      pieces: [
+        { pieceId: 'a', pieceType: 'P', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(0.3, 0.2) },
+      ],
+      field: decodeField,
+      ticks: 0,
+    }).finalSnapshot;
 
-    const shot: ShotAnimation = {
-      pieceId: 'purple',
-      pieceType: 'P',
-      radiusM: purple.radiusM,
-      fromM: vec2(-1, -1),
-      toM: purple.pose.p,
-      progress: 0.5,
-    };
+    const airborne = runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(-1.0, 0.5), theta: 0 },
+        },
+      ],
+      pieces: [
+        {
+          pieceId: 'a',
+          pieceType: 'P',
+          diameterIn: 4.9,
+          massLb: 0.165,
+          startPositionM: vec2(0.3, 0.2),
+          heightM: 1,
+        },
+      ],
+      field: decodeField,
+      ticks: 0,
+    }).finalSnapshot;
 
-    const { ctx, calls } = createRecordingContext(800, 800);
-    renderFrame(ctx, snapshot, decodeField, 1, DEFAULT_RENDER_OPTIONS, undefined, [shot]);
+    expect(airborne.pieces[0]?.airborne).toBe(true);
+    expect(grounded.pieces[0]?.airborne).toBe(false);
 
-    const camera = fitCamera(800, 800, decodeField.widthM, decodeField.lengthM);
-    // Halfway from (-1,-1) to the piece's true resting point.
-    const midM = vec2((shot.fromM.x + shot.toM.x) / 2, (shot.fromM.y + shot.toM.y) / 2);
-    const midScreen = { x: worldToScreenX(camera, midM.x), y: worldToScreenY(camera, midM.y) };
+    const groundedDraw = createRecordingContext(800, 800);
+    renderFrame(groundedDraw.ctx, grounded, decodeField, 1);
+    const airborneDraw = createRecordingContext(800, 800);
+    renderFrame(airborneDraw.ctx, airborne, decodeField, 1);
 
-    const atMidpoint = calls.some(
-      (c) =>
-        c.op === 'arc' &&
-        Math.abs((c.args[0] ?? 0) - midScreen.x) < 0.5 &&
-        Math.abs((c.args[1] ?? 0) - midScreen.y) < 0.5,
-    );
-    expect(atMidpoint).toBe(true);
+    const pieceArcs = (calls: readonly DrawCall[]) => calls.filter((c) => c.op === 'arc');
+    // The airborne piece casts a shadow arc *and* a body arc; the grounded one
+    // casts only its body.
+    expect(pieceArcs(airborneDraw.calls).length).toBeGreaterThan(pieceArcs(groundedDraw.calls).length);
 
-    // Not drawn a second time at its already-resolved destination.
-    const atDestination = calls.some(
-      (c) =>
-        c.op === 'arc' &&
-        Math.abs((c.args[0] ?? 0) - worldToScreenX(camera, purple.pose.p.x)) < 1e-6 &&
-        Math.abs((c.args[1] ?? 0) - worldToScreenY(camera, purple.pose.p.y)) < 1e-6,
-    );
-    expect(atDestination).toBe(false);
-  });
-
-  it('grows the ball at the top of its arc and shrinks it back down for landing', () => {
-    const snapshot = twoColourSnapshot();
-    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
-    expect(purple).toBeDefined();
-    if (purple === undefined) return;
-
-    const radiusAt = (progress: number): number => {
-      const shot: ShotAnimation = {
-        pieceId: 'purple',
-        pieceType: 'P',
-        radiusM: purple.radiusM,
-        fromM: vec2(-1, -1),
-        toM: purple.pose.p,
-        progress,
-      };
-      const { ctx, calls } = createRecordingContext(800, 800);
-      renderFrame(ctx, snapshot, decodeField, 1, DEFAULT_RENDER_OPTIONS, undefined, [shot]);
-      const arcs = calls.filter((c) => c.op === 'arc');
-      return arcs[arcs.length - 1]?.args[2] ?? 0;
-    };
-
-    expect(radiusAt(0.5)).toBeGreaterThan(radiusAt(0));
-    expect(radiusAt(0.5)).toBeGreaterThan(radiusAt(1));
+    const bodyRadius = (calls: readonly DrawCall[]) =>
+      pieceArcs(calls)[pieceArcs(calls).length - 1]?.args[2] ?? 0;
+    expect(bodyRadius(airborneDraw.calls)).toBeGreaterThan(bodyRadius(groundedDraw.calls));
   });
 });

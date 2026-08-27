@@ -36,6 +36,15 @@ export interface AcquireCapability {
    * than being derived from the motor.
    */
   readonly mouthWidthIn: number;
+  /**
+   * Pieces the mechanism can pull in per second, once one is in the mouth.
+   *
+   * A functional acquisition rate, not a roller surface speed: it gates how
+   * often *consecutive* captures may happen, the same way a shooter's rate of
+   * fire gates consecutive shots. A higher value means a driver holding the
+   * intake over a cluster of pieces clears it faster.
+   */
+  readonly acquisitionRatePerSec: number;
 }
 
 /** Deposit possessed pieces — an outtake, a dropper, a depositor. */
@@ -48,13 +57,26 @@ export interface ReleaseCapability {
 /**
  * Send a held piece to a game-defined target — a shooter or launcher.
  *
- * Enabling the capability makes it ready and firing routes one eligible held
- * piece through the current game's declared destination. Accuracy is perfect by
- * default; range, spin and projectile details are not a functional constraint.
+ * Firing routes one eligible held piece toward the current game's declared
+ * destination on a real, physically simulated path (`sim/simWorld.ts`'s
+ * `launchPieceTowards`) — the piece becomes an ordinary game-piece body the
+ * moment it leaves, colliding and coming to rest normally. What stays
+ * functional is the *mechanism*: accuracy is perfect (the trajectory is solved
+ * from geometry, not aimed by the driver or perturbed by noise), and there is
+ * no flywheel, RPM or motor-derived exit speed — `shotsPerSecond` is a declared
+ * rate of fire, not a value backed by a spin-up simulation.
  */
 export interface LaunchCapability {
   readonly kind: 'launch';
   readonly pieceTypes: readonly string[];
+  /**
+   * Shots per second while the fire command is held.
+   *
+   * A tap still fires exactly one, because any real press spans many physics
+   * ticks; holding the command keeps firing at this rate until storage is
+   * empty or the command is released.
+   */
+  readonly shotsPerSecond: number;
 }
 
 /** Present a piece at a height — an elevator, an arm, a lift, a slide. */

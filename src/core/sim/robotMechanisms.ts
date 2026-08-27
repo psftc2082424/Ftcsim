@@ -2,13 +2,16 @@
  * Per-robot mechanism runtime — functionality-first model.
  *
  * Mechanisms are simple state machines:
- * - Intake: when active and a piece is in mouth, acquire it (no force sim)
- * - Hopper: queue up to 3 pieces (FIFO)
- * - Shooter: a rising-edge shot command removes one held piece and routes it
+ * - Intake: when active and a piece is in mouth, acquire it (no force sim),
+ *   at most once every `1 / acquisitionRatePerSec`.
+ * - Hopper: queue up to capacity pieces (FIFO).
+ * - Shooter: holding fire fires at `shotsPerSecond`; a tap fires exactly one,
+ *   because any real press spans many physics ticks.
  *
- * The game layer routes firing events through the scoring system.
- *
- * No roller force, no flywheel dynamics, no ballistic calculations.
+ * Once a piece leaves the shooter, it is an ordinary physically simulated game
+ * piece (`sim/simWorld.ts`'s `launchPieceTowards`) — only the *mechanism* stays
+ * a functional state machine. No roller force, no flywheel dynamics, no motor-
+ * derived exit speed or RNG.
  */
 
 import { deriveIntake, intakeOf, type IntakeCommand, type IntakeSpec } from '../mechanism/intake.js';
@@ -34,7 +37,9 @@ export interface MechanismState {
   lastFireTick: number;
   /** Tick the last piece was ejected on outtake. */
   lastEjectTick: number;
-  /** Fire button state last tick, for one-shot detection. */
+  /** Tick the last piece was captured, so consecutive captures respect the rate. */
+  lastCaptureTick: number;
+  /** Fire button state last tick, kept for callers that care about edges. */
   firePressed: boolean;
 }
 
@@ -44,6 +49,7 @@ export function initialMechanismState(): MechanismState {
     held: [],
     lastFireTick: Number.NEGATIVE_INFINITY,
     lastEjectTick: Number.NEGATIVE_INFINITY,
+    lastCaptureTick: Number.NEGATIVE_INFINITY,
     firePressed: false,
   };
 }
@@ -88,10 +94,50 @@ export function readMechanismCommands(input: ControlInput): MechanismCommands {
 }
 
 /**
+ * Ticks between successive shots at a given rate of fire.
+ *
+ * A rate of zero or less means "never fires again automatically" rather than
+ * a division by zero or by a negative number; a misconfigured robot simply
+ * cannot shoot, which is visible immediately rather than corrupting state.
+ */
+export function fireIntervalTicks(shotsPerSecond: number, tickRateHz: number): number {
+  if (!(shotsPerSecond > 0)) return Number.POSITIVE_INFINITY;
+  return Math.max(1, Math.round(tickRateHz / shotsPerSecond));
+}
+
+/**
  * May a piece be fired this tick?
  *
- * Fires on a rising-edge shot command. One press = one held artifact.
+ * Holding the command fires at the launcher's configured rate; a tap still
+ * fires exactly one, because the first tick a held command is seen is always
+ * far enough past `lastFireTick` to pass. Releasing and re-pressing does not
+ * reset the cadence — the interval is measured from the last shot, not from
+ * when the button went down, which is what makes "hold to fire continuously"
+ * and "tap for one" the same rule.
  */
-export function feedAllows(state: MechanismState, commands: MechanismCommands): boolean {
-  return commands.firing && !state.firePressed;
+export function feedAllows(
+  state: MechanismState,
+  commands: MechanismCommands,
+  launcher: LauncherSpec | null,
+  tick: number,
+  tickRateHz: number,
+): boolean {
+  if (!commands.firing || launcher === null) return false;
+  return tick - state.lastFireTick >= fireIntervalTicks(launcher.shotsPerSecond, tickRateHz);
+}
+
+/**
+ * May a piece be captured this tick?
+ *
+ * The same cadence rule as firing, applied to consecutive intake captures:
+ * a driver holding the intake over a cluster acquires them at the configured
+ * `acquisitionRatePerSec` rather than all at once.
+ */
+export function captureAllows(
+  state: MechanismState,
+  intake: IntakeSpec,
+  tick: number,
+  tickRateHz: number,
+): boolean {
+  return tick - state.lastCaptureTick >= fireIntervalTicks(intake.acquisitionRatePerSec, tickRateHz);
 }

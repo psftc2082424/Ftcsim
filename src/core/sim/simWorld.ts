@@ -59,8 +59,10 @@ import { SpatialHash } from '../physics/broadphase.js';
 import { collide } from '../physics/sat.js';
 import { resolveContact } from '../physics/resolve.js';
 import { integrateBody } from '../physics/integrate.js';
+import { apexShot, isAirborne, stepVertical, type VerticalState } from '../physics/ballistics.js';
 import { launcherAccepts } from './shooter.js';
 import {
+  captureAllows,
   deriveMechanismSpecs,
   feedAllows,
   initialMechanismState,
@@ -178,9 +180,11 @@ interface SimPiece {
   readonly body: RigidBody;
   readonly radiusM: number;
   previousPose: Pose;
-  /** Fixed centre height used for region-height constraints and rendering. */
+  /** Centre height above the floor. Dynamic while airborne, static at rest. */
   heightM: number;
   previousHeightM: number;
+  /** Rate of change of height, m/s. Zero for anything not in flight. */
+  verticalVelocityMps: number;
   /**
    * Robot holding this piece, or `null` when it is loose.
    *
@@ -304,6 +308,7 @@ export class SimWorld {
       previousPose: body.pose,
       heightM,
       previousHeightM: heightM,
+      verticalVelocityMps: 0,
       carriedBy: null,
       parked: false,
     });
@@ -369,7 +374,7 @@ export class SimWorld {
     }
 
     // 6b. Pieces integrate freely: nothing drives them, so they carry whatever
-    // velocity a collision last gave them.
+    // velocity a collision — or a launch — last gave them.
     for (const piece of this.pieces) {
       piece.previousPose = piece.body.pose;
       piece.previousHeightM = piece.heightM;
@@ -381,6 +386,18 @@ export class SimWorld {
 
       integrateBody(piece.body, { fx: 0, fy: 0, mz: 0 }, DT_SECONDS);
 
+      // 6c. Height, under gravity. A piece in flight keeps its horizontal
+      //     velocity — with no drag the two are independent — and its span
+      //     rises with it, which is what lets it pass over a goal's walls
+      //     instead of through them.
+      const vertical: VerticalState = { heightM: piece.heightM, velocityMps: piece.verticalVelocityMps };
+      const stepped = stepVertical(vertical, piece.radiusM, DT_SECONDS, piece.body.restitution);
+      piece.heightM = stepped.state.heightM;
+      piece.verticalVelocityMps = stepped.state.velocityMps;
+      piece.body.span = {
+        bottom: Math.max(0, piece.heightM - piece.radiusM),
+        top: piece.heightM + piece.radiusM,
+      };
     }
 
     // 6d. Held pieces ride with their robot, which has now moved.
@@ -449,8 +466,8 @@ export class SimWorld {
       radiusM: piece.radiusM,
       heightM: piece.heightM,
       previousHeightM: piece.previousHeightM,
-      verticalVelocityMps: 0,
-      airborne: false,
+      verticalVelocityMps: piece.verticalVelocityMps,
+      airborne: isAirborne({ heightM: piece.heightM, velocityMps: piece.verticalVelocityMps }, piece.radiusM),
       heldByRobotId: piece.carriedBy,
     }));
 
@@ -491,26 +508,61 @@ export class SimWorld {
   }
 
   /**
-   * Move a piece to a game-defined destination without simulating a trajectory.
+   * Put a parked or loose piece back into play, moving at a given velocity.
    *
-   * The caller supplies a region's height band where it has one. A scoring
-   * action can therefore enter an elevated goal as a deterministic state
-   * transition; it does not need an invented launch speed or target collision.
+   * The field's equivalent of a robot's outtake: a mechanism is handing the
+   * piece a real push rather than merely setting it down. Used for a queue
+   * that drains or overflows — the piece becomes an ordinary physically
+   * simulated body from this point on, so it rolls, collides and can be picked
+   * up again exactly like one a robot pushed (`game/conveyor.ts`).
    */
-  deliverPiece(pieceId: string, positionM: Vec2, heightM?: number): void {
+  releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
     const piece = this.pieceNamed(pieceId);
     piece.parked = false;
     piece.carriedBy = null;
     this.settlePiece(piece, positionM);
+    piece.body.vel = { v: velocityM, omega: 0 };
     this.cachedSnapshot = null;
-    if (heightM !== undefined) {
-      piece.heightM = Math.max(piece.radiusM, heightM);
-      piece.body.span = {
-        bottom: piece.heightM - piece.radiusM,
-        top: piece.heightM + piece.radiusM,
-      };
-      piece.previousHeightM = piece.heightM;
-    }
+  }
+
+  /**
+   * Launch a piece on a real ballistic arc toward a target point.
+   *
+   * This is the one piece of trajectory math a "functional" shooter still
+   * needs: the mechanism itself stays a simple state transition (no flywheel,
+   * no RPM, no RNG — PRODUCT_SPEC.md §1.1), but once a piece leaves it, it has
+   * to *get* to the target through real space, clearing whatever a goal's
+   * walls are tall, rather than teleporting there. `apexShot` computes the
+   * exact horizontal and vertical speed that put the piece at `apexHeightM`,
+   * at its apex, directly above `targetM` — deterministic and perfectly
+   * accurate by construction, so there is no aim error to model.
+   */
+  launchPieceTowards(
+    pieceId: string,
+    targetM: Vec2,
+    apexHeightM: number,
+    launchHeightM: number,
+  ): void {
+    const piece = this.pieceNamed(pieceId);
+    const from = piece.body.pose.p;
+    const toTarget = vec2(targetM.x - from.x, targetM.y - from.y);
+    const distanceM = Math.hypot(toTarget.x, toTarget.y);
+
+    const { horizontalMps, verticalMps } = apexShot(distanceM, launchHeightM, apexHeightM);
+    const direction =
+      distanceM > 1e-9 ? vec2(toTarget.x / distanceM, toTarget.y / distanceM) : vec2(1, 0);
+
+    piece.parked = false;
+    piece.carriedBy = null;
+    piece.body.vel = { v: vec2(direction.x * horizontalMps, direction.y * horizontalMps), omega: 0 };
+    piece.heightM = Math.max(piece.radiusM, launchHeightM);
+    piece.verticalVelocityMps = verticalMps;
+    piece.body.span = {
+      bottom: Math.max(0, piece.heightM - piece.radiusM),
+      top: piece.heightM + piece.radiusM,
+    };
+    piece.previousPose = piece.body.pose;
+    piece.previousHeightM = piece.heightM;
     this.cachedSnapshot = null;
   }
 
@@ -525,6 +577,7 @@ export class SimWorld {
     piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
     piece.heightM = piece.radiusM;
+    piece.verticalVelocityMps = 0;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
     piece.previousHeightM = piece.heightM;
@@ -580,7 +633,7 @@ export class SimWorld {
       hasher.pushFloat(pose.p.x).pushFloat(pose.p.y).pushFloat(pose.theta);
       hasher.pushFloat(vel.v.x).pushFloat(vel.v.y).pushFloat(vel.omega);
       // Height is state like any other.
-      hasher.pushFloat(piece.heightM);
+      hasher.pushFloat(piece.heightM).pushFloat(piece.verticalVelocityMps);
     }
 
     return hasher.digestHex();
@@ -630,7 +683,7 @@ export class SimWorld {
       if (commands.intake === 'outtake') this.ejectPiece(robot, intake);
     }
 
-    if (feedAllows(state, commands)) {
+    if (feedAllows(state, commands, robot.specs.launcher, this.tickCount, TICK_RATE_HZ)) {
       this.firePiece(robot);
     }
     state.firePressed = commands.firing;
@@ -652,15 +705,26 @@ export class SimWorld {
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked) continue;
       if (!intakeAccepts(spec, piece.spec.pieceType)) continue;
+      // The mouth is a floor-level opening; a piece in flight — a shot in
+      // progress, or one arcing toward a goal — passes over it rather than
+      // being scooped out of the air.
+      if (isAirborne({ heightM: piece.heightM, velocityMps: piece.verticalVelocityMps }, piece.radiusM)) {
+        continue;
+      }
       const bodyP = rotate(
         vec2(piece.body.pose.p.x - pose.p.x, piece.body.pose.p.y - pose.p.y),
         -pose.theta,
       );
       if (!mouthContains(spec, bodyP)) continue;
 
-      if (command === 'intake' && state.held.length < spec.capacity) {
+      if (
+        command === 'intake' &&
+        state.held.length < spec.capacity &&
+        captureAllows(state, spec, this.tickCount, TICK_RATE_HZ)
+      ) {
         state.held.push(piece.spec.pieceId);
         piece.carriedBy = robot.body.id;
+        state.lastCaptureTick = this.tickCount;
       }
     }
   }
@@ -692,6 +756,7 @@ export class SimWorld {
       omega: piece.body.vel.omega,
     };
     piece.heightM = piece.radiusM;
+    piece.verticalVelocityMps = 0;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
     piece.previousHeightM = piece.heightM;
@@ -756,6 +821,7 @@ export class SimWorld {
         omega: robot.body.vel.omega,
       };
       piece.heightM = piece.radiusM;
+      piece.verticalVelocityMps = 0;
       piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     });
   }

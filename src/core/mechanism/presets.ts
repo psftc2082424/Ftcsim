@@ -58,6 +58,8 @@ export const MECHANISM_PRESETS: readonly MechanismPreset[] = [
         reachIn: 6,
         // Spans most of an 18 in front rail, inside the bumpers.
         mouthWidthIn: 14,
+        // A driver holding the intake over a stacked trio clears it in 1.5 s.
+        acquisitionRatePerSec: 2,
       },
     ],
   },
@@ -87,6 +89,9 @@ export const MECHANISM_PRESETS: readonly MechanismPreset[] = [
       {
         kind: 'launch',
         pieceTypes: [],
+        // Two shots a second: fast enough to clear a 3-piece hopper in under
+        // two seconds, slow enough to see each one leave.
+        shotsPerSecond: 2,
       },
     ],
   },

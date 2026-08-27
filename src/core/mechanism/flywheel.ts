@@ -11,13 +11,15 @@ import type { DerivedMechanism } from './mechanism.js';
 
 export interface LauncherSpec {
   readonly capability: LaunchCapability;
+  /** Shots per second while fire is held. Convenience alias for the capability's field. */
+  readonly shotsPerSecond: number;
 }
 
 export function deriveLauncher(
   _mechanism: DerivedMechanism,
   capability: LaunchCapability,
 ): LauncherSpec {
-  return { capability };
+  return { capability, shotsPerSecond: capability.shotsPerSecond };
 }
 
 /** The first launch capability a robot carries, with the mechanism it is on. */
