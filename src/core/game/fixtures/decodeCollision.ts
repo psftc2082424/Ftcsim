@@ -15,11 +15,11 @@
 
 import { createStandardField, type FieldTemplate } from '../../field/fieldTemplate.js';
 import { createStaticBody, type EntityId, type RigidBody } from '../../physics/body.js';
-import { createObb } from '../../physics/shapes.js';
+import { createObb, createPoly } from '../../physics/shapes.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
-import { FIELD, GOAL } from './decodeDimensions.js';
+import { CLASSIFIER, FIELD, GOAL } from './decodeDimensions.js';
 
 /** Human-auditable classification; it is not a physics shape type. */
 export type DecodeCollisionClass =
@@ -99,7 +99,9 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
       id: `${alliance}-ramp-assembly`,
       classification: 'SOLID / COLLIDABLE' as const,
       provenance: rampAssembly,
-      hasCollisionBody: false,
+      // The raised classifier channel is the documented portion of the ramp
+      // whose envelope is represented by `classifierBody` below.
+      hasCollisionBody: true,
     },
     {
       id: `${alliance}-gate`,
@@ -178,59 +180,62 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
 
 const GOAL_BODY_ID_BASE = 1100;
 
-function goalAssemblyCenter(alliance: 'red' | 'blue') {
-  // These anchors come from the GOAL's border brackets engaging the perimeter,
-  // not from the scoring region built at the same position.  Keeping this
-  // calculation here makes the one-way dependency visible: rules may use this
-  // physical placement, but collision never reads a GameDefinition region.
-  const sign = alliance === 'red' ? -1 : 1;
-  const centerIn = FIELD.sideIn.value / 2 - GOAL.footprintIn.value / 2;
-  return { x: inchesToMeters(sign * centerIn), y: inchesToMeters(centerIn) };
+/**
+ * Classifier channel width, traced from the supplied CAD/dSim top-down field
+ * reference.  The manual establishes that it is a physical RAMP assembly but
+ * does not print a plan-view channel width, so this remains visibly inferred.
+ */
+const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
+const CLASSIFIER_GATE_Y_IN = 2;
+
+/** A GOAL is cross-court from its alliance area: blue far-left, red far-right. */
+function goalSide(alliance: 'red' | 'blue'): number {
+  return alliance === 'red' ? 1 : -1;
 }
 
 /**
- * Three collision rectangles form the goal's back and side shell.  The open
- * front is intentionally body-free: its dimensions are the manual's opening
- * dimensions, not a score-region shortcut.  The thin side walls and back
- * depth are the exact difference between the published outer footprint and
- * opening envelope; their front-facing orientation follows setup-guide §9's
- * assembly image and is recorded as an inference.
+ * The GOAL opening is a right triangle in the far corner.  Its two legs are
+ * the manual's top-view opening dimensions; the diagonal is the field-facing
+ * goal face.  This is a physical assembly outline, not a scoring region.
  */
-function goalShellBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly RigidBody[] {
-  const center = goalAssemblyCenter(alliance);
-  const outerM = inchesToMeters(GOAL.footprintIn.value);
-  const openingWidthM = inchesToMeters(GOAL.openingWidthIn.value);
-  const openingDepthM = inchesToMeters(GOAL.openingDepthIn.value);
-  const sideThicknessM = (outerM - openingWidthM) / 2;
-  const backDepthM = outerM - openingDepthM;
-  const frontEdgeY = center.y - outerM / 2;
-  const openingCenterY = frontEdgeY + openingDepthM / 2;
-  const backCenterY = frontEdgeY + openingDepthM + backDepthM / 2;
+function goalBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
+  const sign = goalSide(alliance);
+  const half = FIELD.sideIn.value / 2;
+  const far = { x: inchesToMeters(sign * (half - GOAL.openingWidthIn.value)), y: inchesToMeters(half) };
+  const side = { x: inchesToMeters(sign * half), y: inchesToMeters(half - GOAL.openingDepthIn.value) };
+  const corner = { x: inchesToMeters(sign * half), y: inchesToMeters(half) };
   const span = { bottom: 0, top: inchesToMeters(GOAL.heightIn.value) };
-
-  return [
-    createStaticBody({
-      id: firstId,
-      shape: createObb(sideThicknessM, openingDepthM),
-      span,
-      pose: { p: { x: center.x - openingWidthM / 2 - sideThicknessM / 2, y: openingCenterY }, theta: 0 },
-    }),
-    createStaticBody({
-      id: firstId + 1,
-      shape: createObb(sideThicknessM, openingDepthM),
-      span,
-      pose: { p: { x: center.x + openingWidthM / 2 + sideThicknessM / 2, y: openingCenterY }, theta: 0 },
-    }),
-    createStaticBody({
-      id: firstId + 2,
-      shape: createObb(outerM, backDepthM),
-      span,
-      pose: { p: { x: center.x, y: backCenterY }, theta: 0 },
-    }),
-  ];
+  const vertices = sign > 0 ? [far, side, corner] : [far, corner, side];
+  return createStaticBody({ id, shape: createPoly(vertices), span });
 }
 
-/** Build DECODE's generic field plus only its supported collision shells. */
+/** The raised RAMP occupies its side-wall channel from the GATE to the far wall. */
+function classifierBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
+  const sign = goalSide(alliance);
+  const half = FIELD.sideIn.value / 2;
+  const widthIn = CLASSIFIER_CHANNEL_WIDTH_IN;
+  const lengthIn = half - CLASSIFIER_GATE_Y_IN;
+  return createStaticBody({
+    id,
+    shape: createObb(inchesToMeters(widthIn), inchesToMeters(lengthIn)),
+    // A 4.9 in ARTIFACT can travel through the tunnel opening below this raised
+    // structure, while a robot intersects the assembly. The clearance is the
+    // documented maximum closed GATE contact height.
+    span: {
+      bottom: inchesToMeters(CLASSIFIER.gateClosedMaxHeightIn.value),
+      top: inchesToMeters(GOAL.heightIn.value),
+    },
+    pose: {
+      p: {
+        x: inchesToMeters(sign * (half - widthIn / 2)),
+        y: inchesToMeters(CLASSIFIER_GATE_Y_IN + lengthIn / 2),
+      },
+      theta: 0,
+    },
+  });
+}
+
+/** Build DECODE's generic field plus its documented goal and classifier assemblies. */
 export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate {
   const standard = createStandardField(firstEntityId);
   return {
@@ -239,8 +244,10 @@ export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate
     name: 'FTC DECODE Field',
     bodies: [
       ...standard.bodies,
-      ...goalShellBodies('red', firstEntityId + GOAL_BODY_ID_BASE),
-      ...goalShellBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 3),
+      goalBody('red', firstEntityId + GOAL_BODY_ID_BASE),
+      goalBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 1),
+      classifierBody('red', firstEntityId + GOAL_BODY_ID_BASE + 2),
+      classifierBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 3),
     ],
   };
 }

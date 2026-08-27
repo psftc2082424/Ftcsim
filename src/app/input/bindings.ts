@@ -16,8 +16,6 @@ export type DriveAction =
   | 'slow'
   | 'intake'
   | 'outtake'
-  | 'gate'
-  | 'shooter'
   | 'launch';
 
 export type KeyBindings = Readonly<Record<DriveAction, string>>;
@@ -32,9 +30,7 @@ export const ACTION_LABELS: Readonly<Record<DriveAction, string>> = {
   slow: 'Precision (hold)',
   intake: 'Intake (hold)',
   outtake: 'Outtake (hold)',
-  gate: 'Gate open (hold)',
-  shooter: 'Shooter on (hold)',
-  launch: 'Fire',
+  launch: 'Shoot',
 };
 
 export const DRIVE_ACTIONS: readonly DriveAction[] = [
@@ -47,8 +43,6 @@ export const DRIVE_ACTIONS: readonly DriveAction[] = [
   'slow',
   'intake',
   'outtake',
-  'gate',
-  'shooter',
   'launch',
 ];
 
@@ -62,9 +56,7 @@ export const DEFAULT_KEY_BINDINGS: KeyBindings = Object.freeze({
   slow: 'ShiftLeft',
   intake: 'KeyF',
   outtake: 'KeyR',
-  gate: 'KeyG',
-  shooter: 'Space',
-  launch: 'KeyX',
+  launch: 'Space',
 });
 
 /**

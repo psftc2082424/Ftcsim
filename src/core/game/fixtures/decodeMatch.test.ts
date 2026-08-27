@@ -52,7 +52,7 @@ import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
-import { GATE_BUTTON, INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../../sim/shooter.js';
+import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
@@ -352,19 +352,11 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
     ],
   };
 
-  /**
-   * Collect, enable, open the gate, then fire. A functional shot is resolved
-   * by the game's route rather than by a fabricated trajectory.
-   */
-  const SPIN_UP_TICKS = 1;
-
   const SHOOT_TRACE = createInputTrace('shoot', [
-    { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
+    { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
     {
-      tick: SPIN_UP_TICKS,
+      tick: 1,
       input: createControlInput(0, 0, 0, {
-        [SHOOTER_BUTTON]: true,
-        [GATE_BUTTON]: true,
         [LAUNCH_BUTTON]: true,
       }),
     },
@@ -391,7 +383,7 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
 
   it('awards CLASSIFIED for an artifact shot through the GOAL', () => {
     const sim = shootingAtGoal();
-    for (let i = 0; i < SPIN_UP_TICKS + 400; i++) sim.step();
+    for (let i = 0; i < 401; i++) sim.step();
 
     const breakdown = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(breakdown.length).toBeGreaterThan(0);

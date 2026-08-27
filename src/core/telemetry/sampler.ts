@@ -49,9 +49,6 @@ export interface RobotTelemetry {
     readonly held: readonly string[];
     readonly capacity: number;
     readonly intake: 'off' | 'intake' | 'outtake';
-    readonly gateOpen: boolean;
-    readonly shooterRunning: boolean;
-    readonly shooterReady: boolean;
   };
 }
 
@@ -91,9 +88,6 @@ export function sampleTelemetry(snapshot: WorldSnapshot): TelemetrySample {
         held: robot.mechanisms.held,
         capacity: robot.mechanisms.capacity,
         intake: robot.mechanisms.intake,
-        gateOpen: robot.mechanisms.gateOpen,
-        shooterRunning: robot.mechanisms.shooterRunning,
-        shooterReady: robot.mechanisms.shooterReady,
       },
     })),
   };

@@ -10,7 +10,7 @@ describe('keyboard binding preferences', () => {
 
   it('round-trips all driver and mechanism bindings', async () => {
     const store = new MemoryStore();
-    const bindings = { ...DEFAULT_KEY_BINDINGS, intake: 'KeyI', shooter: 'KeyO', launch: 'Enter' };
+    const bindings = { ...DEFAULT_KEY_BINDINGS, intake: 'KeyI', launch: 'Enter' };
 
     await saveKeyBindings(store, bindings);
     await expect(loadKeyBindings(store)).resolves.toEqual(bindings);

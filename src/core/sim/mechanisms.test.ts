@@ -1,13 +1,11 @@
-/** Functional mechanism chain: field -> intake -> storage -> gate -> score. */
+/** Functional mechanism chain: field -> intake -> storage -> shoot -> score. */
 
 import { describe, expect, it } from 'vitest';
 import { SimWorld, type GamePieceSpec, type RobotSpec } from './simWorld.js';
 import {
-  GATE_BUTTON,
   INTAKE_BUTTON,
   LAUNCH_BUTTON,
   OUTTAKE_BUTTON,
-  SHOOTER_BUTTON,
 } from './shooter.js';
 import { COMPETITION_ROBOT_CONFIG, type RobotConfig } from '../robot/robotConfig.js';
 import { ScriptedController, constantController, createInputTrace } from '../control/scripted.js';
@@ -72,24 +70,13 @@ describe('functional intake and storage', () => {
   });
 });
 
-describe('functional gate and shooter', () => {
+describe('functional shooting', () => {
   const threeBalls = [artifact('a', 11, 0), artifact('b', 11, 4), artifact('c', 11, -4)];
 
-  it('does not transfer a stored ball while the gate is closed', () => {
-    const controller = new ScriptedController(createInputTrace('closed gate', [
+  it('fires a stored ball on one shot command', () => {
+    const controller = new ScriptedController(createInputTrace('single shot', [
       { tick: 0, input: input(INTAKE_BUTTON) },
-      { tick: 1, input: input(SHOOTER_BUTTON, LAUNCH_BUTTON) },
-    ]));
-    const sim = world(threeBalls, controller);
-    sim.stepMany(2);
-    expect(sim.heldPieces(0)).toHaveLength(3);
-    expect(sim.drainPieceActions()).toEqual([]);
-  });
-
-  it('transfers one stored ball through an open gate when fired', () => {
-    const controller = new ScriptedController(createInputTrace('open gate', [
-      { tick: 0, input: input(INTAKE_BUTTON) },
-      { tick: 1, input: input(SHOOTER_BUTTON, GATE_BUTTON, LAUNCH_BUTTON) },
+      { tick: 1, input: input(LAUNCH_BUTTON) },
     ]));
     const sim = world(threeBalls, controller);
     sim.stepMany(2);
@@ -100,11 +87,11 @@ describe('functional gate and shooter', () => {
   it('fires all three sequentially, one rising-edge command at a time', () => {
     const controller = new ScriptedController(createInputTrace('three shots', [
       { tick: 0, input: input(INTAKE_BUTTON) },
-      { tick: 1, input: input(SHOOTER_BUTTON, GATE_BUTTON, LAUNCH_BUTTON) },
-      { tick: 2, input: input(SHOOTER_BUTTON, GATE_BUTTON) },
-      { tick: 3, input: input(SHOOTER_BUTTON, GATE_BUTTON, LAUNCH_BUTTON) },
-      { tick: 4, input: input(SHOOTER_BUTTON, GATE_BUTTON) },
-      { tick: 5, input: input(SHOOTER_BUTTON, GATE_BUTTON, LAUNCH_BUTTON) },
+      { tick: 1, input: input(LAUNCH_BUTTON) },
+      { tick: 2, input: input() },
+      { tick: 3, input: input(LAUNCH_BUTTON) },
+      { tick: 4, input: input() },
+      { tick: 5, input: input(LAUNCH_BUTTON) },
     ]));
     const sim = world(threeBalls, controller);
     sim.stepMany(6);

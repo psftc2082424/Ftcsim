@@ -60,9 +60,7 @@ export interface RobotSnapshot {
 /**
  * What a robot's intake and shooter are doing.
  *
- * Present for every robot; a robot with no such mechanism reports a shooter that
- * is not running and a hopper that is empty, so a consumer never has to ask
- * whether the fields exist.
+ * Present for every robot so consumers can display storage consistently.
  */
 export interface MechanismSnapshot {
   /** Piece ids in the hopper, oldest first. */
@@ -71,11 +69,6 @@ export interface MechanismSnapshot {
   readonly intake: 'off' | 'intake' | 'outtake';
   readonly hasIntake: boolean;
   readonly hasLauncher: boolean;
-  /** Gate between storage and the shooter. */
-  readonly gateOpen: boolean;
-  readonly shooterRunning: boolean;
-  /** A functional shooter is ready as soon as it is enabled. */
-  readonly shooterReady: boolean;
 }
 
 /**

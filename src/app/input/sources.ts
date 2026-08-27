@@ -78,7 +78,7 @@ export class KeyboardSource implements InputSource {
     const turn = held(this.bindings.turnLeft) - held(this.bindings.turnRight);
 
     const buttons: Record<string, boolean> = {};
-    for (const action of ['intake', 'outtake', 'gate', 'shooter', 'launch'] as const) {
+    for (const action of ['intake', 'outtake', 'launch'] as const) {
       if (this.pressed.has(this.bindings[action])) buttons[action] = true;
     }
     if (x === 0 && y === 0 && turn === 0 && Object.keys(buttons).length === 0) return null;
@@ -168,7 +168,7 @@ export class GamepadSource implements InputSource {
 
     const buttons: Record<string, boolean> = {};
     const mapping: Readonly<Record<number, string>> = {
-      0: 'launch', 4: 'outtake', 5: 'gate', 6: 'intake', 7: 'shooter',
+      0: 'launch', 4: 'outtake', 6: 'intake',
     };
     pad.buttons.forEach((button, index) => {
       const action = mapping[index];

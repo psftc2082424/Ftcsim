@@ -12,7 +12,7 @@ import { NeutralController } from '../control/controller.js';
 import { SimWorld } from '../sim/simWorld.js';
 import { inchesToMeters } from '../units/convert.js';
 import { vec2 } from '../math/vec2.js';
-import { GATE_BUTTON, INTAKE_BUTTON, LAUNCH_BUTTON, SHOOTER_BUTTON } from '../sim/shooter.js';
+import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../sim/shooter.js';
 
 /** A short match keeps end-to-end runs fast: 2 s AUTO, 1 s gap, 3 s TELEOP. */
 const SHORT_MATCH: MatchStructure = {
@@ -110,12 +110,10 @@ describe('pipeline wiring', () => {
   it('routes a functional launch through region events and the rules engine', () => {
     const controller = new ScriptedController(
       createInputTrace('intake then score', [
-        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true, [SHOOTER_BUTTON]: true }) },
+        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
         {
           tick: 1,
           input: createControlInput(0, 0, 0, {
-            [SHOOTER_BUTTON]: true,
-            [GATE_BUTTON]: true,
             [LAUNCH_BUTTON]: true,
           }),
         },
@@ -165,21 +163,21 @@ describe('pipeline wiring', () => {
         {
           tick: 1,
           input: createControlInput(0, 0, 0, {
-            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+            [LAUNCH_BUTTON]: true,
           }),
         },
-        { tick: 2, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true }) },
+        { tick: 2, input: createControlInput(0, 0, 0) },
         {
           tick: 3,
           input: createControlInput(0, 0, 0, {
-            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+            [LAUNCH_BUTTON]: true,
           }),
         },
-        { tick: 4, input: createControlInput(0, 0, 0, { [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true }) },
+        { tick: 4, input: createControlInput(0, 0, 0) },
         {
           tick: 5,
           input: createControlInput(0, 0, 0, {
-            [SHOOTER_BUTTON]: true, [GATE_BUTTON]: true, [LAUNCH_BUTTON]: true,
+            [LAUNCH_BUTTON]: true,
           }),
         },
       ]),

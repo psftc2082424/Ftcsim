@@ -623,8 +623,6 @@ export class SimWorld {
     const commands = readMechanismCommands(input);
     const state = robot.mechanisms;
     state.intake = commands.intake;
-    state.gateOpen = commands.gateOpen;
-    state.shooterRunning = commands.shooterRunning;
 
     const intake = robot.specs.intake;
     if (intake !== null) {
@@ -840,9 +838,6 @@ function mechanismSnapshotOf(robot: SimRobot): MechanismSnapshot {
     intake: robot.mechanisms.intake,
     hasIntake: robot.specs.intake !== null,
     hasLauncher: robot.specs.launcher !== null,
-    gateOpen: robot.mechanisms.gateOpen,
-    shooterRunning: robot.mechanisms.shooterRunning,
-    shooterReady: robot.mechanisms.shooterRunning,
   };
 }
 

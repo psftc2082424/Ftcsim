@@ -116,8 +116,11 @@ export const DECODE_FIELD_ORIENTATION: Sourced<string> = inferred(
   64,
 );
 
-/** Red occupies -X, blue +X. The world origin is the field centre. */
+/** Red occupies -X, blue +X in the alliance/staging half. */
 const SIDE = { red: -1, blue: 1 } as const;
+
+/** DECODE's GOALS and classifier ramps are cross-court from their alliance. */
+const GOAL_CLUSTER_SIDE = { red: 1, blue: -1 } as const;
 
 interface Placement {
   readonly centerXIn: number;
@@ -416,6 +419,11 @@ function mirrored(placement: Placement, alliance: 'red' | 'blue'): Placement {
   return { ...placement, centerXIn: placement.centerXIn * SIDE[alliance] };
 }
 
+/** Mirror the physical GOAL cluster, which uses the cross-court convention. */
+function goalClusterPlacement(placement: Placement, alliance: 'red' | 'blue'): Placement {
+  return { ...placement, centerXIn: placement.centerXIn * GOAL_CLUSTER_SIDE[alliance] };
+}
+
 function region(id: string, placement: Placement, slotCount?: number): FieldRegion {
   return createRectRegion({
     id,
@@ -457,12 +465,12 @@ const SPIKE_MARK_SEAM: Readonly<Record<'red' | 'blue', VerticalSeam>> = {
 
 export const DECODE_FIELD_REGIONS: readonly FieldRegion[] = [
   // The open top of each GOAL, floored at the lip so only a shot enters it.
-  goalOpening(DECODE_REGIONS.redGoal, mirrored(LAYOUT.goal, 'red')),
-  goalOpening(DECODE_REGIONS.blueGoal, LAYOUT.goal),
-  region(DECODE_REGIONS.redRamp, mirrored(LAYOUT.ramp, 'red'), RAMP_SLOT_COUNT.value),
-  region(DECODE_REGIONS.blueRamp, mirrored(LAYOUT.ramp, 'blue'), RAMP_SLOT_COUNT.value),
-  region(DECODE_REGIONS.redDepot, mirrored(LAYOUT.depot, 'red')),
-  region(DECODE_REGIONS.blueDepot, mirrored(LAYOUT.depot, 'blue')),
+  goalOpening(DECODE_REGIONS.redGoal, goalClusterPlacement(LAYOUT.goal, 'red')),
+  goalOpening(DECODE_REGIONS.blueGoal, goalClusterPlacement(LAYOUT.goal, 'blue')),
+  region(DECODE_REGIONS.redRamp, goalClusterPlacement(LAYOUT.ramp, 'red'), RAMP_SLOT_COUNT.value),
+  region(DECODE_REGIONS.blueRamp, goalClusterPlacement(LAYOUT.ramp, 'blue'), RAMP_SLOT_COUNT.value),
+  region(DECODE_REGIONS.redDepot, goalClusterPlacement(LAYOUT.depot, 'red')),
+  region(DECODE_REGIONS.blueDepot, goalClusterPlacement(LAYOUT.depot, 'blue')),
 
   // Six SPIKE MARKS, three per alliance. They hold no score of their own; they
   // exist so the staging §10.3.1 describes has somewhere to put its artifacts.

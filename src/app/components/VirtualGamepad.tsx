@@ -149,8 +149,6 @@ export function VirtualGamepad({ source }: Props) {
       <div className="pad-shoulders">
         <PadButton name="intake" label="INTAKE" className="pad-trigger" source={source} />
         <PadButton name="outtake" label="OUT" className="pad-bumper" source={source} />
-        <PadButton name="gate" label="GATE" className="pad-bumper" source={source} />
-        <PadButton name="shooter" label="SHOOTER" className="pad-trigger" source={source} />
       </div>
 
       <div className="pad-main">
@@ -175,7 +173,7 @@ export function VirtualGamepad({ source }: Props) {
       </div>
 
       <p className="muted small">
-        Hold INTAKE, GATE and SHOOTER as needed; press FIRE once for each stored artifact.
+        Hold INTAKE to collect, then press FIRE once for each stored artifact.
       </p>
     </section>
   );

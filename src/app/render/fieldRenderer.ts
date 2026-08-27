@@ -12,6 +12,7 @@
 
 import { lerpAngle } from '../../core/math/angle.js';
 import { inchesToMeters } from '../../core/units/convert.js';
+import { worldVertices } from '../../core/physics/shapes.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
 import type { FieldTemplate } from '../../core/field/fieldTemplate.js';
 import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
@@ -90,7 +91,7 @@ export function renderFrame(
   // Under the entities: game geometry is markings on the floor, and a robot
   // standing on a zone should be drawn over it.
   if (overlay !== undefined && options.showGameGeometry !== false) {
-    drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true);
+    drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true, field.id === 'ftc-decode-2025-26');
   }
 
   for (const piece of snapshot.pieces) drawPiece(ctx, camera, piece, alpha);
@@ -111,9 +112,14 @@ function drawOverlay(
   camera: Camera,
   overlay: FieldOverlay,
   showLabels: boolean,
+  decodePresentation: boolean,
 ): void {
   for (const shaped of [...overlay.regions, ...overlay.zones]) {
     const kind = presentationKind(shaped.id);
+    // DECODE's physical goal/ramp assemblies come from the field fixture, not
+    // their rule regions. Drawing the latter would reintroduce the old large
+    // abstract rectangles on top of the real top-down geometry.
+    if (decodePresentation && (kind === 'goal' || kind === 'structure')) continue;
     const allianceColor = shaped.id.startsWith('red-') ? COLORS.redEdge : shaped.id.startsWith('blue-') ? COLORS.blueEdge : COLORS.regionEdge;
     ctx.fillStyle = kind === 'goal' ? (shaped.id.startsWith('red-') ? '#9d1f31' : '#1559a5') : COLORS.regionFill;
     ctx.strokeStyle = allianceColor;
@@ -134,6 +140,31 @@ function drawOverlay(
     } else {
       const vertices = shaped.shape.vertices;
       if (vertices.length === 0) continue;
+
+      if (decodePresentation && shaped.id.includes('spike')) {
+        const minX = Math.min(...vertices.map((vertex) => vertex.x));
+        const maxX = Math.max(...vertices.map((vertex) => vertex.x));
+        const centerY = shaped.centerM.y;
+        ctx.beginPath();
+        ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, centerY));
+        ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, centerY));
+        ctx.stroke();
+        continue;
+      }
+
+      if (decodePresentation && shaped.id.includes('gate-zone')) {
+        const minX = Math.min(...vertices.map((vertex) => vertex.x));
+        const maxX = Math.max(...vertices.map((vertex) => vertex.x));
+        const minY = Math.min(...vertices.map((vertex) => vertex.y));
+        const maxY = Math.max(...vertices.map((vertex) => vertex.y));
+        ctx.beginPath();
+        ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, minY));
+        ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, minY));
+        ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, maxY));
+        ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, maxY));
+        ctx.stroke();
+        continue;
+      }
 
       ctx.beginPath();
       vertices.forEach((vertex, index) => {
@@ -265,22 +296,26 @@ function drawField(
     ctx.stroke();
   }
 
-  // Perimeter, drawn from actual collision bodies rather than nominal field
-  // size. Filled rails read as an FTC wall rather than an authoring outline.
-  ctx.strokeStyle = COLORS.wall;
-  ctx.fillStyle = COLORS.wall;
+  // Every fixture is rendered from its collision shape. This keeps physical
+  // field geometry and what a driver sees in lockstep.
   ctx.lineWidth = 2;
   for (const body of field.bodies) {
-    if (body.shape.kind !== 'obb') continue;
-    const { x: hx, y: hy } = body.shape.halfExtents;
-    const x = worldToScreenX(camera, body.pose.p.x - hx);
-    const y = worldToScreenY(camera, body.pose.p.y + hy);
-    const w = metersToPixels(camera, hx * 2);
-    const h = metersToPixels(camera, hy * 2);
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeRect(
-      x, y, w, h,
-    );
+    if (body.shape.kind === 'circle') continue;
+    const vertices = worldVertices(body.shape, body.pose.p, body.pose.theta);
+    const goal = field.id === 'ftc-decode-2025-26' && body.shape.kind === 'poly';
+    const redGoal = goal && vertices.reduce((sum, vertex) => sum + vertex.x, 0) >= 0;
+    ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : COLORS.wall;
+    ctx.strokeStyle = goal ? '#f3f7fb' : COLORS.wall;
+    ctx.beginPath();
+    vertices.forEach((vertex, index) => {
+      const x = worldToScreenX(camera, vertex.x);
+      const y = worldToScreenY(camera, vertex.y);
+      if (index === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
   }
 
   ctx.strokeStyle = COLORS.fieldEdge;

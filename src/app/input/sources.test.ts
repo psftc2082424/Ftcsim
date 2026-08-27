@@ -134,13 +134,11 @@ describe('keyboard source', () => {
     source.attach(win);
 
     fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.intake));
-    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.gate));
-    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.shooter));
     fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.launch));
 
     expect(source.read()).toMatchObject({
       drive: { x: 0, y: 0, turn: 0 },
-      buttons: { intake: true, gate: true, shooter: true, launch: true },
+      buttons: { intake: true, launch: true },
     });
   });
 

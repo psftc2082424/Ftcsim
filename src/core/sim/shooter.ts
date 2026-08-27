@@ -3,10 +3,8 @@
 import type { LaunchCapability } from '../mechanism/capability.js';
 
 export const LAUNCH_BUTTON = 'launch';
-export const SHOOTER_BUTTON = 'shooter';
 export const INTAKE_BUTTON = 'intake';
 export const OUTTAKE_BUTTON = 'outtake';
-export const GATE_BUTTON = 'gate';
 
 /** Whether a launcher accepts a game-piece type. */
 export function launcherAccepts(capability: LaunchCapability, pieceType: string): boolean {

@@ -142,7 +142,7 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
 - **Perimeter walls are 12 in thick** (§5.8), and only the inner face is
   gameplay. Thinner than a game piece lets a squeezed circle tunnel.
 - **Mechanisms are functional state machines** (§9.9). The product path is
-  `FIELD → HELD → GATE → launch action → game route → rules → score`.
+  `FIELD → HELD → launch action → game route → rules → score`.
   There is no flywheel/ballistic/shot-spread model: a valid enabled shot is a
   deterministic action, and only the rules engine changes a score.
 - **Arc driving is slower, and that is correct** (§2.2.1). Saturation scales
@@ -160,10 +160,11 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
   LAUNCH ZONE triangle vertices (`DECODE_LAUNCH_ZONE_SHAPE`), ARTIFACT mass
   (`ARTIFACT_MASS_LB` — the manual names the part, AndyMark publishes its
   weight).
-- **Still inferred:** where the GOAL cluster sits — GOAL, RAMP and DEPOT. The
-  setup guide installs them by figure, so they are constrained by the elements
-  around them rather than placed. `GOAL_CLUSTER_PROVENANCE` says so, and the
-  supplied full-field CAD (untracked, 13 MB) would settle it.
+- **Still inferred:** fine component outlines for the RAMP/GATE/tunnel walls.
+  The cross-court GOAL cluster is now placed from the setup-guide/dSim
+  top-down reference (blue far-left, red far-right); its triangle footprint
+  uses the manual opening dimensions. The supplied full-field CAD (untracked,
+  13 MB) remains the authority for the remaining component-level shapes.
 
 ### Deployment
 
@@ -176,10 +177,11 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Complete CAD-backed collision geometry for the RAMP, GATE and tunnel walls.**
-The setup guide is sufficient for classification but not their component-level
-footprints. Read the supplied STEP assembly before adding those bodies; keep
-the passable/logic-only contract in `decodeCollision.ts` and never derive an
+**Extract CAD-backed GATE and tunnel-wall component geometry.** The new field
+fixture has the perimeter, cross-court triangular GOALS and raised classifier
+channels, but intentionally does not invent a low GATE panel or tunnel-wall
+outline. Read the supplied STEP assembly before adding those bodies; keep the
+passable/logic-only contract in `decodeCollision.ts` and never derive an
 obstacle from a game region.
 
 ### Latest handoff — 2026-08-27
@@ -192,8 +194,10 @@ obstacle from a game region.
 - **Do not restore removed mechanism physics.** No ballistics, projectile
   motion, launch velocity, flywheel/RPM/energy model, shot RNG/spread/recoil or
   roller-force intake model belongs in the current product. Intake, three-piece
-  storage, gate and shooter are deterministic state transitions; UI controls
-  feed the same `ControlInput` path.
+  storage and shooter are deterministic state transitions; UI controls feed
+  the same `ControlInput` path. Shooting is a rising-edge `Space` action: it
+  removes exactly one held artifact and routes it through the normal game
+  event/rule boundary. There is no gate-open, shooter-enable, or ready state.
 - **Verification:** targeted CLASSIFIED tests pass; `npm run verify` is clean
   (typecheck, ESLint, full Vitest). The redesigned UI production build also
   passed before this fixture-only scoring correction.
@@ -205,21 +209,26 @@ obstacle from a game region.
 - **Data-backed DECODE collision fixture added:**
   `core/game/fixtures/decodeCollision.ts` explicitly classifies every relevant
   field object as `SOLID / COLLIDABLE`, `PASSABLE`, or `GAME-LOGIC REGION ONLY`.
-  `createDecodeField()` composes the generic perimeter with three collision
-  panels per GOAL (two sides plus the back) from the documented 27 in outer and
-  26.5 × 18.3 in opening envelopes. `App.tsx` now supplies that field to the
-  real DECODE match runner, so both robots and loose pieces use it.
+  `createDecodeField()` now composes the perimeter with the dSim/setup-guide
+  cross-court triangular GOAL assemblies (blue far-left, red far-right) and
+  raised classifier channels. `App.tsx` supplies that field to the real DECODE
+  match runner, so both robots and loose pieces use it.
 - **Do not turn regions into obstacles.** Gate zones, secret-tunnel zones,
   launch zones, base/loading/depot tape, goal membership, and ramp queue
   regions have no collision bodies. The GATE and RAMP assemblies are real
   solids, but their component-level footprint is CAD-only, so they are marked
   solid-without-body rather than approximated from a scoring rectangle. The
-  OBELISK is outside the perimeter and needs no duplicate body.
+  The raised classifier channel is a sourced/inferred physical fixture; the
+  low GATE panel and tunnel walls remain CAD-only and intentionally body-free.
+  The OBELISK is outside the perimeter and needs no duplicate body.
 - **Verification after the collision pass:** `decodeCollision.test.ts` covers
-  classifications, passability, goal-shell shape count, and a loose artifact
-  resolving against the live static field. `npm run verify` is clean
-  (typecheck, ESLint, full Vitest); local browser inspection at `/Ftcsim/`
-  confirmed the shell rails render while game regions remain overlays.
+  classifications, triangle/classifier bodies, a loose artifact and a robot
+  resolving against the same live GOAL fixture, plus the passable tunnel
+  opening. `fieldRenderer.ts` now renders static fixtures from their actual
+  collision shapes and renders SPIKE MARKS as white tape strips rather than
+  rectangles. Local browser inspection at `/Ftcsim/` confirmed the field-first
+  blue/white presentation. `npm run verify` is clean: 45 files / 934 tests,
+  TypeScript and ESLint.
 - **Inspect first next time:** `decodeCollision.ts` and its tests for the
   collision contract, `decodeField.ts` for sourced/inferred placements, then
   `app/App.tsx`, `app/input/bindings.ts`, `app/components/ControlsPanel.tsx`

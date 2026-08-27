@@ -296,10 +296,12 @@ describe('game overlay and pieces', () => {
       return rec;
     })();
 
-    // One closePath per polygonal region or zone; circles use arc instead.
+    // One closePath per polygonal region or zone plus every visible static
+    // fixture. Rendering field fixtures from their real collision shape keeps
+    // the display and collision world aligned; circles use arc instead.
     const polygons = [...overlay.regions, ...overlay.zones].filter(
       (shaped) => shaped.shape.kind !== 'circle',
-    ).length;
+    ).length + field.bodies.filter((body) => body.shape.kind !== 'circle').length;
     expect(calls.filter((c) => c.op === 'closePath')).toHaveLength(polygons);
   });
 
