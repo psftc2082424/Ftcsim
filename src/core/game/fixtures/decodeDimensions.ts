@@ -252,7 +252,7 @@ export const ARTIFACT_MASS_NOT_IN_MANUAL = true;
  * ── Why it matters more than most numbers in this file ─────────────────────
  *
  * This is the only ARTIFACT property that reaches the physics. Piece mass sets
- * how far an artifact travels when a robot strikes it, and with no piece damping
+ * how far an artifact travels when a robot strikes it; artifact-only damping
  * (ASSUMPTIONS.md §5.5) a struck artifact slides until it meets something. Every
  * "did it reach the goal" outcome depends on it.
  *

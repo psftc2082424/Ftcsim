@@ -142,6 +142,36 @@ describe('pieces interact through the existing collision resolver', () => {
     expect(piece.pose.p.x).toBeGreaterThan(startX + 0.05);
   });
 
+  it('uses ball-only rolling loss while preserving ordinary robot motion', () => {
+    const w = world([artifact({ startPositionM: vec2(0.7, 0.7) })]);
+    w.releasePieceMoving('a1', vec2(0.7, 0.7), vec2(1, 0));
+
+    w.stepMany(100); // half a second, away from robots and walls
+
+    const piece = w.snapshot().pieces[0];
+    if (piece === undefined) return;
+    const speed = Math.hypot(piece.vel.v.x, piece.vel.v.y);
+    expect(speed).toBeGreaterThan(0);
+    expect(speed).toBeLessThan(1);
+    expect(speed).toBeCloseTo(1 - inchesToMeters(20) * 100 * w.dt, 8);
+  });
+
+  it('keeps ball-to-ball collisions physical and modestly inelastic', () => {
+    const w = world([
+      artifact({ pieceId: 'a', startPositionM: vec2(-0.5, 0.8) }),
+      artifact({ pieceId: 'b', startPositionM: vec2(-0.15, 0.8) }),
+    ]);
+    w.releasePieceMoving('a', vec2(-0.5, 0.8), vec2(2, 0));
+
+    w.stepMany(50);
+
+    const [a, b] = w.snapshot().pieces;
+    if (a === undefined || b === undefined) return;
+    expect(a.vel.v.x).toBeGreaterThan(0);
+    expect(a.vel.v.x).toBeLessThan(2);
+    expect(b.vel.v.x).toBeGreaterThan(a.vel.v.x);
+  });
+
   it('is stopped by the field perimeter after being knocked toward it', () => {
     const bounds = fieldBounds(createStandardField());
     const w = new SimWorld({
@@ -211,7 +241,8 @@ describe('pieces interact through the existing collision resolver', () => {
     // geometrically unsatisfiable — nothing can separate a piece from both a
     // robot and a wall closer together than its diameter — so it eventually
     // squirts out sideways, which is what a real one does. Where it goes after
-    // that is ordinary undamped piece motion (§5.5); what matters is that the
+    // that is ordinary artifact motion with the modest floor-roll loss (§5.5);
+    // what matters is that the
     // field still holds it.
     w.stepMany(6000);
 

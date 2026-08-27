@@ -224,6 +224,30 @@ describe('letting pieces out', () => {
     expect(conveyors.queued('chute')).toEqual([]);
   });
 
+  it('latches one gate activation until every queued piece has left', () => {
+    const positions = new Map(['a', 'b', 'c'].map((id, index) => [id, inEntry(index)] as const));
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([SPEC], places(), DT);
+    const gate = vec2(0, -20 * 0.0254);
+
+    // First tick: the robot opens the gate. It immediately leaves, as it would
+    // after pushing a gravity-return gate rather than remaining parked on it.
+    world.moveRobot(gate);
+    conveyors.update(world.snapshot(0), 0, world);
+    world.moveRobot(null);
+    expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
+
+    const drainTicks = Math.round(SPEC.drainIntervalSec / DT);
+    for (let tick = 1; tick <= drainTicks * 3 + 2; tick++) {
+      conveyors.update(world.snapshot(tick), tick, world);
+    }
+
+    expect(conveyors.queued('chute')).toEqual([]);
+    expect([...world.released.keys()]).toEqual(['a', 'b', 'c']);
+    // The latch closes after its final ball, ready for a new activation.
+    expect(conveyors.isOpen('chute', world.snapshot(drainTicks * 3 + 3))).toBe(false);
+  });
+
   it('drains in arrival order, way-out end first', () => {
     const drainTicks = Math.round(SPEC.drainIntervalSec / DT);
     const { conveyors } = run(['a', 'b', 'c'], 10 + drainTicks, { openAt: 10 });
@@ -233,10 +257,7 @@ describe('letting pieces out', () => {
     expect(conveyors.queued('chute')).toEqual(['b', 'c']);
   });
 
-  /**
-   * Not instantaneous: a gate held open only briefly clears part of the queue,
-   * which is exactly the behaviour the manual warns teams to plan for.
-   */
+  /** Gate activation is not instantaneous: it releases a controlled train. */
   it('cannot empty the queue in a single tick', () => {
     const { conveyors } = run(['a', 'b', 'c'], 12, { openAt: 10 });
     expect(conveyors.queued('chute').length).toBeGreaterThan(0);

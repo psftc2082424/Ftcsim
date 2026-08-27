@@ -3,7 +3,7 @@ import { SpatialHash } from './broadphase.js';
 import { integrateBody, integrateFree } from './integrate.js';
 import { resolveContact } from './resolve.js';
 import { createDynamicBody, createStaticBody, isStatic, spansOverlap, velocityAtPoint } from './body.js';
-import { createObb, createRectPoly, shapeAabb } from './shapes.js';
+import { createCircle, createObb, createRectPoly, shapeAabb } from './shapes.js';
 import { collide } from './sat.js';
 import { vec2 } from '../math/vec2.js';
 
@@ -18,6 +18,19 @@ function makeRobot(id = 0, mass = 14.5, pose = { p: vec2(0, 0), theta: 0 }) {
     inertiaZ: 0.5,
     span: FLOOR,
     pose,
+  });
+}
+
+function makePiece(id = 100, pose = { p: vec2(0, 0), theta: 0 }) {
+  return createDynamicBody({
+    id,
+    kind: 'piece',
+    shape: createCircle(0.1),
+    mass: 0.05,
+    inertiaZ: 0.00025,
+    span: { bottom: 0, top: 0.2 },
+    pose,
+    restitution: 0.2,
   });
 }
 
@@ -188,6 +201,26 @@ describe('contact resolution', () => {
 
     resolveContact(robot, wall, contact);
     expect(robot.vel.v.x).toBeLessThanOrEqual(1e-9);
+    expect(wall.vel.v.x).toBe(0);
+  });
+
+  it('lets a piece retain a modest rebound against a static field element when requested', () => {
+    const piece = makePiece(10, { p: vec2(1.1, 0), theta: 0 });
+    piece.vel = { v: vec2(2, 0), omega: 0 };
+    const wall = createStaticBody({
+      id: 100,
+      shape: createRectPoly(1.2, 0, 0.1, 4),
+      span: { bottom: 0, top: 0.45 },
+    });
+
+    const contact = collide(piece.shape, piece.pose, wall.shape, wall.pose);
+    expect(contact).not.toBeNull();
+    if (contact === null) return;
+
+    // Field bodies remain globally inelastic. The caller can explicitly apply
+    // the game-piece material value without changing any robot collision.
+    resolveContact(piece, wall, contact, 0.2);
+    expect(piece.vel.v.x).toBeCloseTo(-0.4, 8);
     expect(wall.vel.v.x).toBe(0);
   });
 

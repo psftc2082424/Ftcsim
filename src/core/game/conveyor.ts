@@ -4,7 +4,7 @@
  * A robot mechanism acts on pieces near the robot (`mechanism/intake.ts`); this
  * is the same idea for a *field* element. A piece that arrives at one place is
  * held in an ordered queue, and pieces leave somewhere else — immediately if the
- * queue was already full, or when something opens the way out.
+ * queue was already full, or after a robot has opened the way out.
  *
  * ── Season-agnostic ────────────────────────────────────────────────────────
  *
@@ -54,10 +54,11 @@ export interface PieceConveyorSpec {
   /** How many the queue holds before arrivals bypass it. */
   readonly capacity: number;
   /**
-   * Zone a robot must occupy for the queue to drain.
+   * Zone a robot must occupy to latch the queue's way out open.
    *
-   * Omitted means the queue drains freely. Present means something has to hold
-   * it open, and it shuts the moment nothing is.
+   * Omitted means the queue drains freely. A declared opener latches a release
+   * until the queue has emptied, which models a gate the robot triggers rather
+   * than a driver having to remain parked on its activation zone.
    */
   readonly releaseZoneId?: string | undefined;
   /** Alliance whose robots may open it. Omitted means any robot. */
@@ -112,6 +113,8 @@ interface ConveyorState {
   readonly taken: Set<string>;
   /** Pieces this conveyor released and may therefore travel through its exit. */
   readonly released: Set<string>;
+  /** A gate activation keeps the path open until this ordered queue is empty. */
+  releaseLatched: boolean;
 }
 
 /**
@@ -135,6 +138,7 @@ export class PieceConveyors {
         lastDrainTick: Number.NEGATIVE_INFINITY,
         taken: new Set(),
         released: new Set(),
+        releaseLatched: false,
       });
     }
   }
@@ -149,10 +153,11 @@ export class PieceConveyors {
     return [...(this.states.get(conveyorId)?.queue ?? [])];
   }
 
-  /** Is this conveyor's way out being held open right now? */
+  /** Is this conveyor's way out currently open, including a latched release? */
   isOpen(conveyorId: string, snapshot: WorldSnapshot): boolean {
     const spec = this.specs.find((candidate) => candidate.id === conveyorId);
-    return spec !== undefined && this.releaseHeld(spec, snapshot);
+    const state = this.states.get(conveyorId);
+    return spec !== undefined && (state?.releaseLatched === true || this.releaseHeld(spec, snapshot));
   }
 
   /**
@@ -171,9 +176,11 @@ export class PieceConveyors {
 
       this.refreshReleased(state, places, snapshot);
       this.blockInboundExit(spec, state, places, snapshot, world);
+      if (this.releaseHeld(spec, snapshot)) state.releaseLatched = true;
       this.takeArrivals(spec, state, places, snapshot, world);
       this.drain(spec, state, places, snapshot, tick, world);
       this.holdQueue(state, places, world);
+      if (state.queue.length === 0) state.releaseLatched = false;
     }
   }
 
@@ -264,7 +271,7 @@ export class PieceConveyors {
     world: ConveyorWorld,
   ): void {
     if (state.queue.length === 0) return;
-    if (!this.releaseHeld(spec, snapshot)) return;
+    if (!state.releaseLatched && !this.releaseHeld(spec, snapshot)) return;
 
     const intervalTicks = Math.round(spec.drainIntervalSec / this.dtSec);
     if (tick - state.lastDrainTick < intervalTicks) return;

@@ -518,3 +518,46 @@ shoot; then Phase 4 (PDF ingestion).
   direct full-CAD audit of goal/ramp/gate/tunnel dimensions. Inspect
   `core/game/conveyor.ts`, `fixtures/decode.ts`, `fixtures/decodeField.ts`, and
   `app/render/fieldRenderer.ts` first.
+
+### Latest handoff — 2026-08-27 (latched release and artifact settling)
+
+- **One GATE activation now drains the whole current classifier queue.**
+  `PieceConveyors` is still season-agnostic, but its declared `releaseZoneId`
+  now latches `releaseLatched` until that conveyor's queue is empty. A DECODE
+  robot can activate its own GATE then drive away; ARTIFACTS leave in arrival
+  order at the declared `drainIntervalSec` rather than requiring the robot to
+  occupy the zone for every ball. `conveyor.test.ts` covers the exact
+  activate-once → leave → all-three-drain path and confirms the latch closes
+  when the final piece has left. This deliberately does not alter the existing
+  one-way return-path guard or automatic full-queue overflow.
+- **ARTIFACTS now settle instead of preserving artificial impact energy.**
+  `SimWorld` gives a piece↔piece or piece↔static-field contact restitution
+  `0.20`, via the optional resolver override needed because static walls remain
+  globally inelastic. Loose, floor-level pieces also lose `20 in/s²`, copied as
+  an observational calibration from dSim's ball configuration. Robot↔robot,
+  robot↔field and robot↔piece calls deliberately use the unchanged default
+  restitution path; drivetrain coasting, BRAKE behavior and robot collision
+  response have not changed. See `ASSUMPTIONS.md §5.5` and focused tests in
+  `physics.test.ts` / `pieces.test.ts`.
+- **Removed a stale false derivation.** `decode.ts` no longer exposes an
+  invented RAMP angle or a full-tunnel gravity-speed calculation. The manual
+  does not establish either, and the actual DECODE data now records the
+  0.35-second drain cadence and 22 in/s release speed as inferred,
+  dSim-observed gameplay calibration instead.
+- **Verification:** `npm run verify` is clean after this change (TypeScript,
+  ESLint, 46 Vitest files). Targeted conveyor, artifact-material and contact
+  tests also pass.
+- **Still incomplete — do not claim otherwise:** the classifier's pre-release
+  queue is still `PieceConveyors.holdQueue`'s ordered, parked abstraction. It
+  is no longer required to stay open and released balls are real physical
+  pieces, but queued balls do not yet collide/pack on a modeled ramp. The 2D
+  core has no inclined-plane component or live gate collider, so converting
+  this faithfully requires a generic, data-declared guided lane plus dynamic
+  gate blocker — not DECODE-specific fixed coordinates. Do not restore the
+  removed motor/flywheel/RNG mechanism physics to solve it.
+- **Highest-priority next work:** make that generic physical classifier lane
+  (normal balls, lane gravity/damping, a live gate blocker, 9-ball packing and
+  automatic overflow) and then use DECODE as its fixture. Inspect
+  `core/game/conveyor.ts`, `core/sim/simWorld.ts`, `decodeCollision.ts`, and
+  dSim's `src/sim/goal.ts` / `src/sim/field.ts` first. The supplied CAD is
+  still required before claiming the GATE panel outline matches the real field.

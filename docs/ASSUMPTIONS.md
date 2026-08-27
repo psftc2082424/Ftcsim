@@ -473,25 +473,28 @@ vertical-span overlap test, and nothing in Phase 1 can drive over a wall, so it
 has no observable effect until traversable field elements exist. It is recorded
 now so the number is not mistaken for a measurement later.
 
-### 5.5 Game pieces have no damping
+### 5.5 ARTIFACT contacts and rolling are modestly inelastic
 
 | | |
 |---|---|
-| **Value** | None — a piece keeps whatever velocity a collision gave it |
-| **Confidence** | **ASSUMED** (idealisation) |
+| **Value** | contact restitution `0.20`; floor-roll deceleration `20 in/s²` (`0.508 m/s²`) |
+| **Confidence** | **INFERRED** from dSim's published game-ball configuration; not an FTC manual dimension |
 | **Location** | `src/core/sim/simWorld.ts` |
 
-Pieces integrate as free bodies with no applied force. Contacts are frictionless
-(§5.1) and there is no rolling resistance (§2.4), so a knocked piece slides at
-constant speed until it meets a wall.
+ARTIFACTS need to form a useful queue in the GOAL classifier and SECRET TUNNEL:
+an entirely elastic ball keeps artificial gaps alive, while a fully inelastic
+one looks like clay. The piece material therefore retains 20% of approach speed
+along a ball↔ball or ball↔static-field contact and loses `20 in/s²` of loose,
+floor-level rolling speed. This is limited in `SimWorld` to `piece↔piece` and
+`piece↔static` contacts; a robot↔wall or robot↔piece contact calls the unchanged
+default resolver. Drivetrain coasting, BRAKE behavior and robot collision
+response do not read either constant.
 
-**Why nothing was added.** Any damping figure would be an invented coefficient
-with no measurement behind it, which `CLAUDE.md` forbids. The robot avoids this
-problem because back-EMF braking supplies a real, derived decelerating torque;
-a game piece has no motor, so there is no honest equivalent to derive.
-
-**Known bias.** Pieces travel further than real ones after being struck.
-Calibration target alongside §2.1 and §5.1.
+It is an observable gameplay calibration, not a generic friction model. The
+only reason it exists is to let loose ARTIFACTS settle and pack after impacts;
+it is deliberately not applied to the drivetrain or to arbitrary dynamic
+bodies. Focused tests cover the material rebound, rolling loss and the fact
+that robot collision defaults are unaffected.
 
 ### 5.6 A piece pinned against a wall escapes the field — **fixed, see §5.8**
 
@@ -607,7 +610,8 @@ structure rather than a number chosen to be large.
 **What is still true.** The squeeze remains geometrically unsatisfiable: no
 position separates a piece from both a robot and a wall that are closer together
 than its diameter. The piece is now nudged sideways instead — which is what a
-real one does — and then slides undamped (§5.5) until it meets something. The
+real one does — then slows under the deliberately modest artifact-only rolling
+loss (§5.5) until it meets something. The
 test asserts it stays inside the field over thirty further seconds of the robot
 driving into it, rather than asserting a resting position it does not have.
 
@@ -641,14 +645,14 @@ rises with it.
 **No drag, and why.** A 5 in polypropylene ball at 30 ft/s sits near Re 1.5e5
 with a drag coefficient around 0.5, costing a few percent of range across an FTC
 field. Modelling it needs a drag coefficient and a spin model, and neither is
-published for this piece — the same reason no rolling resistance exists (§2.4).
+published for this piece. The separate floor-level artifact rolling loss is a
+gameplay calibration recorded in §5.5, not an aerodynamic model.
 **Known bias:** launched pieces fly slightly further and flatter than real ones,
 and the error grows with range.
 
-**No bounce.** Restitution is 0 for every body (§5.1), so a piece lands and
-rolls rather than bouncing. `stepVertical` takes a restitution and has a
-minimum-bounce floor so that a game which does give its pieces one terminates
-instead of jittering against the floor forever.
+**Modest bounce.** ARTIFACT horizontal contacts use the material value in §5.5;
+vertical landings use the same `0.20` restitution and `stepVertical`'s
+minimum-bounce floor so repeated low bounces terminate instead of jittering.
 
 ### 5.10 Scoring through a GOAL is gated on height, not proximity
 
@@ -1390,10 +1394,9 @@ gap rather than as a failure to look. Resolving it needs the AndyMark product
 spec for `am-3376a` or a weighed artifact — neither is in the supplied manual.
 
 **Why it matters more than it looks.** Piece mass sets how far an artifact
-travels when a robot strikes it, and with no piece damping (§5.5) a struck
-artifact slides until it meets a wall. Every "did it reach the goal" outcome
-therefore depends on this number. It is the single highest-value correction to
-the DECODE fixture.
+travels when a robot strikes it; the artifact-only roll loss (§5.5) bounds that
+travel, but the initial collision still depends on this number. It remains the
+single highest-value correction to the DECODE fixture.
 
 ### 10.11 The assumption ledger for a game is derived
 
@@ -1651,7 +1654,7 @@ does not already give:
 | 2026-08-25 | AUTO-to-TELEOP transition corrected against §10.5.A: it is now its own `TRANSITION` match state and scores as the period the game declares, where it was previously `PRE` and scored nothing. |
 | 2026-08-25 | Assumption ledger corrected: shared `Sourced` values are now reported at every path that uses them, and `provenanceNotes` carries statements that belong to a definition rather than to one field — so the invented layout and the estimated mass on both piece types now appear in `assumptionLedger(DECODE_GAME)`. |
 | 2026-08-25 | LEAVE and BASE corrected against §10.5.3: both are assessed on a robot's final position, and LEAVE checks every LAUNCH LINE rather than the alliance's own. Added §10.12 for the DEPOT tape, which the manual makes a LAUNCH LINE and which this model cannot yet treat as one. |
-| 2026-08-25 | Added §5.5 (pieces have no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
+| 2026-08-25 | Added §5.5 (at that time, pieces had no damping) and §5.6 (a pinned piece escapes the field — known resolver defect, asserted by test) as game pieces became entities; §10.5 narrowed to the snapshot-to-observation join. |
 | 2026-08-25 | Phase 3 pipeline closed end to end. Added §10.9 (DECODE positions invented), §10.10 (ARTIFACT mass estimated), §10.11 (per-season ledger is derived by walking the GameDefinition); §10.5 narrowed from the pipeline to the coordinates. |
 | 2026-08-24 | Added §9.4 recording that mechanism preset templates are editable starting points: mass and actuation feed the physics, the remaining capability parameters are inert until Phase 3. |
 | 2026-08-26 | Added §5.9 (2.5D piece flight, no drag) and §5.10 (GOAL scoring gated on height). Pieces have height and climb rate, robots can launch them, and the 24 on-field ARTIFACTS are staged from §10.3.1 and the setup guide. |

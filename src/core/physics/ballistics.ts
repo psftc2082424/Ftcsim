@@ -41,7 +41,8 @@ import { STANDARD_GRAVITY } from '../units/convert.js';
  * drag coefficient near 0.5, which costs a few percent of range over a shot the
  * length of an FTC field. Including it would mean choosing a drag coefficient
  * and a spin model, and neither is published for this piece — the same reason
- * no rolling resistance exists. Consequence: launched pieces travel slightly
+ * artifact floor rolling loss is only applied once they return to the ground.
+ * Consequence: launched pieces travel slightly
  * further and flatter than real ones, and the error grows with range.
  */
 export const BALLISTIC_DRAG_MODELLED = false;

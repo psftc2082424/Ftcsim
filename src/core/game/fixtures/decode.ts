@@ -32,9 +32,9 @@ import type {
   PenaltyValues,
   RankingPointRules,
 } from '../gameDefinition.js';
-import { ARTIFACT, CLASSIFIER, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
+import { ARTIFACT, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
 import type { PieceConveyorSpec } from '../conveyor.js';
-import { inchesToMeters, STANDARD_GRAVITY } from '../../units/convert.js';
+import { inchesToMeters } from '../../units/convert.js';
 import { vec2 } from '../../math/vec2.js';
 
 // ---------------------------------------------------------------- pieces ---
@@ -129,74 +129,33 @@ export const SPIKE_MARKS_PER_ALLIANCE = explicit(
 export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
 
 /**
- * How steeply the RAMP falls, in radians.
+ * Seconds between successive CLASSIFIED artifacts leaving an opened RAMP.
  *
- * The manual never states it, and it is the one thing needed to say how long
- * artifacts take to move along the CLASSIFIER — which it does say is not
- * instant: "The GATE closing before all CLASSIFIED ARTIFACTS exit the RAMP is
- * not considered an ARENA FAULT, and teams should be prepared to hold the GATE
- * open to fully clear the RAMP" (§9.8.3).
- *
- * So it is inferred from the two heights the manual *does* give, at the two ends
- * of the run the setup guide gives: the GOAL's top lip is 38.75 in above the
- * TILE (§9.7), the open GATE's contact point is about 3 in above it (§9.8.3),
- * and the SECRET TUNNEL that runs beneath the CLASSIFIER is 46.5 in long (§9.3).
- * That is a drop of 35.75 in over a run of 46.5 in.
- */
-export const RAMP_SLOPE_RAD = inferred(
-  Math.atan2(
-    GOAL.topLipHeightIn.value - CLASSIFIER.gateOpenContactHeightIn.value,
-    ZONES.secretTunnelLengthIn.value,
-  ),
-  'The manual gives no RAMP angle. Taken from the drop between the GOAL top lip ' +
-    '(38.75 in, §9.7) and the open GATE contact point (3 in, §9.8.3) over the ' +
-    'length of the SECRET TUNNEL that runs beneath the CLASSIFIER (46.5 in, §9.3). ' +
-    'Only the timings below depend on it, and only their magnitude.',
-  72,
-);
-
-/**
- * Along-slope acceleration of an ARTIFACT rolling down the RAMP, m/s².
- *
- * A solid sphere rolling without slipping accelerates at `(5/7) g sin a` — the
- * 5/7 is `1/(1 + I/mr²)` for `I = ⅖mr²`, so it is the ball's own geometry rather
- * than a fitted number.
- */
-export const RAMP_ROLL_ACCEL_MPS2 =
-  (5 / 7) * STANDARD_GRAVITY * Math.sin(RAMP_SLOPE_RAD.value);
-
-/**
- * Seconds between successive CLASSIFIED artifacts leaving a draining RAMP.
- *
- * Balls on a ramp rest against the one below, so releasing one lets the stack
- * move exactly one diameter before the next reaches the GATE: `t = √(2D/a)`
- * from rest. Nine of them therefore take about nine of these, which is why
- * holding the GATE open matters.
+ * The manual establishes the GATE as a robot-activated gravity return but does
+ * not publish its throughput. dSim's visible classifier flow is used as an
+ * observational reference: balls leave as a controlled train rather than as a
+ * single high-speed burst. The generic conveyor latches one activation until
+ * its queue is empty, so this is a per-ball cadence rather than a requirement
+ * that the robot remain in the GATE ZONE.
  */
 export const RAMP_DRAIN_INTERVAL_SEC = inferred(
-  Math.sqrt((2 * (ARTIFACT.specifiedDiameterIn.value * 0.0254)) / RAMP_ROLL_ACCEL_MPS2),
-  'Time for a rolling ARTIFACT to travel its own diameter from rest at the RAMP ' +
-    'slope. The manual states the drain is not instantaneous but gives no rate.',
+  0.35,
+  'Observed dSim-style classifier cadence. The manual states the drain is not ' +
+    'instantaneous but gives no throughput; a gate activation is latched until the queue empties.',
   72,
 );
 
 /**
- * Speed an ARTIFACT reaches after rolling the SECRET TUNNEL's length, m/s.
+ * Exit speed for a released ARTIFACT, m/s.
  *
- * `v = √(2 a d)` from rest at the inferred RAMP slope — the same kinematics
- * `RAMP_DRAIN_INTERVAL_SEC` uses, over the tunnel's full sourced length rather
- * than one ARTIFACT diameter. This is the real push a piece leaves the GATE
- * with when it overflows or drains: it becomes an ordinary rolling body at
- * this speed rather than being placed at the far end after a wait
- * (`game/conveyor.ts`). With no rolling resistance modelled anywhere in this
- * simulator, it keeps rolling at roughly this speed once released, which is
- * the correct behaviour for a piece that left the RAMP still moving.
+ * dSim starts a gate-released ball near 22 in/s and lets ball-only rolling loss
+ * settle it through the return. The manual supplies the tunnel geometry but no
+ * release speed, so this is explicitly inferred rather than pretending the
+ * previous full-length-ramp calculation was a sourced fact.
  */
 export const TUNNEL_EXIT_SPEED_MPS = inferred(
-  Math.sqrt((2 * RAMP_ROLL_ACCEL_MPS2 * inchesToMeters(ZONES.secretTunnelLengthIn.value))),
-  'Speed reached rolling the full SECRET TUNNEL length (46.5 in, §9.3) from rest ' +
-    'at the inferred RAMP slope. An OVERFLOW artifact "passes over the top of the ' +
-    'GATE to exit the RAMP" (§9.8.3) already moving, not placed at the far end.',
+  inchesToMeters(22),
+  'dSim-style observed gate-release speed; the manual specifies no release rate.',
   72,
 );
 

@@ -101,6 +101,23 @@ export const DT_SECONDS = 1 / TICK_RATE_HZ;
  */
 export const CONTACT_PASSES = 4;
 
+/**
+ * ARTIFACT contacts are deliberately modestly inelastic.
+ *
+ * This applies only to piece↔piece and piece↔static-field contacts. Robots
+ * retain the exact restitution and collision path they had before this value
+ * existed. See ASSUMPTIONS.md §5.5.
+ */
+export const ARTIFACT_CONTACT_RESTITUTION = 0.2;
+
+/**
+ * Floor-level ARTIFACT rolling loss, matching dSim's 20 in/s² ball-roll value.
+ *
+ * It is a game-piece-only floor effect: drivetrain coasting/braking and robot
+ * collision behaviour do not read it.
+ */
+export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(20);
+
 /** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
 export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
 
@@ -298,6 +315,7 @@ export class SimWorld {
       inertiaZ,
       span: { bottom: Math.max(0, heightM - radiusM), top: heightM + radiusM },
       pose: { p: spec.startPositionM ?? vec2(0, 0), theta: 0 },
+      restitution: ARTIFACT_CONTACT_RESTITUTION,
     });
 
     this.bodies.set(id, body);
@@ -385,6 +403,7 @@ export class SimWorld {
       if (piece.carriedBy !== null || piece.parked) continue;
 
       integrateBody(piece.body, { fx: 0, fy: 0, mz: 0 }, DT_SECONDS);
+      this.applyArtifactRollingLoss(piece);
 
       // 6c. Height, under gravity. A piece in flight keeps its horizontal
       //     velocity — with no drag the two are independent — and its span
@@ -889,7 +908,7 @@ export class SimWorld {
         const contact = collide(a.shape, a.pose, b.shape, b.pose);
         if (contact === null) continue;
 
-        resolveContact(a, b, contact);
+        resolveContact(a, b, contact, artifactContactRestitution(a, b));
         resolvedAny = true;
       }
 
@@ -897,6 +916,29 @@ export class SimWorld {
       if (!resolvedAny) break;
     }
   }
+
+  /** Remove a small, constant floor-roll speed from loose ground artifacts only. */
+  private applyArtifactRollingLoss(piece: SimPiece): void {
+    if (piece.heightM > piece.radiusM || piece.verticalVelocityMps !== 0) return;
+
+    const speed = Math.hypot(piece.body.vel.v.x, piece.body.vel.v.y);
+    if (speed === 0) return;
+    const nextSpeed = Math.max(0, speed - ARTIFACT_ROLLING_DECELERATION_MPS2 * DT_SECONDS);
+    const scale = nextSpeed / speed;
+    piece.body.vel = {
+      v: vec2(piece.body.vel.v.x * scale, piece.body.vel.v.y * scale),
+      omega: piece.body.vel.omega,
+    };
+  }
+}
+
+/** Preserve robot contacts exactly; only ball contacts use the material override. */
+function artifactContactRestitution(a: RigidBody, b: RigidBody): number | undefined {
+  const pieceAndStatic =
+    (a.kind === 'piece' && b.kind === 'static') || (a.kind === 'static' && b.kind === 'piece');
+  return a.kind === 'piece' && b.kind === 'piece' || pieceAndStatic
+    ? ARTIFACT_CONTACT_RESTITUTION
+    : undefined;
 }
 
 /**

@@ -91,20 +91,31 @@ const scratch: PointSolver[] = Array.from({ length: MAX_MANIFOLD_POINTS }, () =>
  * `contact.normal` points from A toward B (see `sat.ts`), so B is pushed along
  * +normal and A along -normal.
  */
-export function resolveContact(a: RigidBody, b: RigidBody, contact: Contact): void {
+export function resolveContact(
+  a: RigidBody,
+  b: RigidBody,
+  contact: Contact,
+  restitutionOverride?: number,
+): void {
   const invMassSum = a.invMass + b.invMass;
   if (invMassSum === 0) return; // two static bodies: nothing to do
 
-  const count = prepare(a, b, contact, invMassSum);
+  const count = prepare(a, b, contact, invMassSum, restitutionOverride);
   if (count > 0) solveNormalImpulses(a, b, contact, count);
 
   applyPositionalCorrection(a, b, contact, invMassSum);
 }
 
 /** Fill the scratch buffer for this contact. Returns how many points are live. */
-function prepare(a: RigidBody, b: RigidBody, contact: Contact, invMassSum: number): number {
+function prepare(
+  a: RigidBody,
+  b: RigidBody,
+  contact: Contact,
+  invMassSum: number,
+  restitutionOverride: number | undefined,
+): number {
   const { normal, points } = contact;
-  const restitution = Math.min(a.restitution, b.restitution);
+  const restitution = restitutionOverride ?? Math.min(a.restitution, b.restitution);
 
   let count = 0;
   for (let i = 0; i < points.length && count < MAX_MANIFOLD_POINTS; i++) {
