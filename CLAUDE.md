@@ -202,6 +202,14 @@ GOAL-cluster CAD extraction remains a later data-quality task.
   `MechanismPanel.tsx` for the field-first UI. The remaining data-quality task
   is extracting inferred GOAL/RAMP/DEPOT placement from the full-field CAD;
   region IDs are the contract and must not change.
+- **Field presentation pass started:** `app/render/fieldRenderer.ts` now renders
+  dark alternating FTC tiles, filled physical perimeter rails, tape-weight
+  markings, and solid-looking GOAL/RAMP/GATE/TUNNEL shapes from existing
+  GameDefinition geometry. This is visual-only. Collision currently remains
+  the standard perimeter template; before adding field-element bodies, build a
+  season fixture that classifies each official element as SOLID, PASSABLE, or
+  logic-only from the setup/CAD data rather than turning score regions into
+  walls.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

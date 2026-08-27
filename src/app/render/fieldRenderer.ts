@@ -21,11 +21,11 @@ import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera 
 const TILE_SIZE_M = inchesToMeters(24);
 
 const COLORS = {
-  backdrop: '#0d1117',
-  tile: '#1c2530',
-  tileLine: '#2a3644',
-  fieldEdge: '#4a5b6e',
-  wall: '#39485a',
+  backdrop: '#111820',
+  tile: '#263442',
+  tileLine: '#415363',
+  fieldEdge: '#d8e2e9',
+  wall: '#a9b8c3',
   axis: '#2f3d4d',
   robotBody: '#3d7dca',
   robotOutline: '#9ecbff',
@@ -35,9 +35,9 @@ const COLORS = {
   pieceOutline: '#e0c6f2',
   pieceShadow: 'rgba(0, 0, 0, 0.35)',
   regionFill: 'rgba(120, 170, 220, 0.10)',
-  regionEdge: 'rgba(150, 195, 240, 0.55)',
-  redEdge: 'rgba(220, 100, 110, 0.65)',
-  blueEdge: 'rgba(100, 150, 235, 0.65)',
+  regionEdge: 'rgba(255, 255, 255, 0.74)',
+  redEdge: '#e23448',
+  blueEdge: '#1772d0',
   label: 'rgba(200, 220, 240, 0.75)',
 } as const;
 
@@ -113,13 +113,11 @@ function drawOverlay(
   showLabels: boolean,
 ): void {
   for (const shaped of [...overlay.regions, ...overlay.zones]) {
-    ctx.fillStyle = COLORS.regionFill;
-    ctx.strokeStyle = shaped.id.startsWith('red-')
-      ? COLORS.redEdge
-      : shaped.id.startsWith('blue-')
-        ? COLORS.blueEdge
-        : COLORS.regionEdge;
-    ctx.lineWidth = 1.5;
+    const kind = presentationKind(shaped.id);
+    const allianceColor = shaped.id.startsWith('red-') ? COLORS.redEdge : shaped.id.startsWith('blue-') ? COLORS.blueEdge : COLORS.regionEdge;
+    ctx.fillStyle = kind === 'goal' ? (shaped.id.startsWith('red-') ? '#9d1f31' : '#1559a5') : COLORS.regionFill;
+    ctx.strokeStyle = allianceColor;
+    ctx.lineWidth = kind === 'tape' ? 3 : kind === 'structure' || kind === 'goal' ? 2.5 : 1.5;
 
     if (shaped.shape.kind === 'circle') {
       const radius = metersToPixels(camera, shaped.shape.radius);
@@ -131,7 +129,7 @@ function drawOverlay(
         0,
         Math.PI * 2,
       );
-      ctx.fill();
+      if (kind !== 'tape') ctx.fill();
       ctx.stroke();
     } else {
       const vertices = shaped.shape.vertices;
@@ -145,8 +143,16 @@ function drawOverlay(
         else ctx.lineTo(sx, sy);
       });
       ctx.closePath();
-      ctx.fill();
+      if (kind !== 'tape') ctx.fill();
       ctx.stroke();
+
+      if (kind === 'goal' || kind === 'structure') {
+        ctx.save();
+        ctx.globalAlpha = 0.24;
+        ctx.fillStyle = '#ffffff';
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
     if (showLabels) {
@@ -161,6 +167,14 @@ function drawOverlay(
       ctx.textAlign = 'start';
     }
   }
+}
+
+/** Presentation-only classification; game rules and collision never read this. */
+function presentationKind(id: string): 'goal' | 'structure' | 'tape' | 'zone' {
+  if (id.endsWith('-goal')) return 'goal';
+  if (id.endsWith('-ramp') || id.includes('tunnel') || id.includes('gate')) return 'structure';
+  if (id.includes('spike') || id.includes('launch') || id.includes('base') || id.includes('loading') || id.includes('depot')) return 'tape';
+  return 'zone';
 }
 
 /**
@@ -224,6 +238,16 @@ function drawField(
   ctx.fillStyle = COLORS.tile;
   ctx.fillRect(left, top, sizeX, sizeY);
 
+  // Alternating tile faces make the standard 6 x 6 foam grid legible even
+  // with authoring labels disabled.
+  for (let column = 0; column < 6; column++) {
+    for (let row = 0; row < 6; row++) {
+      if ((column + row) % 2 === 0) continue;
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.075)';
+      ctx.fillRect(left + (column * sizeX) / 6, top + (row * sizeY) / 6, sizeX / 6, sizeY / 6);
+    }
+  }
+
   if (showGrid) {
     ctx.strokeStyle = COLORS.tileLine;
     ctx.lineWidth = 1;
@@ -241,28 +265,21 @@ function drawField(
     ctx.stroke();
   }
 
-  // Origin cross, so the coordinate convention is visible while driving.
-  ctx.strokeStyle = COLORS.axis;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(worldToScreenX(camera, 0), top);
-  ctx.lineTo(worldToScreenX(camera, 0), top + sizeY);
-  ctx.moveTo(left, worldToScreenY(camera, 0));
-  ctx.lineTo(left + sizeX, worldToScreenY(camera, 0));
-  ctx.stroke();
-
-  // Perimeter, drawn from the actual collision bodies rather than from the
-  // nominal size, so what is displayed is what the physics uses.
+  // Perimeter, drawn from actual collision bodies rather than nominal field
+  // size. Filled rails read as an FTC wall rather than an authoring outline.
   ctx.strokeStyle = COLORS.wall;
-  ctx.lineWidth = 3;
+  ctx.fillStyle = COLORS.wall;
+  ctx.lineWidth = 2;
   for (const body of field.bodies) {
     if (body.shape.kind !== 'obb') continue;
     const { x: hx, y: hy } = body.shape.halfExtents;
+    const x = worldToScreenX(camera, body.pose.p.x - hx);
+    const y = worldToScreenY(camera, body.pose.p.y + hy);
+    const w = metersToPixels(camera, hx * 2);
+    const h = metersToPixels(camera, hy * 2);
+    ctx.fillRect(x, y, w, h);
     ctx.strokeRect(
-      worldToScreenX(camera, body.pose.p.x - hx),
-      worldToScreenY(camera, body.pose.p.y + hy),
-      metersToPixels(camera, hx * 2),
-      metersToPixels(camera, hy * 2),
+      x, y, w, h,
     );
   }
 
