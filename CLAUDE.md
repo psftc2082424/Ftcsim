@@ -676,3 +676,12 @@ shoot; then Phase 4 (PDF ingestion).
   classifier and complete `decodeMatch.test.ts` suites pass. Next: add a
   multi-origin 20-shot integration regression and browser verification, then
   run `npm run verify` and commit.
+
+### Latest handoff — 2026-08-27 (single GOAL outlet)
+
+- **The GOAL basin now has one outlet only.** The diagonal face in
+  `decodeCollision.ts` closes flush to the six-inch classifier arch; the prior
+  11 in artificial clearance left a broad field-facing escape gap. Accepted
+  ARTIFACTS can only travel to the classifier through that arch, while the
+  existing vertical-entry and unauthorized-lane guards still reject loose
+  ground balls. Inspect `goalWallBodies()` before changing GOAL geometry.

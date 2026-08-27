@@ -215,12 +215,11 @@ function goalSide(alliance: 'red' | 'blue'): number {
  */
 const GOAL_WALL_THICKNESS_IN = 2;
 /**
- * Clearance reserved beside the six-inch classifier channel for a 4.9 in
- * ARTIFACT to turn out of the GOAL basin.  The physical face ends at the
- * channel; this small 2D clearance prevents a disc from snagging forever on
- * the face/rail corner that real three-dimensional guide surfaces round off.
+ * The GOAL's diagonal front closes against the classifier arch.  The arch is
+ * the sole physical outlet from the receiving basin: widening it creates a
+ * second field-facing escape path for accepted ARTIFACTS.
  */
-const GOAL_CLASSIFIER_ARCH_CLEARANCE_IN = 11;
+const GOAL_CLASSIFIER_ARCH_CLEARANCE_IN = 0;
 
 /**
  * The GOAL opening is a right triangle in the far corner. Its two legs and its
@@ -282,9 +281,9 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
     inchesToMeters(sign * (half - openingWidthIn)),
     inchesToMeters(half),
   );
-  // The six-inch CLASSIFIER channel replaces the side-wall end of the GOAL
-  // face.  dSim clips the face at this archway; extending it across the
-  // channel leaves no physical route from the retained basin to the lane.
+  // The six-inch CLASSIFIER channel replaces only the side-wall end of the
+  // GOAL face. The diagonal closes everywhere else, leaving one direct arch
+  // into the classifier rather than a broad field-facing basin exit.
   const channelInnerXIn = sign * (half - CLASSIFIER_CHANNEL_WIDTH_IN - GOAL_CLASSIFIER_ARCH_CLEARANCE_IN);
   const originalFaceEndYIn = half - openingDepthIn;
   const faceFraction =
