@@ -131,12 +131,13 @@ function drawOverlay(
   const openConveyorIds = overlay.openConveyorIds ?? EMPTY_OPEN_SET;
   for (const shaped of [...overlay.regions, ...overlay.zones]) {
     const kind = presentationKind(shaped.id);
-    // DECODE's physical goal/ramp assemblies come from the field fixture, not
-    // their rule regions. Drawing the latter would reintroduce the old large
-    // abstract rectangles on top of the real top-down geometry.
-    if (decodePresentation && (kind === 'goal' || kind === 'structure')) continue;
+    // The raised RAMP is rendered from its physical fixture body. The GOAL is
+    // different: its rule region is the exact triangular open basin, so using
+    // it for the filled plan view is both more legible and faithful to the
+    // physical outline. Generic structure rectangles remain hidden.
+    if (decodePresentation && kind === 'structure' && shaped.id.endsWith('-ramp')) continue;
     const allianceColor = shaped.id.startsWith('red-') ? COLORS.redEdge : shaped.id.startsWith('blue-') ? COLORS.blueEdge : COLORS.regionEdge;
-    ctx.fillStyle = kind === 'goal' ? (shaped.id.startsWith('red-') ? '#9d1f31' : '#1559a5') : COLORS.regionFill;
+    ctx.fillStyle = kind === 'goal' ? (shaped.id.startsWith('red-') ? '#4f1414' : '#14235a') : COLORS.regionFill;
     ctx.strokeStyle = allianceColor;
     ctx.lineWidth = kind === 'tape' ? 3 : kind === 'structure' || kind === 'goal' ? 2.5 : 1.5;
 
@@ -169,6 +170,16 @@ function drawOverlay(
 
       if (decodePresentation && shaped.id.includes('gate-zone')) {
         drawGate(ctx, camera, shaped, allianceColor, isConveyorOpenFor(shaped.id, openConveyorIds));
+        continue;
+      }
+
+      if (decodePresentation && shaped.id.includes('secret-tunnel')) {
+        drawTunnel(ctx, camera, shaped, allianceColor);
+        continue;
+      }
+
+      if (decodePresentation && shaped.id.endsWith('-depot')) {
+        drawDepot(ctx, camera, shaped.id, overlay);
         continue;
       }
 
@@ -247,19 +258,124 @@ function drawGate(
   const minY = Math.min(...vertices.map((vertex) => vertex.y));
   const maxY = Math.max(...vertices.map((vertex) => vertex.y));
   const centerY = (minY + maxY) / 2;
-  // Swung most of the way clear rather than fully gone: "may or may not stay
-  // open" (§9.8.3) reads better as a gate still visibly there than as one that
-  // vanishes.
-  const openInsetFrac = 0.35;
-  const spanMinX = isOpen ? minX + (maxX - minX) * openInsetFrac : minX;
+  const fieldSideX = Math.abs(minX) > Math.abs(maxX) ? minX : maxX;
+  const side = Math.sign(fieldSideX);
+  const classifierWidthM = inchesToMeters(6);
+  const handleLengthM = inchesToMeters(2.5);
+  // A lifted lever foreshortens in top-down view. The state remains a direct
+  // read of the conveyor gate, not a renderer-owned animation.
+  const projection = isOpen ? 0.22 : 1;
 
   ctx.save();
   ctx.strokeStyle = allianceColor;
-  ctx.lineWidth = isOpen ? 2 : 5;
+  ctx.lineWidth = 2;
+  // The official GATE ZONE is two parallel colored tape lines, not a filled
+  // rectangle. Its bounds already encode the 10 in by 2.75 in marking.
+  for (const y of [minY, maxY]) {
+    ctx.beginPath();
+    ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, y));
+    ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, y));
+    ctx.stroke();
+  }
+
+  // Hinged at the classifier edge: a long paddle covers the channel and a
+  // short handle reaches out into the field for the robot to push.
   ctx.globalAlpha = isOpen ? 0.45 : 1;
+  ctx.strokeStyle = isOpen ? '#63c174' : COLORS.wall;
+  ctx.lineWidth = isOpen ? 2 : 5;
   ctx.beginPath();
-  ctx.moveTo(worldToScreenX(camera, spanMinX), worldToScreenY(camera, centerY));
-  ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, centerY));
+  ctx.moveTo(worldToScreenX(camera, fieldSideX), worldToScreenY(camera, centerY));
+  ctx.lineTo(
+    worldToScreenX(camera, fieldSideX + side * classifierWidthM * projection),
+    worldToScreenY(camera, centerY),
+  );
+  ctx.stroke();
+  ctx.strokeStyle = COLORS.wall;
+  ctx.lineWidth = isOpen ? 2 : 5;
+  ctx.beginPath();
+  ctx.moveTo(worldToScreenX(camera, fieldSideX), worldToScreenY(camera, centerY));
+  ctx.lineTo(
+    worldToScreenX(camera, fieldSideX - side * handleLengthM * projection),
+    worldToScreenY(camera, centerY),
+  );
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Draw the marked, passable SECRET TUNNEL floor below a classifier. */
+function drawTunnel(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  shaped: FieldRegion | FieldZone,
+  allianceColor: string,
+): void {
+  if (shaped.shape.kind !== 'poly') return;
+  const vertices = shaped.shape.vertices;
+  if (vertices.length === 0) return;
+
+  const minX = Math.min(...vertices.map((vertex) => vertex.x));
+  const maxX = Math.max(...vertices.map((vertex) => vertex.x));
+  const minY = Math.min(...vertices.map((vertex) => vertex.y));
+  const maxY = Math.max(...vertices.map((vertex) => vertex.y));
+  const fieldSideX = Math.abs(minX) < Math.abs(maxX) ? minX : maxX;
+
+  ctx.save();
+  ctx.fillStyle = allianceColor;
+  ctx.globalAlpha = 0.16;
+  ctx.fillRect(
+    worldToScreenX(camera, minX),
+    worldToScreenY(camera, maxY),
+    metersToPixels(camera, maxX - minX),
+    metersToPixels(camera, maxY - minY),
+  );
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = allianceColor;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(worldToScreenX(camera, fieldSideX), worldToScreenY(camera, minY));
+  ctx.lineTo(worldToScreenX(camera, fieldSideX), worldToScreenY(camera, maxY));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** DEPOT is a white launch-line segment along the GOAL face, not an area fill. */
+function drawDepot(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  depotId: string,
+  overlay: FieldOverlay,
+): void {
+  const goalId = depotId.replace('-depot', '-goal');
+  const goal = overlay.regions.find((region) => region.id === goalId);
+  if (goal?.shape.kind !== 'poly' || goal.shape.vertices.length !== 3) return;
+
+  const vertices = goal.shape.vertices;
+  const farCandidates = vertices.filter((vertex) =>
+    Math.abs(vertex.y - Math.max(...vertices.map((candidate) => candidate.y))) < 1e-9,
+  );
+  const far = farCandidates.reduce((best, candidate) =>
+    Math.abs(candidate.x) < Math.abs(best.x) ? candidate : best,
+  );
+  const side = vertices.find(
+    (vertex) => Math.abs(vertex.x) > Math.abs(far.x) + 1e-9 && vertex.y < far.y - 1e-9,
+  );
+  if (side === undefined) return;
+
+  const faceWidthM = Math.abs(side.x - far.x);
+  const classifierWidthM = inchesToMeters(6);
+  const fraction = Math.max(0, 1 - classifierWidthM / faceWidthM);
+  const end = {
+    x: far.x + (side.x - far.x) * fraction,
+    y: far.y + (side.y - far.y) * fraction,
+  };
+
+  ctx.save();
+  ctx.strokeStyle = '#f4f7fb';
+  ctx.lineWidth = 2;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(worldToScreenX(camera, far.x), worldToScreenY(camera, far.y));
+  ctx.lineTo(worldToScreenX(camera, end.x), worldToScreenY(camera, end.y));
   ctx.stroke();
   ctx.restore();
 }
@@ -399,10 +515,9 @@ function drawField(
       minHalfExtentM !== null &&
       minHalfExtentM < inchesToMeters(2.5);
     // A field body carries no alliance tag, only geometry, so colour is
-    // guessed from which side of the field it sits on. Red is -X
-    // (`decodeCollision.ts`'s `goalSide`, which follows `decodeField.ts`'s
-    // `SIDE`).
-    const redGoal = goal && body.pose.p.x < 0;
+    // guessed from which side of the field it sits on. DECODE's GOALS are
+    // cross-court: red is +X and blue is -X.
+    const redGoal = goal && body.pose.p.x > 0;
     ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
     ctx.strokeStyle = goal ? '#f3f7fb' : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
     ctx.beginPath();

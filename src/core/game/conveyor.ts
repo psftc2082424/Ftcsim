@@ -65,6 +65,15 @@ export interface PieceConveyorSpec {
   /** Zone a released piece travels through under its own, real motion. */
   readonly exitZoneId: string;
   /**
+   * Reject loose pieces that try to enter this exit from its public end.
+   *
+   * A season uses this for a one-way chute or tunnel: pieces this conveyor
+   * released travel out normally, but an unrelated loose piece cannot roll the
+   * reverse path into the mechanism. Omitted leaves an ordinary bidirectional
+   * floor zone.
+   */
+  readonly blocksInboundExit?: boolean | undefined;
+  /**
    * The push a piece leaves with, world-frame metres per second.
    *
    * A real velocity, not a travel time: the piece becomes an ordinary loose
@@ -84,6 +93,8 @@ export interface ConveyorWorld {
   holdPiece(pieceId: string, positionM: Vec2): void;
   /** Release a piece into ordinary physics, moving at a given velocity. */
   releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
+  /** Put an invalid inbound piece just outside a one-way exit, at rest. */
+  blockPiece(pieceId: string, positionM: Vec2): void;
 }
 
 export interface ConveyorPlaces {
@@ -99,6 +110,8 @@ interface ConveyorState {
   lastDrainTick: number;
   /** Pieces this conveyor is holding, so an arrival is not counted twice. */
   readonly taken: Set<string>;
+  /** Pieces this conveyor released and may therefore travel through its exit. */
+  readonly released: Set<string>;
 }
 
 /**
@@ -117,7 +130,12 @@ export class PieceConveyors {
     private readonly dtSec: number,
   ) {
     for (const spec of specs) {
-      this.states.set(spec.id, { queue: [], lastDrainTick: Number.NEGATIVE_INFINITY, taken: new Set() });
+      this.states.set(spec.id, {
+        queue: [],
+        lastDrainTick: Number.NEGATIVE_INFINITY,
+        taken: new Set(),
+        released: new Set(),
+      });
     }
   }
 
@@ -151,6 +169,8 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
+      this.refreshReleased(state, places, snapshot);
+      this.blockInboundExit(spec, state, places, snapshot, world);
       this.takeArrivals(spec, state, places, snapshot, world);
       this.drain(spec, state, places, snapshot, tick, world);
       this.holdQueue(state, places, world);
@@ -181,6 +201,57 @@ export class PieceConveyors {
       // a real push out through the exit, the same as a piece that drained
       // from the front of the queue.
       this.release(spec, state, places, piece.pieceId, world);
+    }
+  }
+
+  /** Forget authorization once a released piece has completed the exit path. */
+  private refreshReleased(
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+  ): void {
+    for (const pieceId of state.released) {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) {
+        state.released.delete(pieceId);
+      }
+    }
+  }
+
+  /**
+   * Enforce a data-declared one-way exit without creating a season-specific
+   * collision hack. The ordinary release path is authorised by piece id; an
+   * unrelated loose piece crossing the public mouth against the exit velocity
+   * is returned just outside it. This is a gameplay constraint, not a force
+   * model, and is the same for any season's chute, return lane, or tunnel.
+   */
+  private blockInboundExit(
+    spec: PieceConveyorSpec,
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+    world: ConveyorWorld,
+  ): void {
+    if (spec.blocksInboundExit !== true) return;
+    const speed = Math.hypot(spec.exitVelocityMps.x, spec.exitVelocityMps.y);
+    if (speed < 1e-9) return;
+
+    const direction = vec2(spec.exitVelocityMps.x / speed, spec.exitVelocityMps.y / speed);
+    const publicMouth = farEndOf(places.exit, places.queue.centerM);
+    for (const piece of snapshot.pieces) {
+      if (piece.heldByRobotId !== null || state.released.has(piece.pieceId)) continue;
+      if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      const alongExit = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
+      // Only stop motion into the tunnel. A loose piece already rolling out
+      // with the allowed direction remains an ordinary physical piece.
+      if (alongExit >= 0) continue;
+      world.blockPiece(
+        piece.pieceId,
+        vec2(
+          publicMouth.x + direction.x * piece.radiusM,
+          publicMouth.y + direction.y * piece.radiusM,
+        ),
+      );
     }
   }
 
@@ -223,6 +294,7 @@ export class PieceConveyors {
   ): void {
     const origin = nearEndOf(places.exit, places.queue.centerM);
     world.releasePieceMoving(pieceId, origin, spec.exitVelocityMps);
+    state.released.add(pieceId);
     state.taken.delete(pieceId);
   }
 
@@ -283,6 +355,14 @@ export function nearEndOf(place: Shaped, referenceM: Vec2): Vec2 {
   const b = slotPointAtEdge(place, 1);
   const distanceTo = (p: Vec2): number => Math.hypot(p.x - referenceM.x, p.y - referenceM.y);
   return distanceTo(a) <= distanceTo(b) ? a : b;
+}
+
+/** The end of a shaped place farthest from a reference point. */
+export function farEndOf(place: Shaped, referenceM: Vec2): Vec2 {
+  const a = slotPointAtEdge(place, -1);
+  const b = slotPointAtEdge(place, 1);
+  const distanceTo = (p: Vec2): number => Math.hypot(p.x - referenceM.x, p.y - referenceM.y);
+  return distanceTo(a) >= distanceTo(b) ? a : b;
 }
 
 function slotPointAtEdge(place: Shaped, sign: -1 | 1): Vec2 {

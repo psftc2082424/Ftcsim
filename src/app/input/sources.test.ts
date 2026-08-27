@@ -142,6 +142,23 @@ describe('keyboard source', () => {
     });
   });
 
+  it('toggles intake on each distinct key press instead of requiring a hold', () => {
+    const source = new KeyboardSource(DEFAULT_KEY_BINDINGS);
+    const { win, fire } = fakeWindow();
+    source.attach(win);
+
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.intake));
+    expect(source.read()?.buttons.intake).toBe(true);
+    // Key-repeat is still one physical press, so it must not turn intake off.
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.intake));
+    expect(source.read()?.buttons.intake).toBe(true);
+    fire('keyup', keyEvent(DEFAULT_KEY_BINDINGS.intake));
+    expect(source.read()?.buttons.intake).toBe(true);
+
+    fire('keydown', keyEvent(DEFAULT_KEY_BINDINGS.intake));
+    expect(source.read()).toBeNull();
+  });
+
   it('detaches its listeners', () => {
     const source = new KeyboardSource(DEFAULT_KEY_BINDINGS);
     const { win, count } = fakeWindow();
@@ -189,6 +206,18 @@ describe('virtual pad source', () => {
     pad.setLeftStick(1, 1);
     pad.setButton('square', true);
     pad.releaseAll();
+    expect(pad.read()).toBeNull();
+  });
+
+  it('toggles virtual intake while leaving other buttons momentary', () => {
+    const pad = new VirtualPadSource();
+    pad.setButton('intake', true);
+    expect(pad.read()?.buttons.intake).toBe(true);
+    pad.setButton('intake', false);
+    expect(pad.read()?.buttons.intake).toBe(true);
+    pad.setButton('intake', true);
+    pad.setButton('intake', false);
+    expect(pad.activeButtons).toEqual([]);
     expect(pad.read()).toBeNull();
   });
 });

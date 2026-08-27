@@ -357,6 +357,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     // The opposing ALLIANCE'S, per §9.8.3.
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
+    blocksInboundExit: true,
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers
     // (`decodeTiles.ts`), so "out of the tunnel" is toward -Y for both

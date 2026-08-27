@@ -15,14 +15,23 @@ import {
   type DriveAction,
   type KeyBindings,
 } from '../input/bindings.js';
+import type { DriveMode } from '../input/driveMode.js';
 
 interface Props {
   readonly bindings: KeyBindings;
   readonly onChange: (bindings: KeyBindings) => void;
   readonly gamepadConnected: boolean;
+  readonly driveMode: DriveMode;
+  readonly onDriveModeChange: (mode: DriveMode) => void;
 }
 
-export function ControlsPanel({ bindings, onChange, gamepadConnected }: Props) {
+export function ControlsPanel({
+  bindings,
+  onChange,
+  gamepadConnected,
+  driveMode,
+  onDriveModeChange,
+}: Props) {
   const [capturing, setCapturing] = useState<DriveAction | null>(null);
 
   useEffect(() => {
@@ -63,6 +72,28 @@ export function ControlsPanel({ bindings, onChange, gamepadConnected }: Props) {
       </p>
 
       <h3>Drive</h3>
+      <fieldset className="drive-mode" aria-label="Drive coordinate mode">
+        <legend>Drive mode</legend>
+        <label>
+          <input
+            type="radio"
+            name="drive-mode"
+            checked={driveMode === 'robot'}
+            onChange={() => onDriveModeChange('robot')}
+          />
+          Robot-centric
+        </label>
+        <label>
+          <input
+            type="radio"
+            name="drive-mode"
+            checked={driveMode === 'field'}
+            onChange={() => onDriveModeChange('field')}
+          />
+          Field-centric
+        </label>
+      </fieldset>
+      <p className="muted small">Field-centric forward always points toward the GOAL side.</p>
       <div className="binding-list">
         {DRIVE_ACTIONS.slice(0, 7).map((action) => (
           <div key={action} className="binding-row">

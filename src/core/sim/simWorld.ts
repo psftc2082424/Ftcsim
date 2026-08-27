@@ -526,6 +526,15 @@ export class SimWorld {
   }
 
   /**
+   * Resolve a game-declared one-way field mechanism without inventing a force.
+   * The piece remains a normal loose body after being returned to the public
+   * side of the passage; only the invalid transition is rejected.
+   */
+  blockPiece(pieceId: string, positionM: Vec2): void {
+    this.releasePiece(pieceId, positionM);
+  }
+
+  /**
    * Launch a piece on a real ballistic arc toward a target point.
    *
    * This is the one piece of trajectory math a "functional" shooter still

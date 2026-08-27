@@ -18,25 +18,23 @@
  *      and the LAUNCH ZONE vertices (`DECODE_LAUNCH_ZONE_SHAPE`). Each is read
  *      off several quoted statements together; neither is written down as such.
  *
- *   3. **Still invented.** Everything in `LAYOUT`: the GOAL and its RAMP, the
- *      DEPOT, BASE, LOADING ZONE, SECRET TUNNEL and GATE. §9.4 defines TILE
- *      coordinates in Figures 9-4 and 9-5, which are images, and §9.1 names the
- *      3D CAD model as the official representation. Correctly-sized elements at
- *      guessed places.
+ *   3. **Inferred from the 2D field reference.** The GOAL cluster plan is
+ *      transcribed from dSim's DECODE field implementation, then checked against
+ *      the setup-guide TILE references. The official CAD remains the authority
+ *      for a final dimensional audit, so these positions remain clearly marked
+ *      `inferred` rather than being presented as manual measurements.
  *
- *  Consequence of group 3: distances between those elements are wrong, so cycle
- *  times and "did it reach the goal" outcomes are not predictive. Every "is it
- *  inside" judgement is right relative to the geometry given, and becomes right
- *  absolutely once the coordinates are supplied.
+ *  Consequence of group 3: the playable plan matches the reference layout, but
+ *  any millimetre-level clearance or cycle-time claim still needs the CAD audit.
  *
- *  To finish: read positions off the field CAD or the Event FIELD Setup Guide
- *  and replace `LAYOUT`. Region ids are the contract with `decode.ts` and must
- *  not change.
+ *  To finish: audit the inferred plan against the full field CAD. Region ids are
+ *  the contract with `decode.ts` and must not change.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { assumed, explicitRule, inferred, type Sourced } from '../sourced.js';
+import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import {
+  createPolyRegion,
   createPolyZone,
   createRectRegion,
   createRectZone,
@@ -47,7 +45,6 @@ import { DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT, spikeMarkId } from './de
 import { vec2, type Vec2 } from '../../math/vec2.js';
 import { ARTIFACT, CLASSIFIER, FIELD, GOAL, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 import {
-  horizontalSeamYIn,
   rowCenterYIn,
   tileBounds,
   tileCenterIn,
@@ -66,15 +63,14 @@ import {
  * thing that is not sourced, so a reviewer can see at a glance what remains
  * invented and a future change cannot quietly promote it.
  */
-export const DECODE_LAYOUT_PROVENANCE: Sourced<string> = assumed(
-  'goal-cluster-positions-inferred',
-  'Element SIZES are transcribed from the Competition Manual (see decodeDimensions.ts), ' +
-    'and the Event FIELD Setup Guide places the BASE ZONES, SPIKE MARKS, GATE ZONES, ' +
-    'LOADING ZONES, SECRET TUNNEL ZONES and both LAUNCH LINES against the TILE grid, so ' +
-    'those are transcribed. What remains is the GOAL cluster — GOAL, RAMP and DEPOT — ' +
-    'which the guide installs by figure. Their placement is constrained by the elements ' +
-    'around them rather than guessed; see GOAL_CLUSTER_PROVENANCE. Distances to the GOAL ' +
-    'are therefore approximate, so cycle times are not yet predictive.',
+export const DECODE_LAYOUT_PROVENANCE: Sourced<string> = inferred(
+  'DECODE plan view transcribed from dSim, pending official CAD audit',
+  'Element sizes are transcribed from the Competition Manual (see decodeDimensions.ts), ' +
+    'while the Event FIELD Setup Guide fixes BASE ZONES, SPIKE MARKS, GATE ZONES, ' +
+    'LOADING ZONES, SECRET TUNNEL ZONES and both LAUNCH LINES against the TILE grid. ' +
+    'The cross-court GOAL/classifier plan is inferred from dSim\'s public DECODE field ' +
+    'implementation and is consistent with those guide references. The official field CAD ' +
+    'remains necessary before treating these derived placement coordinates as explicit.',
 );
 
 const HALF_FIELD_IN = FIELD.sideIn.value / 2;
@@ -120,19 +116,13 @@ export const DECODE_FIELD_ORIENTATION: Sourced<string> = inferred(
 const SIDE = { red: -1, blue: 1 } as const;
 
 /**
- * The GOAL, RAMP and DEPOT sit on the *same* side as their alliance's own
- * GATE, not cross-court from it.
- *
- * They are one physical assembly, not three: the code that builds the CLASSIFIER
- * conveyor (`decode.ts`) says outright that the RAMP "runs from the GATE ... at
- * the low end ... toward the GOAL" at the high end. The GATE ZONE is placed by
- * TILE column, and TILE columns are alliance-owned by an explicit rule (G402) —
- * so wherever an alliance's GATE sits, its own GOAL and RAMP sit with it. This
- * must equal `SIDE`, not oppose it; the two used to disagree, which put an
- * alliance's classifier queue and the GATE that opens it on opposite corners of
- * the field.
+ * GOALS and their classifier assemblies are cross-court from the drive-team
+ * side: blue is in the far-left corner and red in the far-right corner. This
+ * is visible in the setup-guide overview and matches the dSim field reference;
+ * it is deliberately separate from `SIDE`, which continues to describe the
+ * ALLIANCE AREA, loading zone and spike-mark side.
  */
-const GOAL_CLUSTER_SIDE = SIDE;
+const GOAL_CLUSTER_SIDE = { red: 1, blue: -1 } as const;
 
 interface Placement {
   readonly centerXIn: number;
@@ -142,7 +132,7 @@ interface Placement {
 }
 
 /**
- * Where each element sits, from the Event FIELD Setup Guide.
+ * Where each element sits, from the Event FIELD Setup Guide and the dSim plan view.
  *
  * The guide places almost everything against the TILE grid in text — "The red
  * BASE ZONE is on TILE B2", "SPIKE MARKS are placed on TILE pairs A4/B4, A3/B3,
@@ -154,9 +144,9 @@ interface Placement {
  * (G402), so an element on column A or B is blue's and its mirror is red's. See
  * `DECODE_SETUP_GUIDE_COLOUR_CONFLICT` for why the column wins over the label.
  *
- * The GOAL, RAMP and DEPOT are the exception and are still `inferred` — the
- * guide installs them by figure rather than by TILE. They are constrained
- * rather than invented: see `GOAL_CLUSTER_PROVENANCE`.
+ * The GOAL, RAMP and DEPOT are the exception and remain `inferred`: the guide
+ * installs them by figure rather than by TILE, so their plan is transcribed
+ * from dSim and still awaits a direct CAD audit.
  */
 
 /** "16.75 in. (42.55 cm) away from the inside of TILE seam V or Z". */
@@ -166,16 +156,10 @@ const SECRET_TUNNEL_OFFSET_IN = explicitRule(
   'The tape lines are placed such that they are 16.75 in. (42.55 cm) away from the inside of TILE seam V or Z, respectively',
 );
 
-/**
- * Length given to the RAMP, in inches.
- *
- * Nine CLASSIFIED ARTIFACTS in a line need nine diameters, and the RAMP runs
- * from the GATE at TILE seam 3 toward the GOAL. Derived from the capacity the
- * manual states rather than measured, which is why the GOAL cluster as a whole
- * is `inferred`.
- */
-const RAMP_LENGTH_IN =
-  CLASSIFIER.rampCapacity.value * ARTIFACT.specifiedDiameterIn.value;
+/** dSim/CAD plan-view classifier channel: six inches from side wall. */
+const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
+const CLASSIFIER_GATE_Y_IN = -2;
+const CLASSIFIER_RAMP_START_Y_IN = 2;
 
 /**
  * Depth given to a SPIKE MARK, in inches.
@@ -228,8 +212,8 @@ const LAYOUT = {
    * and adjacent to nearby TILE seam 3."
    */
   gate: {
-    centerXIn: verticalSeamXIn('V') + ZONES.gateZoneLengthIn.value / 2,
-    centerYIn: horizontalSeamYIn(3),
+    centerXIn: HALF_FIELD_IN - CLASSIFIER_CHANNEL_WIDTH_IN - ZONES.gateZoneLengthIn.value / 2,
+    centerYIn: 0.5,
     widthIn: ZONES.gateZoneLengthIn.value,
     lengthIn: ZONES.gateZoneWidthIn.value,
   },
@@ -252,9 +236,8 @@ const LAYOUT = {
    * runs from there out to the perimeter.
    */
   secretTunnel: {
-    centerXIn:
-      verticalSeamXIn('V') + SECRET_TUNNEL_OFFSET_IN.value + ZONES.secretTunnelWidthIn.value / 2,
-    centerYIn: (horizontalSeamYIn(1) + horizontalSeamYIn(3)) / 2,
+    centerXIn: HALF_FIELD_IN - ZONES.secretTunnelWidthIn.value / 2,
+    centerYIn: CLASSIFIER_GATE_Y_IN - ZONES.secretTunnelLengthIn.value / 2,
     widthIn: ZONES.secretTunnelWidthIn.value,
     lengthIn: ZONES.secretTunnelLengthIn.value,
   },
@@ -265,10 +248,10 @@ const LAYOUT = {
    * transcribed — see `GOAL_CLUSTER_PROVENANCE`.
    */
   ramp: {
-    centerXIn: HALF_FIELD_IN - GOAL.footprintIn.value / 2,
-    centerYIn: horizontalSeamYIn(3) + RAMP_LENGTH_IN / 2,
-    widthIn: GOAL.footprintIn.value,
-    lengthIn: RAMP_LENGTH_IN,
+    centerXIn: HALF_FIELD_IN - CLASSIFIER_CHANNEL_WIDTH_IN / 2,
+    centerYIn: (CLASSIFIER_RAMP_START_Y_IN + HALF_FIELD_IN) / 2,
+    widthIn: CLASSIFIER_CHANNEL_WIDTH_IN,
+    lengthIn: HALF_FIELD_IN - CLASSIFIER_RAMP_START_Y_IN,
   },
 
   /** The GOAL, in the back corner the RAMP climbs toward. `inferred`. */
@@ -327,13 +310,12 @@ const LAYOUT = {
  * that wall, and the full-field CAD would settle it.
  */
 export const GOAL_CLUSTER_PROVENANCE: Sourced<string> = inferred(
-  'goal in the back corner, ramp climbing from the gate at seam 3',
+  'cross-court GOAL, side-wall classifier from gate mouth to far corner',
   'The Event FIELD Setup Guide places the GATE ZONE, SECRET TUNNEL and LOADING ZONE by ' +
-    'TILE but installs the GOAL and RAMP by figure. Their position is boxed in by those ' +
-    'three: the GATE sits at the side wall on seam 3, the tunnel runs from seam 1 to ' +
-    'seam 3 bounded by the GOAL assembly, and the GOAL brackets slip over the perimeter. ' +
-    'How far along the back wall the GOAL sits is the remaining freedom, and the ' +
-    'full-field CAD (am-5700) would settle it.',
+    'TILE but installs the GOAL and RAMP by figure. dSim\'s public DECODE plan fixes the ' +
+    'remaining plan-view relationship: blue GOAL/classifier far-left, red far-right, with ' +
+    'the classifier beginning immediately beyond the gate mouth. The official full-field ' +
+    'CAD (am-5700) remains the authority for a dimensional audit.',
 );
 
 // ------------------------------------------------------------ LAUNCH ZONES ---
@@ -452,8 +434,15 @@ function region(id: string, placement: Placement, slotCount?: number): FieldRegi
  * rather than "is it near the GOAL", which is the difference between a shot and
  * a piece shoved across the tiles.
  */
-function goalOpening(id: string, placement: Placement): FieldRegion {
-  return createRectRegion({ id, ...placement, bottomIn: GOAL.topLipHeightIn.value });
+function goalOpening(id: string, alliance: 'red' | 'blue'): FieldRegion {
+  const sign = GOAL_CLUSTER_SIDE[alliance];
+  const far = vec2(sign * (HALF_FIELD_IN - GOAL.openingWidthIn.value), HALF_FIELD_IN);
+  const side = vec2(sign * HALF_FIELD_IN, HALF_FIELD_IN - GOAL.openingDepthIn.value);
+  const corner = vec2(sign * HALF_FIELD_IN, HALF_FIELD_IN);
+  // `createPolyRegion` requires counter-clockwise vertices. The order mirrors
+  // with the goal, but continues to represent the same open triangular basin.
+  const vertices = sign > 0 ? [far, side, corner] : [far, corner, side];
+  return createPolyRegion(id, vertices, { bottomIn: GOAL.topLipHeightIn.value });
 }
 
 function zone(id: string, placement: Placement): FieldZone {
@@ -477,8 +466,8 @@ const SPIKE_MARK_SEAM: Readonly<Record<'red' | 'blue', VerticalSeam>> = {
 
 export const DECODE_FIELD_REGIONS: readonly FieldRegion[] = [
   // The open top of each GOAL, floored at the lip so only a shot enters it.
-  goalOpening(DECODE_REGIONS.redGoal, goalClusterPlacement(LAYOUT.goal, 'red')),
-  goalOpening(DECODE_REGIONS.blueGoal, goalClusterPlacement(LAYOUT.goal, 'blue')),
+  goalOpening(DECODE_REGIONS.redGoal, 'red'),
+  goalOpening(DECODE_REGIONS.blueGoal, 'blue'),
   region(DECODE_REGIONS.redRamp, goalClusterPlacement(LAYOUT.ramp, 'red'), RAMP_SLOT_COUNT.value),
   region(DECODE_REGIONS.blueRamp, goalClusterPlacement(LAYOUT.ramp, 'blue'), RAMP_SLOT_COUNT.value),
   region(DECODE_REGIONS.redDepot, goalClusterPlacement(LAYOUT.depot, 'red')),
@@ -502,14 +491,14 @@ export const DECODE_FIELD_ZONES: readonly FieldZone[] = [
   zone(DECODE_ZONES.redBase, baseZoneOn('E', 'Y')),
   zone(DECODE_ZONES.blueLoadingZone, LAYOUT.loading),
   zone(DECODE_ZONES.redLoadingZone, mirrored(LAYOUT.loading, 'red')),
-  zone(DECODE_ZONES.blueGateZone, LAYOUT.gate),
-  zone(DECODE_ZONES.redGateZone, mirrored(LAYOUT.gate, 'red')),
+  zone(DECODE_ZONES.blueGateZone, goalClusterPlacement(LAYOUT.gate, 'blue')),
+  zone(DECODE_ZONES.redGateZone, goalClusterPlacement(LAYOUT.gate, 'red')),
   // The tunnel beside blue's GATE is *red's*: a GATE releases into the opposing
   // ALLIANCE'S SECRET TUNNEL ZONE (§9.8.3), and G424.A has a ROBOT standing in
   // its own GATE ZONE and its opponent's SECRET TUNNEL at the same time, so the
   // pair are neighbours. The setup guide labels this one red and is right.
-  zone(DECODE_ZONES.redSecretTunnel, LAYOUT.secretTunnel),
-  zone(DECODE_ZONES.blueSecretTunnel, mirrored(LAYOUT.secretTunnel, 'red')),
+  zone(DECODE_ZONES.redSecretTunnel, goalClusterPlacement(LAYOUT.secretTunnel, 'blue')),
+  zone(DECODE_ZONES.blueSecretTunnel, goalClusterPlacement(LAYOUT.secretTunnel, 'red')),
   // Two zones, not two per alliance: LAUNCH ZONES belong to the FIELD (§9.3).
   createPolyZone(DECODE_ZONES.audienceLaunchZone, AUDIENCE_LAUNCH_ZONE),
   createPolyZone(DECODE_ZONES.goalLaunchZone, GOAL_LAUNCH_ZONE),

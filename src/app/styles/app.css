@@ -790,6 +790,10 @@ body { background: var(--bg); color: var(--text); }
 button.secondary, .binding-key, .pad-button { background: #f5f9ff; color: #234367; border-color: #c3d7ee; }
 button.secondary:hover, .binding-key:hover, .pad-button:hover { border-color: #0867d7; }
 .builder-field input, .builder-field select, .mech-add select, .mech-row, .mech-mass input, .preset-row { background: #f8fbff; color: #10233f; border-color: #cbdcf2; }
+.drive-mode { display: flex; gap: 12px; margin: 8px 0 2px; padding: 7px 9px; border: 1px solid #d5e3f3; border-radius: 7px; color: #385879; font-size: 12px; }
+.drive-mode legend { padding: 0 4px; color: #5c708c; font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.drive-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.drive-mode input { accent-color: #0867d7; }
 
 .match-overlay { position: absolute; left: 20px; right: 20px; bottom: 18px; min-height: 72px; display: grid; grid-template-columns: 1fr 150px 1fr; overflow: hidden; border-radius: 9px; color: #fff; background: rgba(10, 29, 57, .94); box-shadow: 0 7px 20px rgba(0,0,0,.26); pointer-events: none; }
 .match-side { display: flex; align-items: center; gap: 16px; padding: 10px 22px; font-weight: 800; letter-spacing: .08em; }

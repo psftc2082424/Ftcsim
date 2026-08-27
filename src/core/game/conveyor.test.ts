@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   PieceConveyors,
+  farEndOf,
   nearEndOf,
   resolveConveyorPlaces,
   slotPoint,
@@ -49,6 +50,7 @@ const places = (spec: PieceConveyorSpec = SPEC) =>
 class FakeWorld implements ConveyorWorld {
   readonly held = new Map<string, Vec2>();
   readonly released = new Map<string, { readonly positionM: Vec2; readonly velocityM: Vec2 }>();
+  readonly blocked = new Map<string, Vec2>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -64,6 +66,12 @@ class FakeWorld implements ConveyorWorld {
   releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
     this.released.set(pieceId, { positionM, velocityM });
     this.held.delete(pieceId);
+    this.positions.set(pieceId, positionM);
+  }
+
+  blockPiece(pieceId: string, positionM: Vec2): void {
+    this.blocked.set(pieceId, positionM);
+    this.released.delete(pieceId);
     this.positions.set(pieceId, positionM);
   }
 
@@ -276,6 +284,33 @@ describe('letting pieces out', () => {
 
     expect(conveyors.queued('chute')).toEqual([]);
     expect([...world.released.keys()].sort()).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+});
+
+describe('one-way exits', () => {
+  it('rejects a loose piece trying to enter a declared one-way exit backwards', () => {
+    const oneWay: PieceConveyorSpec = { ...SPEC, blocksInboundExit: true };
+    const publicMouth = farEndOf(EXIT, QUEUE.centerM);
+    const positions = new Map([['intruder', publicMouth]]);
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([oneWay], places(oneWay), DT);
+
+    const snapshot = world.snapshot(0);
+    const piece = snapshot.pieces[0];
+    if (piece === undefined) throw new Error('piece missing');
+    // Make it head toward the queue, opposite this test chute's +Y exit.
+    const inbound = { ...snapshot, pieces: [{ ...piece, vel: { v: vec2(0, -1), omega: 0 } }] };
+    conveyors.update(inbound, 0, world);
+
+    expect(world.blocked.get('intruder')).toBeDefined();
+    expect(world.blocked.get('intruder')?.y ?? Infinity).toBeGreaterThan(publicMouth.y);
+  });
+
+  it('does not block a piece the conveyor itself released', () => {
+    const oneWay: PieceConveyorSpec = { ...SPEC, blocksInboundExit: true };
+    const { world } = run(['a'], 15, { spec: oneWay, openAt: 10 });
+    expect(world.released.has('a')).toBe(true);
+    expect(world.blocked.has('a')).toBe(false);
   });
 });
 

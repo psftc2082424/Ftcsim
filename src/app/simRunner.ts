@@ -26,7 +26,7 @@ import { simulationFromDefinition, type MatchSimulation } from '../core/game/mat
 import type { GameDefinition } from '../core/game/gameDefinition.js';
 import type { MatchState } from '../core/game/matchStructure.js';
 import { LatchedController } from '../core/control/controller.js';
-import { NEUTRAL_INPUT } from '../core/control/controlInput.js';
+import { NEUTRAL_INPUT, type ControlInput } from '../core/control/controlInput.js';
 import { createStandardField, type FieldTemplate } from '../core/field/fieldTemplate.js';
 import { sampleTelemetry, type TelemetrySample } from '../core/telemetry/sampler.js';
 import type { RobotConfig } from '../core/robot/robotConfig.js';
@@ -42,6 +42,7 @@ import {
 import type { WorldSnapshot } from '../core/sim/snapshot.js';
 import type { InputHub } from './input/sources.js';
 import { FixedTimestepAccumulator } from './fixedTimestep.js';
+import { DEFAULT_DRIVE_MODE, fieldCentricInput, type DriveMode } from './input/driveMode.js';
 
 /**
  * Longest frame gap the accumulator will honour, in seconds.
@@ -110,6 +111,7 @@ export class SimRunner {
   private rafId: number | null = null;
   private canvas: HTMLCanvasElement | null = null;
   private renderOptions: RenderOptions = DEFAULT_RENDER_OPTIONS;
+  private driveMode: DriveMode = DEFAULT_DRIVE_MODE;
 
   private readonly telemetryListeners = new Set<TelemetryListener>();
   private readonly statsListeners = new Set<StatsListener>();
@@ -191,6 +193,11 @@ export class SimRunner {
     this.renderOptions = options;
   }
 
+  /** Driver preference only; the drivetrain sees its normal body-frame input. */
+  setDriveMode(mode: DriveMode): void {
+    this.driveMode = mode;
+  }
+
   onTelemetry(listener: TelemetryListener): () => void {
     this.telemetryListeners.add(listener);
     return () => this.telemetryListeners.delete(listener);
@@ -221,7 +228,7 @@ export class SimRunner {
     // Whole fixed steps only. The leftover carries into the next frame.
     const steps = this.stepper.advance(elapsed);
     for (let i = 0; i < steps; i++) {
-      this.controller.set(this.inputHub.read() ?? NEUTRAL_INPUT);
+      this.controller.set(this.inputForDriveMode(this.inputHub.read() ?? NEUTRAL_INPUT));
       this.simulation.step();
     }
 
@@ -250,6 +257,12 @@ export class SimRunner {
       openConveyorIds: this.openConveyorIds(snapshot),
     });
     this.frameCount++;
+  }
+
+  private inputForDriveMode(input: ControlInput): ControlInput {
+    if (this.driveMode === 'robot') return input;
+    const robot = this.simulation.world.snapshot().robots[0];
+    return robot === undefined ? input : fieldCentricInput(input, robot.pose.theta);
   }
 
   /** Which of the game's conveyors are open right now, for the gate's visual. */

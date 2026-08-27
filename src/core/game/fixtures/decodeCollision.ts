@@ -195,18 +195,16 @@ const GOAL_BODY_ID_BASE = 1100;
  * does not print a plan-view channel width, so this remains visibly inferred.
  */
 const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
-const CLASSIFIER_GATE_Y_IN = 2;
+/** dSim's side-wall classifier begins just beyond the 5 in gate mouth. */
+const CLASSIFIER_RAMP_START_Y_IN = 2;
 
 /**
- * A GOAL sits on the *same* side as its own alliance, not cross-court from it.
- *
- * Red occupies -X and blue +X (`decodeField.ts`'s `SIDE`, from G402's TILE
- * columns). The GOAL, RAMP and GATE are one physical CLASSIFIER assembly, so
- * they share that sign — this used to disagree with `SIDE` and put an
- * alliance's own GATE and its own GOAL/RAMP in opposite corners of the field.
+ * GOALS and classifier assemblies are cross-court from their drive-team side:
+ * blue far-left, red far-right. `decodeField.ts` keeps this separate from the
+ * drive-team/alliance-area orientation.
  */
 function goalSide(alliance: 'red' | 'blue'): number {
-  return alliance === 'red' ? -1 : 1;
+  return alliance === 'red' ? 1 : -1;
 }
 
 /**
@@ -283,7 +281,7 @@ function classifierBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
   const sign = goalSide(alliance);
   const half = FIELD.sideIn.value / 2;
   const widthIn = CLASSIFIER_CHANNEL_WIDTH_IN;
-  const lengthIn = half - CLASSIFIER_GATE_Y_IN;
+  const lengthIn = half - CLASSIFIER_RAMP_START_Y_IN;
   return createStaticBody({
     id,
     shape: createObb(inchesToMeters(widthIn), inchesToMeters(lengthIn)),
@@ -297,7 +295,7 @@ function classifierBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
     pose: {
       p: {
         x: inchesToMeters(sign * (half - widthIn / 2)),
-        y: inchesToMeters(CLASSIFIER_GATE_Y_IN + lengthIn / 2),
+        y: inchesToMeters(CLASSIFIER_RAMP_START_Y_IN + lengthIn / 2),
       },
       theta: 0,
     },

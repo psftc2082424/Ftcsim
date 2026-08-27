@@ -210,15 +210,11 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
 }
 
 describe('DECODE definition integrity', () => {
-  /**
-   * The layout was entirely invented; the Event FIELD Setup Guide placed most
-   * of it. What is left is the GOAL cluster, and the note has to keep saying so
-   * rather than quietly implying the whole field is now sourced.
-   */
-  it('is honest about which positions are still not transcribed', () => {
-    expect(DECODE_LAYOUT_PROVENANCE.confidence).toBe('assumed');
-    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/GOAL cluster/);
-    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/Setup Guide/);
+  /** The cross-court plan is a documented reference inference, not a CAD quote. */
+  it('is honest about the remaining CAD audit', () => {
+    expect(DECODE_LAYOUT_PROVENANCE.confidence).toBe('inferred');
+    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/dSim/);
+    expect(DECODE_LAYOUT_PROVENANCE.note).toMatch(/CAD/);
   });
 
   it('keeps every placed element inside the field', () => {
@@ -431,11 +427,16 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
    * possession existed nothing could fill them in. A rule that awards "the
    * alliance that scored it" now has an answer derived from where the robot and
    * the artifact actually were.
-   */
+  */
   it('credits the artifact to the robot that pushed it', () => {
+    const ramp = centreOf(DECODE_REGIONS.redRamp);
     const sim = decodeMatch({
-      robots: [driving('red', -22, 0, { x: -1, y: 0 })],
-      pieces: [artifact('a1', -34, 0)],
+      // The ramp has a floor-level membership region, unlike the GOAL's
+      // height-gated opening. Keep this attribution probe independent from
+      // the cross-court GOAL placement: it only needs a real region crossing
+      // caused by one robot's push.
+      robots: [driving('red', ramp[0] - 30, ramp[1], { x: 1, y: 0 })],
+      pieces: [artifact('a1', ramp[0] - 16, ramp[1])],
     });
     sim.run();
 

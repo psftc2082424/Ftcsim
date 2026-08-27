@@ -459,3 +459,62 @@ assessed and no robot-contact event exists.
 
 After that: an intake, so a robot can pick a piece up rather than only push and
 shoot; then Phase 4 (PDF ingestion).
+
+### Latest handoff — 2026-08-27 (dSim-aligned DECODE plan, controls, and one-way tunnel)
+
+- **Drivetrain deliberately unchanged.** This pass did not edit `core/drive`,
+  motor behavior, braking, acceleration, SAT/contact resolution, or collision
+  tuning. The only driving addition is an app-layer coordinate transform in
+  `app/input/driveMode.ts`: field-centric input is rotated into the same
+  body-frame `ControlInput` the existing drivetrain already consumes.
+- **DECODE's playable plan now follows dSim's public reference layout.**
+  `decodeField.ts` separates the drive-team/alliance half (red -X, blue +X)
+  from the cross-court GOAL/classifier half (red +X, blue -X). The triangular
+  GOAL openings, six-inch side-wall classifier, five-inch gate mouth
+  (`-2..+3 in`), tunnel ending at `-2 in`, and classifier beginning at `+2 in`
+  now agree with that plan. The source is honestly `inferred`: the official
+  full-field CAD remains the required dimensional audit. Tests and provenance
+  assertions were updated with that status rather than retaining the obsolete
+  "invented layout" label.
+- **Field presentation now matches the reference's hierarchy rather than
+  abstract regions.** `fieldRenderer.ts` draws the filled triangular GOAL
+  basins, two parallel colored GATE tape lines and a hinged-looking gate arm,
+  diagonal white DEPOT launch-line tape, and the alliance-colored SECRET
+  TUNNEL floor/edge. The collision fixture remains the source for rendered
+  solid perimeter/goal/classifier/tunnel rails; tape and score regions are not
+  silently collision bodies. A Chrome screenshot at `/Ftcsim/` was manually
+  inspected after these changes.
+- **Intake is now a true toggle everywhere.** `F`, gamepad left trigger, and
+  the virtual controller each toggle intake on/off on a press edge; key/button
+  repeat cannot flip it twice. The virtual control visibly latches as
+  `INTAKE ON`. `Space` remains the default shoot key and holding it fires at
+  the configured BPS. The mechanism path remains the existing 3-piece FIFO:
+  intake → storage → shoot → normal events/rules/scoring.
+- **Controls persist both bindings and drive mode.** The Controls page now
+  presents robot-centric versus field-centric mode and stores it in the
+  existing `settings` key-value store. `driveMode.test.ts` proves the transform
+  preserves turn/buttons and keeps field direction fixed as heading changes;
+  `driveModePreferences.test.ts` covers safe default, round-trip, and corrupt
+  preference handling.
+- **SECRET TUNNEL is now explicitly one-way at the gameplay boundary.**
+  `PieceConveyorSpec.blocksInboundExit` is season-agnostic data for chutes and
+  tunnels. It allows pieces released by that conveyor to travel through the
+  real exit path, but returns unrelated loose pieces trying to roll backwards
+  into its public mouth to the outside, at rest. DECODE declares this flag;
+  `conveyor.test.ts` guards both invalid inbound rejection and normal
+  authorised flow. This replaces the previous rail-extension-only mitigation
+  without adding wall-specific force behavior.
+- **What is intentionally not restored:** no shooter enable/ready state,
+  flywheel/RPM/torque model, shot RNG/spread, cosmetic trajectory, roller-force
+  intake, or UI-direct scoring. The existing deterministic post-release arc
+  remains solely to make a physically visible, perfect-accuracy ball travel to
+  the GOAL; it is not tied to motor performance.
+- **Remaining practical differences from dSim:** GOAL-to-classifier basin
+  motion is still represented by the generic ordered conveyor queue rather
+  than individual granular ball caroms/rail stacking, and the GATE opens from
+  the existing release-zone interaction rather than a direction-sensitive arm
+  push. The next highest-priority work is a generic visible conveyor-path/gate
+  state model that preserves the same event/rules boundary, followed by a
+  direct full-CAD audit of goal/ramp/gate/tunnel dimensions. Inspect
+  `core/game/conveyor.ts`, `fixtures/decode.ts`, `fixtures/decodeField.ts`, and
+  `app/render/fieldRenderer.ts` first.

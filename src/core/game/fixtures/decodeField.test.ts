@@ -305,16 +305,12 @@ describe('element placement comes from the setup guide', () => {
     }
   });
 
-  /**
-   * "their ends start at TILE seams V and Z and run toward the nearest
-   * perimeter wall and parallel and adjacent to nearby TILE seam 3."
-   */
-  it('runs each GATE ZONE from its seam to the wall on seam 3', () => {
+  it('places each GATE ZONE at its cross-court classifier mouth', () => {
     const [x, y] = centreIn(DECODE_ZONES.blueGateZone);
-    expect(y).toBeCloseTo(horizontalSeamYIn(3), 6);
-    expect(x).toBeCloseTo(verticalSeamXIn('V') + ZONES.gateZoneLengthIn.value / 2, 6);
-    // Toward the wall, not toward the centre.
-    expect(x).toBeGreaterThan(verticalSeamXIn('V'));
+    // dSim/CAD plan view: blue's cross-court classifier is on the far-left
+    // wall; its tape starts at the 6 in channel edge and runs 10 in inward.
+    expect(y).toBeCloseTo(0.5, 6);
+    expect(x).toBeCloseTo(-(HALF_FIELD_IN - 6 - ZONES.gateZoneLengthIn.value / 2), 6);
   });
 
   /** "LOADING ZONES are in TILES A1 and F1, in the corners on the audience side." */
@@ -326,15 +322,13 @@ describe('element placement comes from the setup guide', () => {
     expect(y).toBeCloseTo(-HALF_FIELD_IN + half, 6);
   });
 
-  /**
-   * "on TILES A2 and A3 spanning from TILE seam 1 to 3 ... 16.75 in. away from
-   * the inside of TILE seam V."
-   */
-  it('offsets each SECRET TUNNEL from its seam and spans seams 1 to 3', () => {
+  it('places each SECRET TUNNEL beneath the opposing classifier', () => {
     const [x, y] = centreIn(DECODE_ZONES.redSecretTunnel);
 
-    expect(x - ZONES.secretTunnelWidthIn.value / 2).toBeCloseTo(verticalSeamXIn('V') + 16.75, 6);
-    expect(y).toBeCloseTo((horizontalSeamYIn(1) + horizontalSeamYIn(3)) / 2, 6);
+    // Red owns the tunnel below blue's far-left classifier. It runs from the
+    // gate mouth at -2 in toward the audience for the sourced 46.5 in length.
+    expect(x).toBeCloseTo(-(HALF_FIELD_IN - ZONES.secretTunnelWidthIn.value / 2), 6);
+    expect(y).toBeCloseTo(-2 - ZONES.secretTunnelLengthIn.value / 2, 6);
   });
 
   /**
@@ -389,15 +383,7 @@ describe('element placement comes from the setup guide', () => {
     expect(overlaps).toBe(false);
   });
 
-  /**
-   * Regression: the GOAL/RAMP/DEPOT cluster and its own GATE ZONE used to be
-   * placed with opposite sign conventions (`GOAL_CLUSTER_SIDE` disagreed with
-   * `SIDE`), so an alliance's own classifier queue and the GATE that opens it
-   * sat in opposite corners of the field — a shot would score, but a driver
-   * standing where the manual puts the GATE would never open it. The GOAL,
-   * RAMP, GATE and the alliance's own half must all fall on the same side.
-   */
-  it('keeps a GOAL, its RAMP, its GATE and its own half on the same side', () => {
+  it('keeps a GOAL, RAMP and GATE cross-court from the drive-team half', () => {
     for (const alliance of ['red', 'blue'] as const) {
       const sideX = centreIn(alliance === 'red' ? DECODE_ZONES.redSide : DECODE_ZONES.blueSide)[0];
       const goalX = centreIn(
@@ -410,9 +396,9 @@ describe('element placement comes from the setup guide', () => {
         alliance === 'red' ? DECODE_ZONES.redGateZone : DECODE_ZONES.blueGateZone,
       )[0];
 
-      expect(Math.sign(goalX), `${alliance} goal vs side`).toBe(Math.sign(sideX));
-      expect(Math.sign(rampX), `${alliance} ramp vs side`).toBe(Math.sign(sideX));
-      expect(Math.sign(gateX), `${alliance} gate vs side`).toBe(Math.sign(sideX));
+      expect(Math.sign(goalX), `${alliance} goal vs side`).toBe(-Math.sign(sideX));
+      expect(Math.sign(rampX), `${alliance} ramp vs side`).toBe(-Math.sign(sideX));
+      expect(Math.sign(gateX), `${alliance} gate vs side`).toBe(-Math.sign(sideX));
     }
   });
 

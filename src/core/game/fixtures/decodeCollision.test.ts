@@ -73,13 +73,13 @@ describe('DECODE collision classification', () => {
     const half = FIELD.sideIn.value / 2;
     const openingWidthIn = GOAL.openingWidthIn.value;
     const openingDepthIn = GOAL.openingDepthIn.value;
-    // Red occupies -X (`goalSide`).
-    const backLegCenter = vec2(inchesToMeters(-(half - openingWidthIn / 2)), inchesToMeters(half));
-    const sideLegCenter = vec2(inchesToMeters(-half), inchesToMeters(half - openingDepthIn / 2));
+    // Red's GOAL is cross-court at +X; red's staging/alliance half remains -X.
+    const backLegCenter = vec2(inchesToMeters(half - openingWidthIn / 2), inchesToMeters(half));
+    const sideLegCenter = vec2(inchesToMeters(half), inchesToMeters(half - openingDepthIn / 2));
     // Well inside both legs and off the open (diagonal) face: nothing should
     // be there to collide with.
     const interior = vec2(
-      inchesToMeters(-(half - openingWidthIn / 3)),
+      inchesToMeters(half - openingWidthIn / 3),
       inchesToMeters(half - openingDepthIn / 3),
     );
     return { backLegCenter, sideLegCenter, interior };
@@ -135,8 +135,9 @@ describe('DECODE collision classification', () => {
     if (classifier === undefined) throw new Error('red classifier missing');
     const bounds = bodyAabb(classifier);
 
-    // The classifier starts at the GATE line.  The 46.5 in SECRET TUNNEL is
-    // south of it, so no static fixture closes that floor-level passage.
+    // The raised classifier starts just beyond the five-inch GATE mouth. The
+    // 46.5 in SECRET TUNNEL ends at the mouth's south edge, so no fixture
+    // closes the floor-level passage.
     expect(bounds.minY).toBeCloseTo(inchesToMeters(2), 12);
     expect(classifier.span.bottom).toBeCloseTo(inchesToMeters(5.5), 12);
   });

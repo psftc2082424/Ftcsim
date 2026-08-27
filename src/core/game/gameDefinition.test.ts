@@ -305,10 +305,13 @@ describe('DECODE provenance', () => {
     expect(new Set(masses.map((e) => e.value))).toEqual(new Set([0.165]));
   });
 
-  /** The layout gap is the largest one in this fixture; it must be in the ledger. */
-  it('lists the invented field positions as an assumption', () => {
-    const ledger = assumptionLedger(DECODE_GAME);
-    expect(ledger.some((e) => e.value === 'goal-cluster-positions-inferred')).toBe(true);
+  /** The dSim-derived plan is visible as an inference pending a CAD audit. */
+  it('lists the inferred field plan in the provenance ledger', () => {
+    const plan = collectProvenance(DECODE_GAME).filter(
+      (entry) => entry.value === 'DECODE plan view transcribed from dSim, pending official CAD audit',
+    );
+    expect(plan.length).toBeGreaterThan(0);
+    for (const entry of plan) expect(entry.confidence).toBe('inferred');
   });
 
   /**

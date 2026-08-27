@@ -29,6 +29,7 @@ export class KeyboardSource implements InputSource {
   readonly id = 'keyboard';
   private readonly pressed = new Set<string>();
   private bindings: KeyBindings;
+  private intakeEnabled = false;
 
   constructor(bindings: KeyBindings) {
     this.bindings = bindings;
@@ -39,12 +40,18 @@ export class KeyboardSource implements InputSource {
     // Bindings changed under a held key; drop state rather than latch a stale
     // action on forever.
     this.pressed.clear();
+    this.intakeEnabled = false;
   }
 
   attach(target: Window): () => void {
     const onDown = (event: KeyboardEvent): void => {
       // Never swallow keys while the user is typing into a field.
       if (isTextEntry(event.target)) return;
+      // Intake is a driver toggle, not a hold command. Ignore repeated
+      // keydown events so OS key-repeat cannot flip it back off.
+      if (event.code === this.bindings.intake && !this.pressed.has(event.code)) {
+        this.intakeEnabled = !this.intakeEnabled;
+      }
       this.pressed.add(event.code);
       if (this.isBound(event.code)) event.preventDefault();
     };
@@ -78,7 +85,8 @@ export class KeyboardSource implements InputSource {
     const turn = held(this.bindings.turnLeft) - held(this.bindings.turnRight);
 
     const buttons: Record<string, boolean> = {};
-    for (const action of ['intake', 'outtake', 'launch'] as const) {
+    if (this.intakeEnabled) buttons.intake = true;
+    for (const action of ['outtake', 'launch'] as const) {
       if (this.pressed.has(this.bindings[action])) buttons[action] = true;
     }
     if (x === 0 && y === 0 && turn === 0 && Object.keys(buttons).length === 0) return null;
@@ -118,6 +126,8 @@ export class GamepadSource implements InputSource {
   readonly id = 'gamepad';
 
   private connectedIndex: number | null = null;
+  private intakeEnabled = false;
+  private intakeWasPressed = false;
 
   attach(target: Window): () => void {
     const onConnect = (event: GamepadEvent): void => {
@@ -167,8 +177,12 @@ export class GamepadSource implements InputSource {
     const turn = applyAxisDeadzone(-rightX, GAMEPAD_DEADZONE);
 
     const buttons: Record<string, boolean> = {};
+    const intakePressed = pad.buttons[6]?.pressed === true;
+    if (intakePressed && !this.intakeWasPressed) this.intakeEnabled = !this.intakeEnabled;
+    this.intakeWasPressed = intakePressed;
+    if (this.intakeEnabled) buttons.intake = true;
     const mapping: Readonly<Record<number, string>> = {
-      0: 'launch', 4: 'outtake', 6: 'intake',
+      0: 'launch', 4: 'outtake',
     };
     pad.buttons.forEach((button, index) => {
       const action = mapping[index];
@@ -196,6 +210,7 @@ export class VirtualPadSource implements InputSource {
   private leftY = 0;
   private rightX = 0;
   private readonly pressed = new Set<string>();
+  private intakeEnabled = false;
 
   /** Stick values in [-1, 1], already in robot axes: +x forward, +y left. */
   setLeftStick(forward: number, left: number): void {
@@ -208,6 +223,9 @@ export class VirtualPadSource implements InputSource {
   }
 
   setButton(name: string, down: boolean): void {
+    if (name === 'intake' && down && !this.pressed.has(name)) {
+      this.intakeEnabled = !this.intakeEnabled;
+    }
     if (down) this.pressed.add(name);
     else this.pressed.delete(name);
   }
@@ -217,19 +235,27 @@ export class VirtualPadSource implements InputSource {
     this.leftY = 0;
     this.rightX = 0;
     this.pressed.clear();
+    this.intakeEnabled = false;
   }
 
   get activeButtons(): readonly string[] {
     return [...this.pressed].sort();
   }
 
+  get isIntakeEnabled(): boolean {
+    return this.intakeEnabled;
+  }
+
   read(): ControlInput | null {
-    if (this.leftX === 0 && this.leftY === 0 && this.rightX === 0 && this.pressed.size === 0) {
+    if (this.leftX === 0 && this.leftY === 0 && this.rightX === 0 && this.pressed.size === 0 && !this.intakeEnabled) {
       return null;
     }
 
     const buttons: Record<string, boolean> = {};
-    for (const name of this.pressed) buttons[name] = true;
+    for (const name of this.pressed) {
+      if (name !== 'intake') buttons[name] = true;
+    }
+    if (this.intakeEnabled) buttons.intake = true;
 
     return createControlInput(this.leftX, this.leftY, this.rightX, buttons);
   }

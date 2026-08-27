@@ -28,7 +28,7 @@ export const ACTION_LABELS: Readonly<Record<DriveAction, string>> = {
   turnLeft: 'Turn left (CCW)',
   turnRight: 'Turn right (CW)',
   slow: 'Precision (hold)',
-  intake: 'Intake (hold)',
+  intake: 'Intake (toggle)',
   outtake: 'Outtake (hold)',
   launch: 'Shoot',
 };

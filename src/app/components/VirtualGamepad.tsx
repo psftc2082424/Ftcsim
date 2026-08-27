@@ -102,11 +102,15 @@ function PadButton({
   label,
   className,
   source,
+  latched = false,
+  onToggle,
 }: {
   name: string;
   label: string;
   className: string;
   source: VirtualPadSource;
+  latched?: boolean;
+  onToggle?: (() => void) | undefined;
 }) {
   const [down, setDown] = useState(false);
 
@@ -118,10 +122,11 @@ function PadButton({
   return (
     <button
       type="button"
-      className={`pad-button ${className} ${down ? 'is-down' : ''}`}
+      className={`pad-button ${className} ${down || latched ? 'is-down' : ''}`}
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId);
         press(true);
+        onToggle?.();
       }}
       onPointerUp={() => press(false)}
       onPointerCancel={() => press(false)}
@@ -133,6 +138,7 @@ function PadButton({
 }
 
 export function VirtualGamepad({ source }: Props) {
+  const [intakeOn, setIntakeOn] = useState(false);
   const setLeft = useCallback(
     (forward: number, left: number) => source.setLeftStick(forward, left),
     [source],
@@ -147,7 +153,14 @@ export function VirtualGamepad({ source }: Props) {
       <h2>Virtual Controller</h2>
 
       <div className="pad-shoulders">
-        <PadButton name="intake" label="INTAKE" className="pad-trigger" source={source} />
+        <PadButton
+          name="intake"
+          label={intakeOn ? 'INTAKE ON' : 'INTAKE'}
+          className="pad-trigger"
+          source={source}
+          latched={intakeOn}
+          onToggle={() => setIntakeOn((enabled) => !enabled)}
+        />
         <PadButton name="outtake" label="OUT" className="pad-bumper" source={source} />
       </div>
 
@@ -173,7 +186,7 @@ export function VirtualGamepad({ source }: Props) {
       </div>
 
       <p className="muted small">
-        Hold INTAKE to collect. Hold FIRE to launch every stored artifact at the
+        Tap INTAKE to toggle collection. Hold FIRE to launch every stored artifact at the
         configured rate; a tap fires just one.
       </p>
     </section>

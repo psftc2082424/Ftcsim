@@ -21,6 +21,8 @@ import { SimRunner, type RunnerStats } from './simRunner.js';
 import { GamepadSource, InputHub, KeyboardSource, VirtualPadSource } from './input/sources.js';
 import { DEFAULT_KEY_BINDINGS, type KeyBindings } from './input/bindings.js';
 import { loadKeyBindings, saveKeyBindings } from './input/bindingPreferences.js';
+import { DEFAULT_DRIVE_MODE, type DriveMode } from './input/driveMode.js';
+import { loadDriveMode, saveDriveMode } from './input/driveModePreferences.js';
 import { DEFAULT_RENDER_OPTIONS, type RenderOptions } from './render/fieldRenderer.js';
 import { TelemetryPanel } from './components/TelemetryPanel.js';
 import { MatchPanel } from './components/MatchPanel.js';
@@ -50,6 +52,8 @@ export function App() {
 
   const [bindings, setBindings] = useState<KeyBindings>(DEFAULT_KEY_BINDINGS);
   const [bindingsReady, setBindingsReady] = useState(false);
+  const [driveMode, setDriveMode] = useState<DriveMode>(DEFAULT_DRIVE_MODE);
+  const [driveModeReady, setDriveModeReady] = useState(false);
   const [robotConfig, setRobotConfig] = useState<RobotConfig>(COMPETITION_ROBOT_CONFIG);
   const [view, setView] = useState<'play' | 'configure' | 'controls'>('play');
   const [showDebug, setShowDebug] = useState(false);
@@ -101,9 +105,26 @@ export function App() {
   }, [bindingStore]);
 
   useEffect(() => {
+    let current = true;
+    void loadDriveMode(bindingStore).then((saved) => {
+      if (!current) return;
+      setDriveMode(saved);
+      setDriveModeReady(true);
+    });
+    return () => {
+      current = false;
+    };
+  }, [bindingStore]);
+
+  useEffect(() => {
     if (!bindingsReady) return;
     void saveKeyBindings(bindingStore, bindings);
   }, [bindingStore, bindings, bindingsReady]);
+
+  useEffect(() => {
+    if (!driveModeReady) return;
+    void saveDriveMode(bindingStore, driveMode);
+  }, [bindingStore, driveMode, driveModeReady]);
 
   /**
    * Loading or applying a robot rebuilds the world. A robot's mass and geometry
@@ -121,6 +142,10 @@ export function App() {
   useEffect(() => {
     keyboard.setBindings(bindings);
   }, [keyboard, bindings]);
+
+  useEffect(() => {
+    runner.setDriveMode(driveMode);
+  }, [runner, driveMode]);
 
   useEffect(() => {
     runner.setRenderOptions(renderOptions);
@@ -235,7 +260,13 @@ export function App() {
           </aside>
         ) : (
           <aside className="side-column configure-sidebar">
-            <ControlsPanel bindings={bindings} onChange={setBindings} gamepadConnected={gamepadConnected} />
+            <ControlsPanel
+              bindings={bindings}
+              onChange={setBindings}
+              gamepadConnected={gamepadConnected}
+              driveMode={driveMode}
+              onDriveModeChange={setDriveMode}
+            />
           </aside>
         )}
       </main>

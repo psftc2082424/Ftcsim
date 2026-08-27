@@ -13,7 +13,7 @@ export function MechanismPanel({ sample }: Props) {
         <div><span>STORAGE</span><strong>{mechanism === undefined ? '—' : `${mechanism.held.length} / ${mechanism.capacity}`}</strong></div>
         <div><span>SHOOT</span><strong className="is-active">SPACE</strong></div>
       </div>
-      <p>F Intake · R Outtake · Space Shoot</p>
+      <p>F Toggle intake · R Outtake · Hold Space to shoot</p>
     </section>
   );
 }
