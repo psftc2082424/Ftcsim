@@ -331,10 +331,37 @@ describe('element placement comes from the setup guide', () => {
    * the inside of TILE seam V."
    */
   it('offsets each SECRET TUNNEL from its seam and spans seams 1 to 3', () => {
-    const [x, y] = centreIn(DECODE_ZONES.blueSecretTunnel);
+    const [x, y] = centreIn(DECODE_ZONES.redSecretTunnel);
 
     expect(x - ZONES.secretTunnelWidthIn.value / 2).toBeCloseTo(verticalSeamXIn('V') + 16.75, 6);
     expect(y).toBeCloseTo((horizontalSeamYIn(1) + horizontalSeamYIn(3)) / 2, 6);
+  });
+
+  /**
+   * The pairing §9.8.3 states, as geometry: a GATE releases into the *opposing*
+   * ALLIANCE'S SECRET TUNNEL, and G424.A puts a ROBOT in its own GATE ZONE and
+   * its opponent's SECRET TUNNEL at once — so the two must be neighbours. This
+   * is what settles the setup guide's colour labels for the tunnels.
+   */
+  it('puts each GATE ZONE beside the opposing SECRET TUNNEL, not its own', () => {
+    for (const alliance of ['red', 'blue'] as const) {
+      const gate = centreIn(
+        alliance === 'red' ? DECODE_ZONES.redGateZone : DECODE_ZONES.blueGateZone,
+      );
+      const own = centreIn(
+        alliance === 'red' ? DECODE_ZONES.redSecretTunnel : DECODE_ZONES.blueSecretTunnel,
+      );
+      const opponent = centreIn(
+        alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
+      );
+
+      const near = Math.hypot(gate[0] - opponent[0], gate[1] - opponent[1]);
+      const far = Math.hypot(gate[0] - own[0], gate[1] - own[1]);
+
+      expect(near, alliance).toBeLessThan(far);
+      // Adjacent, not merely nearer: they share the seam-3 boundary.
+      expect(near, alliance).toBeLessThan(ZONES.secretTunnelLengthIn.value);
+    }
   });
 
   /** Everything stays on the field, including the elements added here. */

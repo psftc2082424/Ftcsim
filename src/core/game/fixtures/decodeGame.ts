@@ -23,6 +23,7 @@ import { ARTIFACT_MASS_LB } from './decodeDimensions.js';
 import {
   DECODE_FOULS_ASSESSED_BY_REFEREE,
   DECODE_HAS_NO_WEIGHT_LIMIT,
+  DECODE_CONVEYORS,
   DECODE_MATCH,
   DECODE_MOTIFS,
   DECODE_OBJECTIVES,
@@ -82,6 +83,7 @@ export const DECODE_GAME: GameDefinition = {
   regions: DECODE_FIELD_REGIONS,
   zones: DECODE_FIELD_ZONES,
   slottedRegions: DECODE_SLOTTED_REGIONS,
+  conveyors: DECODE_CONVEYORS,
 
   setup: DECODE_SETUP,
 

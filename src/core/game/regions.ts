@@ -29,6 +29,7 @@
  * because their geometry differs.
  */
 
+import { collide } from '../physics/sat.js';
 import { inchesToMeters } from '../units/convert.js';
 import { vec2, type Vec2 } from '../math/vec2.js';
 import {
@@ -281,6 +282,48 @@ export function robotSupportFraction(
     if (shapeContainsPoint(zone.shape, zone.centerM, corner)) inside++;
   }
   return inside / corners.length;
+}
+
+/**
+ * Does a robot's footprint touch a zone at all?
+ *
+ * `robotSupportFraction` samples the robot's four corners, which answers "how
+ * much of it is standing in here" and is exactly right for a zone a robot parks
+ * in. It is the wrong question for a zone *smaller than a robot*: a 2.75 in
+ * strip has no corner of an 18 in robot inside it however hard the robot is
+ * pressed against it, so the fraction is zero while the robot is plainly there.
+ *
+ * This asks the other question — do the two shapes overlap — through the same
+ * SAT narrowphase the physics uses, so a robot operating a small field element
+ * is detected the way a collision would be. ASSUMPTIONS.md §10.6.
+ */
+export function robotOverlapsZone(
+  zone: FieldZone,
+  robotShape: Obb,
+  robotPosition: Vec2,
+  robotHeading: number,
+): boolean {
+  if (zone.shape.kind === 'circle') {
+    // A circle zone carries its centre separately; the poly case has world
+    // vertices and needs no offset.
+    return (
+      collide(
+        robotShape,
+        { p: robotPosition, theta: robotHeading },
+        { kind: 'circle', radius: zone.shape.radius },
+        { p: zone.centerM, theta: 0 },
+      ) !== null
+    );
+  }
+
+  return (
+    collide(
+      robotShape,
+      { p: robotPosition, theta: robotHeading },
+      zone.shape,
+      { p: vec2(0, 0), theta: 0 },
+    ) !== null
+  );
 }
 
 /** Convenience over `robotSupportFraction` for the common "is it all in?" test. */

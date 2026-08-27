@@ -484,8 +484,12 @@ export const DECODE_FIELD_ZONES: readonly FieldZone[] = [
   zone(DECODE_ZONES.redLoadingZone, mirrored(LAYOUT.loading, 'red')),
   zone(DECODE_ZONES.blueGateZone, LAYOUT.gate),
   zone(DECODE_ZONES.redGateZone, mirrored(LAYOUT.gate, 'red')),
-  zone(DECODE_ZONES.blueSecretTunnel, LAYOUT.secretTunnel),
-  zone(DECODE_ZONES.redSecretTunnel, mirrored(LAYOUT.secretTunnel, 'red')),
+  // The tunnel beside blue's GATE is *red's*: a GATE releases into the opposing
+  // ALLIANCE'S SECRET TUNNEL ZONE (§9.8.3), and G424.A has a ROBOT standing in
+  // its own GATE ZONE and its opponent's SECRET TUNNEL at the same time, so the
+  // pair are neighbours. The setup guide labels this one red and is right.
+  zone(DECODE_ZONES.redSecretTunnel, LAYOUT.secretTunnel),
+  zone(DECODE_ZONES.blueSecretTunnel, mirrored(LAYOUT.secretTunnel, 'red')),
   // Two zones, not two per alliance: LAUNCH ZONES belong to the FIELD (§9.3).
   createPolyZone(DECODE_ZONES.audienceLaunchZone, AUDIENCE_LAUNCH_ZONE),
   createPolyZone(DECODE_ZONES.goalLaunchZone, GOAL_LAUNCH_ZONE),
@@ -504,14 +508,18 @@ export const DECODE_SLOTTED_REGIONS: Readonly<Record<string, number>> = {
  *
  * ── Direction matters, and the manual settles it ───────────────────────────
  *
- * Figure 10-4 (p.86) lays the indices out as `GATE | 1 2 3 4 5 6 7 8 9 | SQUARE`.
- * Artifacts enter at the SQUARE end (§10.5.1) and are retained by the GATE, so
- * the RAMP fills from index 9 downward: the first artifact in ends at index 9,
- * the ninth at index 1.
+ * Figure 10-4 (p.86) lays the indices out as `GATE | 1 2 3 4 5 6 7 8 9 | SQUARE`,
+ * so index 1 is the GATE end and index 9 the SQUARE end.
  *
- * An earlier version filled 1-upward, which silently mismatched every PATTERN
- * against a repeating motif. Returns a 0-based index for the engine, so
- * arrival *n* maps to index `capacity - 1 - n`.
+ * Gravity settles the direction. The SQUARE is "at the top of the RAMP" (§9.8.1)
+ * and artifacts enter through it (§10.5.1); the GATE is what "prevents CLASSIFIED
+ * ARTIFACTS from exiting the RAMP" (§9.8.3), so it is at the bottom holding them
+ * in. An artifact therefore rolls the length of the RAMP and rests against the
+ * GATE: the **first** in ends at index 1 and the ninth at index 9.
+ *
+ * Returns a 0-based index for the engine, so arrival *n* maps to index *n*, and
+ * `game/conveyor.ts` places it at the matching physical slot — the two cannot
+ * disagree, because the queue order is the arrival order in both.
  *
  * Beyond capacity the artifact OVERFLOWS and occupies no index (§9.8.2).
  */
@@ -523,7 +531,7 @@ export function createRampSlotAssignment(): {
   const capacity = CLASSIFIER.rampCapacity.value;
 
   const indexFor = (arrivalOrder: number): number | undefined =>
-    arrivalOrder < capacity ? capacity - 1 - arrivalOrder : undefined;
+    arrivalOrder < capacity ? arrivalOrder : undefined;
 
   return {
     assign(pieceId, regionId) {

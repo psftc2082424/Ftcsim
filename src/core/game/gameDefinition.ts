@@ -26,6 +26,7 @@
 import { validateRuleSet } from './rulesEngine.js';
 import { validateRegions, type FieldRegion, type FieldZone } from './regions.js';
 import { totalMatchDurationSec, type MatchStructure } from './matchStructure.js';
+import type { PieceConveyorSpec } from './conveyor.js';
 import type { PredicateRegistry } from './predicates.js';
 import type { Objective, ScoringRule, FilterValue } from './scoring.js';
 import type { ScoreState } from './effects.js';
@@ -192,6 +193,14 @@ export interface GameDefinition {
   readonly zones: readonly FieldZone[];
   /** Ordered regions and their slot counts. */
   readonly slottedRegions: Readonly<Record<string, number>>;
+  /**
+   * Field mechanisms that take pieces in and let them out elsewhere.
+   *
+   * Data, like everything else about a season: DECODE's CLASSIFIER is two of
+   * these, and a game with no such element simply declares none
+   * (`game/conveyor.ts`).
+   */
+  readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
 
   readonly rules: readonly ScoringRule[];
   readonly objectives: readonly Objective[];

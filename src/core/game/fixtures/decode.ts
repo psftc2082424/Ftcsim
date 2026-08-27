@@ -27,7 +27,9 @@ import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sour
 import type { MatchStructure } from '../matchStructure.js';
 import type { Objective, ScoringRule } from '../scoring.js';
 import type { MatchSetupSpec, PenaltyValues, RankingPointRules } from '../gameDefinition.js';
-import { ARTIFACT, CONTROL_LIMIT, ZONES } from './decodeDimensions.js';
+import { ARTIFACT, CLASSIFIER, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
+import type { PieceConveyorSpec } from '../conveyor.js';
+import { STANDARD_GRAVITY } from '../../units/convert.js';
 
 // ---------------------------------------------------------------- pieces ---
 
@@ -119,6 +121,67 @@ export const SPIKE_MARKS_PER_ALLIANCE = explicit(
 
 /** Number of ordered scoring slots on a RAMP (§10.5.2: indices 1–9). */
 export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
+
+/**
+ * How steeply the RAMP falls, in radians.
+ *
+ * The manual never states it, and it is the one thing needed to say how long
+ * artifacts take to move along the CLASSIFIER — which it does say is not
+ * instant: "The GATE closing before all CLASSIFIED ARTIFACTS exit the RAMP is
+ * not considered an ARENA FAULT, and teams should be prepared to hold the GATE
+ * open to fully clear the RAMP" (§9.8.3).
+ *
+ * So it is inferred from the two heights the manual *does* give, at the two ends
+ * of the run the setup guide gives: the GOAL's top lip is 38.75 in above the
+ * TILE (§9.7), the open GATE's contact point is about 3 in above it (§9.8.3),
+ * and the SECRET TUNNEL that runs beneath the CLASSIFIER is 46.5 in long (§9.3).
+ * That is a drop of 35.75 in over a run of 46.5 in.
+ */
+export const RAMP_SLOPE_RAD = inferred(
+  Math.atan2(
+    GOAL.topLipHeightIn.value - CLASSIFIER.gateOpenContactHeightIn.value,
+    ZONES.secretTunnelLengthIn.value,
+  ),
+  'The manual gives no RAMP angle. Taken from the drop between the GOAL top lip ' +
+    '(38.75 in, §9.7) and the open GATE contact point (3 in, §9.8.3) over the ' +
+    'length of the SECRET TUNNEL that runs beneath the CLASSIFIER (46.5 in, §9.3). ' +
+    'Only the timings below depend on it, and only their magnitude.',
+  72,
+);
+
+/**
+ * Along-slope acceleration of an ARTIFACT rolling down the RAMP, m/s².
+ *
+ * A solid sphere rolling without slipping accelerates at `(5/7) g sin a` — the
+ * 5/7 is `1/(1 + I/mr²)` for `I = ⅖mr²`, so it is the ball's own geometry rather
+ * than a fitted number.
+ */
+export const RAMP_ROLL_ACCEL_MPS2 =
+  (5 / 7) * STANDARD_GRAVITY * Math.sin(RAMP_SLOPE_RAD.value);
+
+/**
+ * Seconds between successive CLASSIFIED artifacts leaving a draining RAMP.
+ *
+ * Balls on a ramp rest against the one below, so releasing one lets the stack
+ * move exactly one diameter before the next reaches the GATE: `t = √(2D/a)`
+ * from rest. Nine of them therefore take about nine of these, which is why
+ * holding the GATE open matters.
+ */
+export const RAMP_DRAIN_INTERVAL_SEC = inferred(
+  Math.sqrt((2 * (ARTIFACT.specifiedDiameterIn.value * 0.0254)) / RAMP_ROLL_ACCEL_MPS2),
+  'Time for a rolling ARTIFACT to travel its own diameter from rest at the RAMP ' +
+    'slope. The manual states the drain is not instantaneous but gives no rate.',
+  72,
+);
+
+/** Seconds an OVERFLOW artifact takes to ride the RAMP and reach the way out. */
+export const RAMP_TRANSIT_SEC = inferred(
+  Math.sqrt((2 * (ZONES.secretTunnelLengthIn.value * 0.0254)) / RAMP_ROLL_ACCEL_MPS2),
+  'Time to roll the full RAMP length from rest at the inferred slope. An OVERFLOW ' +
+    'artifact "passes over the top of the GATE to exit the RAMP" (§9.8.3), so it ' +
+    'travels the whole run rather than stopping.',
+  72,
+);
 
 // ---------------------------------------------------------------- regions ---
 
@@ -235,6 +298,52 @@ export const ALL_LAUNCH_LINE_ZONE_IDS = `${DECODE_ZONES.audienceLaunchZone},${DE
  * the text is on p.62. A dimension should exist once, so this is now an alias.
  */
 export const BASE_ZONE_SIDE_IN = ZONES.baseZoneSideIn;
+
+// ------------------------------------------------------------- CLASSIFIER ---
+
+/**
+ * The CLASSIFIER, as a piece conveyor (`game/conveyor.ts`).
+ *
+ * §10.5.1 describes the path an ARTIFACT takes: "enter the GOAL through the open
+ * top, exit under the archway, and pass through the diverting SQUARE". What
+ * happens next is capacity: "The RAMP can fit up to 9 CLASSIFIED ARTIFACTS
+ * before newly entered ARTIFACTS will OVERFLOW" (§9.8.2), and OVERFLOW
+ * artifacts "pass over the top of the GATE to exit the RAMP into the opposing
+ * ALLIANCE'S SECRET TUNNEL ZONE" (§9.8.3).
+ *
+ * That is one conveyor exactly: a GOAL to arrive in, a RAMP to queue on, a GATE
+ * a ROBOT holds open, and the opposing SECRET TUNNEL to come out into.
+ *
+ * ── Which tunnel, and why it settles a conflict ────────────────────────────
+ *
+ * §9.8.3 makes the pairing geometric rather than a matter of colour: a GATE
+ * releases into the **opposing** ALLIANCE'S SECRET TUNNEL ZONE, and G424.A
+ * contemplates a ROBOT being in its own GATE ZONE and its opponent's SECRET
+ * TUNNEL ZONE at once — so the two are adjacent. The setup guide puts the blue
+ * GATE ZONE on TILES A3/A4 and a SECRET TUNNEL on A2/A3 immediately below it,
+ * and labels that tunnel red. Read through §9.8.3 the guide is right and
+ * consistent; see `DECODE_SETUP_GUIDE_COLOUR_CONFLICT`.
+ */
+export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] as const).map(
+  (alliance) => ({
+    id: `${alliance}-classifier`,
+    entryRegionId: alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal,
+    queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
+    capacity: RAMP_SLOT_COUNT.value,
+    // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
+    // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
+    // (§9.8.3) and the GATE ZONE is the 2.75 in strip "adjacent to each GATE"
+    // (§9.3) — a ROBOT in it is by construction pushing the arm, and the GATE
+    // "is closed by gravity" the moment it stops.
+    releaseZoneId: alliance === 'red' ? DECODE_ZONES.redGateZone : DECODE_ZONES.blueGateZone,
+    releaseAlliance: alliance,
+    // The opposing ALLIANCE'S, per §9.8.3.
+    exitZoneId:
+      alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
+    bypassTransitSec: RAMP_TRANSIT_SEC.value,
+    drainIntervalSec: RAMP_DRAIN_INTERVAL_SEC.value,
+  }),
+);
 
 // ------------------------------------------------------------ match timing ---
 

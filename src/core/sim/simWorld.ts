@@ -195,6 +195,14 @@ interface SimPiece {
    * the robot that holds it.
    */
   carriedBy: EntityId | null;
+  /**
+   * Held by a *field* mechanism rather than a robot (`game/conveyor.ts`).
+   *
+   * Parked pieces are placed where the mechanism says and are skipped by
+   * integration, contact and robot intakes — a ball inside a chute is not
+   * resting on the floor and is not something a robot can reach.
+   */
+  parked: boolean;
   /** Force accumulated by mechanisms this tick, world frame, newtons. */
   forceX: number;
   forceY: number;
@@ -304,6 +312,7 @@ export class SimWorld {
       vertical: { heightM, velocityMps: 0 },
       previousHeightM: heightM,
       carriedBy: null,
+      parked: false,
       forceX: 0,
       forceY: 0,
     });
@@ -377,8 +386,8 @@ export class SimWorld {
 
       // A carried piece is driven by its robot rather than by its own dynamics,
       // so it is placed after the robot has moved (`carryHeldPieces`) instead of
-      // being integrated here.
-      if (piece.carriedBy !== null) continue;
+      // being integrated here. A parked one is held by a field mechanism.
+      if (piece.carriedBy !== null || piece.parked) continue;
 
       // Mechanism forces are the only external ones a piece ever sees: an
       // intake roller dragging it in. They are cleared after use so a force is
@@ -536,6 +545,46 @@ export class SimWorld {
     };
   }
 
+  /**
+   * Park a piece at a point, held by a field mechanism.
+   *
+   * The field's equivalent of a robot carrying a piece in its hopper
+   * (ASSUMPTIONS.md §9.8): the piece stays a body, keeps its id and is still
+   * drawn and counted, but stops being integrated and stops colliding. It is
+   * what a chute, a queue or a holder does to a piece it has taken.
+   */
+  holdPiece(pieceId: string, positionM: Vec2): void {
+    const piece = this.pieceNamed(pieceId);
+    piece.parked = true;
+    piece.carriedBy = null;
+    this.settlePiece(piece, positionM);
+  }
+
+  /** Put a parked piece back into play at rest. */
+  releasePiece(pieceId: string, positionM: Vec2): void {
+    const piece = this.pieceNamed(pieceId);
+    piece.parked = false;
+    piece.carriedBy = null;
+    this.settlePiece(piece, positionM);
+  }
+
+  private settlePiece(piece: SimPiece, positionM: Vec2): void {
+    piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
+    piece.body.vel = { v: vec2(0, 0), omega: 0 };
+    piece.vertical = { heightM: piece.radiusM, velocityMps: 0 };
+    piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
+    piece.forceX = 0;
+    piece.forceY = 0;
+    piece.previousPose = piece.body.pose;
+    piece.previousHeightM = piece.vertical.heightM;
+  }
+
+  private pieceNamed(pieceId: string): SimPiece {
+    const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
+    if (piece === undefined) throw new Error(`No game piece "${pieceId}".`);
+    return piece;
+  }
+
   /** Height of a piece's centre above the floor, metres. */
   pieceHeightM(pieceId: string): number {
     const piece = this.pieces.find((candidate) => candidate.spec.pieceId === pieceId);
@@ -679,7 +728,7 @@ export class SimWorld {
     const halfWidth = robot.derived.widthM / 2;
 
     for (const piece of this.pieces) {
-      if (piece.carriedBy !== null) continue;
+      if (piece.carriedBy !== null || piece.parked) continue;
       if (!intakeAccepts(spec, piece.spec.pieceType)) continue;
       // A piece in flight passes over the intake rather than through it.
       if (isAirborne(piece.vertical, piece.radiusM)) continue;
@@ -913,7 +962,7 @@ export class SimWorld {
     // see it would push it straight back out of the hopper.
     const carried = new Set<EntityId>();
     for (const piece of this.pieces) {
-      if (piece.carriedBy !== null) carried.add(piece.body.id);
+      if (piece.carriedBy !== null || piece.parked) carried.add(piece.body.id);
     }
 
     this.broadphase.clear();

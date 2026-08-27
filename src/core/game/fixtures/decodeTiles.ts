@@ -79,14 +79,18 @@ export const DECODE_TILE_ORIENTATION: Sourced<string> = explicitRule(
 );
 
 export const DECODE_SETUP_GUIDE_COLOUR_CONFLICT: Sourced<string> = assumed(
-  'manual wins over setup-guide colour labels',
+  'manual wins for the BASE ZONE; the tunnel labels were never a conflict',
   'The Event FIELD Setup Guide places the red BASE ZONE on TILE B2 and the red SECRET ' +
-    'TUNNEL ZONE on TILES A2/A3, which puts red in columns A-B. G402 assigns columns ' +
-    'A, B, C to blue, and the same guide places the *blue* GATE ZONE on A3/A4 — so the ' +
-    'guide disagrees with the manual and with itself. The Competition Manual is the ' +
-    'rules document and wins. The guide also states the FIELD is symmetrical right to ' +
-    'left, so if this reading is backwards the colours mirror and no distance, shape or ' +
-    'rule changes.',
+    'TUNNEL ZONE on TILES A2/A3, while placing the *blue* GATE ZONE on A3/A4. Two of ' +
+    'those looked like a contradiction and only one is. Section 9.8.3 says a GATE ' +
+    'releases into the OPPOSING ALLIANCE SECRET TUNNEL ZONE, and G424.A contemplates a ' +
+    'ROBOT standing in its own GATE ZONE and in the opponent SECRET TUNNEL at the same ' +
+    'time - so a GATE and the tunnel beside it belong to different alliances by design, ' +
+    'and the guide labelling the tunnel next to the blue GATE red is exactly right. ' +
+    'That leaves the BASE ZONE: B2 is on the blue side under G402, so the guide and the ' +
+    'manual really do disagree there, and the Competition Manual wins as the rules ' +
+    'document. The guide also states the FIELD is symmetrical right to left, so if that ' +
+    'reading is backwards the colours mirror and no distance, shape or rule changes.',
 );
 
 /**

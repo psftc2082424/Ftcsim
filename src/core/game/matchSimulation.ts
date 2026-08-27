@@ -34,6 +34,11 @@ import { MatchRunner } from './matchRunner.js';
 import { RegionMembershipDetector } from './membershipDetector.js';
 import { observationFrom, type PieceAttribution } from './observation.js';
 import { PossessionTracker, attributionFrom, type PossessionOptions } from './possession.js';
+import {
+  PieceConveyors,
+  resolveConveyorPlaces,
+  type PieceConveyorSpec,
+} from './conveyor.js';
 import { createDefaultRegistry, type PredicateRegistry } from './predicates.js';
 import type { FieldRegion, FieldZone } from './regions.js';
 import type { ScoringRule, FilterValue } from './scoring.js';
@@ -57,6 +62,8 @@ export interface MatchSimulationOptions {
   readonly rules: readonly ScoringRule[];
   readonly regions: readonly FieldRegion[];
   readonly zones: readonly FieldZone[];
+  /** Field mechanisms that move pieces about (`conveyor.ts`). */
+  readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
 
   readonly robots: readonly RobotSpec[];
   readonly pieces?: readonly GamePieceSpec[] | undefined;
@@ -95,6 +102,7 @@ export class MatchSimulation {
   readonly runner: MatchRunner;
   readonly detector: RegionMembershipDetector;
   readonly possession: PossessionTracker;
+  readonly conveyors: PieceConveyors;
 
   private readonly options: MatchSimulationOptions;
   private readonly attribution: PieceAttribution;
@@ -114,6 +122,13 @@ export class MatchSimulation {
 
     this.possession = new PossessionTracker(options.possession);
     this.attribution = options.attribution ?? attributionFrom(this.possession);
+
+    const conveyorSpecs = options.conveyors ?? [];
+    this.conveyors = new PieceConveyors(
+      conveyorSpecs,
+      resolveConveyorPlaces(conveyorSpecs, options.regions, options.zones),
+      DT_SECONDS,
+    );
 
     this.detector = new RegionMembershipDetector({
       regions: options.regions,
@@ -169,6 +184,10 @@ export class MatchSimulation {
    *   3. If this tick ends a period, current occupancy and resting pieces are
    *      restated as facts — end-of-period assessment needs the final position,
    *      not the long-past moment of arrival — again before the clock moves.
+   *   3b. Field mechanisms take and release pieces. **After** the detector, so
+   *      a piece that entered a scoring region this tick has already produced
+   *      its event and been judged against the state before it arrived. Moving
+   *      it first would delete the arrival the rules exist to score.
    *   4. The clock advances, and any `PhaseChanged` runs through the rules.
    */
   step(): void {
@@ -183,6 +202,8 @@ export class MatchSimulation {
 
     const observation = observationFrom(snapshot, { attribution: this.attribution });
     this.ingestAll(this.detector.update(observation, this.world.tick));
+
+    this.conveyors.update(snapshot, this.world.tick, this.world);
 
     if (this.endsAPeriod(this.world.tick)) {
       this.ingestAll(this.detector.restateRestingPieces(this.world.tick, this.options.slotAssignment));
@@ -278,6 +299,8 @@ export function simulationFromDefinition(
     regions: definition.regions,
     zones: definition.zones,
     slottedRegions: definition.slottedRegions,
+
+    conveyors: definition.conveyors,
 
     robots: setup.robots,
     pieces: setup.pieces,
