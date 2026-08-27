@@ -176,11 +176,12 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Refine the functional match flow, if needed.** The dSim-informed UI pass is
-complete: Play is field-first with a broadcast-style bottom score overlay,
-mechanism state card, named keyboard/gamepad/virtual controls and collapsible
-engineering telemetry; Configure contains robot/preset/control editing. The
-GOAL-cluster CAD extraction remains a later data-quality task.
+**Build the robot-configuration page and persistent keybind editor.** Play is
+field-first with a broadcast-style bottom score overlay, mechanism card, named
+keyboard/gamepad/virtual controls and collapsible engineering telemetry. The
+existing Configure view needs to become a clearer setup flow with persisted,
+user-meaningful robot settings and complete editable bindings; do not expose
+removed flywheel/projectile parameters.
 
 ### Latest handoff — 2026-08-27
 
@@ -202,14 +203,29 @@ GOAL-cluster CAD extraction remains a later data-quality task.
   `MechanismPanel.tsx` for the field-first UI. The remaining data-quality task
   is extracting inferred GOAL/RAMP/DEPOT placement from the full-field CAD;
   region IDs are the contract and must not change.
-- **Field presentation pass started:** `app/render/fieldRenderer.ts` now renders
-  dark alternating FTC tiles, filled physical perimeter rails, tape-weight
-  markings, and solid-looking GOAL/RAMP/GATE/TUNNEL shapes from existing
-  GameDefinition geometry. This is visual-only. Collision currently remains
-  the standard perimeter template; before adding field-element bodies, build a
-  season fixture that classifies each official element as SOLID, PASSABLE, or
-  logic-only from the setup/CAD data rather than turning score regions into
-  walls.
+- **Data-backed DECODE collision fixture added:**
+  `core/game/fixtures/decodeCollision.ts` explicitly classifies every relevant
+  field object as `SOLID / COLLIDABLE`, `PASSABLE`, or `GAME-LOGIC REGION ONLY`.
+  `createDecodeField()` composes the generic perimeter with three collision
+  panels per GOAL (two sides plus the back) from the documented 27 in outer and
+  26.5 × 18.3 in opening envelopes. `App.tsx` now supplies that field to the
+  real DECODE match runner, so both robots and loose pieces use it.
+- **Do not turn regions into obstacles.** Gate zones, secret-tunnel zones,
+  launch zones, base/loading/depot tape, goal membership, and ramp queue
+  regions have no collision bodies. The GATE and RAMP assemblies are real
+  solids, but their component-level footprint is CAD-only, so they are marked
+  solid-without-body rather than approximated from a scoring rectangle. The
+  OBELISK is outside the perimeter and needs no duplicate body.
+- **Verification after the collision pass:** `decodeCollision.test.ts` covers
+  classifications, passability, goal-shell shape count, and a loose artifact
+  resolving against the live static field. `npm run verify` is clean
+  (typecheck, ESLint, full Vitest); local browser inspection at `/Ftcsim/`
+  confirmed the shell rails render while game regions remain overlays.
+- **Inspect first next time:** `decodeCollision.ts` and its tests for the
+  collision contract, `decodeField.ts` for sourced/inferred placements, then
+  `app/App.tsx`, `app/input/bindings.ts`, `app/components/ControlsPanel.tsx`
+  and `storage/` for the configuration/keybind pass. The full-field STEP CAD
+  remains the exact next source for ramp, gate and tunnel-wall geometry.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

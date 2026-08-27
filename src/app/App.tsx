@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { COMPETITION_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
 import { DECODE_GAME } from '../core/game/fixtures/decodeGame.js';
 import { stageDecodePieces } from '../core/game/fixtures/decodeStaging.js';
+import { createDecodeField } from '../core/game/fixtures/decodeCollision.js';
 import { inchesToMeters } from '../core/units/convert.js';
 import { vec2 } from '../core/math/vec2.js';
 import type { TelemetrySample } from '../core/telemetry/sampler.js';
@@ -71,6 +72,8 @@ export function App() {
         DECODE_GAME,
         LEGAL_START_POSE,
         stageDecodePieces(),
+        1,
+        createDecodeField(),
       ),
       keyboard: keyboardSource,
       gamepad: gamepadSource,

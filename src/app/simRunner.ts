@@ -129,8 +129,9 @@ export class SimRunner {
     /** Game pieces the field starts with. A bare drivetrain world has none. */
     private readonly stagedPieces: readonly GamePieceSpec[] = [],
     private readonly seed = 1,
+    field: FieldTemplate = createStandardField(),
   ) {
-    this.field = createStandardField();
+    this.field = field;
     this.simulation = this.createSimulation();
   }
 
