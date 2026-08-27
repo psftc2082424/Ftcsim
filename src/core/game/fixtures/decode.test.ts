@@ -303,12 +303,16 @@ describe('DECODE scoring — ARTIFACTS', () => {
     expect(overflowed).toBe(3);
   });
 
-  /** §10.5.1: a piece scores once, however many times it re-enters. */
-  it('does not score the same artifact twice', () => {
+  /**
+   * A released ARTIFACT remains a normal piece and may be collected and shot
+   * again.  Each distinct GOAL entry is therefore a new scoring action; only
+   * sitting in the GOAL is de-duplicated by membership detection.
+   */
+  it('scores a recycled artifact again after it leaves and re-enters the GOAL', () => {
     const runner = newRunner();
     shootArtifact(runner, 'a1', 'G', 10);
     shootArtifact(runner, 'a1', 'G', 20);
-    expect(runner.score.red).toBe(3);
+    expect(runner.score.red).toBe(6);
   });
 
   it('scores distinct artifacts separately', () => {

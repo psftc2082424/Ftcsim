@@ -13,16 +13,14 @@
  * runs whatever a season declares. DECODE's CLASSIFIER is one instance of it; so
  * is a human-player return chute or a ball elevator.
  *
- * ── A piece that leaves is real again ──────────────────────────────────────
+ * ── A guided lane stays physical ──────────────────────────────────────────
  *
- * The queue itself stays a virtual, parked state — nine ARTIFACTS packed
- * against each other on a RAMP is not a rigid-body problem this project takes
- * on. But the moment a piece is *let out*, it is given a real velocity and
- * handed back to ordinary physics: it rolls, it can collide with a corridor's
- * walls, and it comes to rest wherever that motion actually puts it. There is
- * no teleport-to-a-tidy-slot step here any more, and no virtual travel timer
- * for an overflowing arrival either — both are replaced by the one thing that
- * makes them true, a push.
+ * A basic conveyor can still use the legacy ordered holder below, but a season
+ * can declare a `lane`: pieces remain active rigid bodies, receive a modest
+ * downslope/funnel acceleration, collide with one another, and meet a real
+ * gate collider. A full lane's extra arrivals are routed on an elevated
+ * overflow surface, so capacity is a physical path rather than a second score
+ * destination. No lane names any particular season or field element.
  *
  * ── What it does not do ────────────────────────────────────────────────────
  *
@@ -53,6 +51,8 @@ export interface PieceConveyorSpec {
   readonly queueRegionId: string;
   /** How many the queue holds before arrivals bypass it. */
   readonly capacity: number;
+  /** Optional physical lane replacing the legacy parked-slot representation. */
+  readonly lane?: GuidedLaneSpec | undefined;
   /**
    * Zone a robot must occupy to latch the queue's way out open.
    *
@@ -88,6 +88,39 @@ export interface PieceConveyorSpec {
   readonly drainIntervalSec: number;
 }
 
+/** A generic ramp/channel that guides, but never parks, active game pieces. */
+export interface GuidedLaneSpec {
+  /** Unit-ish world-frame direction from the entry toward the release gate. */
+  readonly travelDirection: Vec2;
+  /** Down-lane acceleration, m/s². */
+  readonly driveAccelerationMps2: number;
+  /**
+   * Cruise speed the down-lane acceleration governs toward, m/s.
+   *
+   * The lane models a slope, not a rocket: a real ramp's downhill pull is
+   * balanced by rolling resistance once a ball reaches some roughly steady
+   * speed, and a lone ball with nothing ahead of it to pack against never
+   * meets a collision that would otherwise cap it. Without this, an
+   * unblocked piece accelerates every tick it remains queued, with no
+   * opposing force, until it hits the gate collider (or another piece) fast
+   * enough to tunnel through on a single tick's discrete step. The drive
+   * acceleration is applied only while the piece's own speed along
+   * `travelDirection` is below this, so it behaves like a governed belt
+   * rather than a bottomless drop.
+   */
+  readonly maxDriveSpeedMps: number;
+  /** Maximum lateral centring acceleration toward the queue region centreline. */
+  readonly lateralCenteringAccelerationMps2: number;
+  /** Semantic field collider tag retracted while the gate is latched open. */
+  readonly gateColliderTag: string;
+  /** Centre height of an overflow piece riding above the packed lane. */
+  readonly overflowHeightM: number;
+  /** Vertical approach rate to that overflow surface, m/s. */
+  readonly overflowHeightRateMps: number;
+  /** Fraction of incoming horizontal speed the lane's basin retains on entry. */
+  readonly entryVelocityRetention: number;
+}
+
 /** The narrow slice of the world a conveyor writes to. */
 export interface ConveyorWorld {
   /** Park a piece at a fixed point, out of the contact solver. */
@@ -96,6 +129,17 @@ export interface ConveyorWorld {
   releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
   /** Put an invalid inbound piece just outside a one-way exit, at rest. */
   blockPiece(pieceId: string, positionM: Vec2): void;
+  /** Apply a physical lane acceleration; the piece remains active and collidable. */
+  guidePiece(
+    pieceId: string,
+    accelerationMps2: Vec2,
+    targetHeightM?: number,
+    heightRateMps?: number,
+  ): void;
+  /** Enable/disable a semantic static-collider group, e.g. a gate arm. */
+  setColliderTagActive(tag: string, active: boolean): void;
+  /** Inelastic field-basin capture; keeps a piece active at its current pose. */
+  dampPieceVelocity(pieceId: string, retention: number): void;
 }
 
 export interface ConveyorPlaces {
@@ -113,6 +157,8 @@ interface ConveyorState {
   readonly taken: Set<string>;
   /** Pieces this conveyor released and may therefore travel through its exit. */
   readonly released: Set<string>;
+  /** Full-lane arrivals that ride the declared elevated overflow surface. */
+  readonly overflow: Set<string>;
   /** A gate activation keeps the path open until this ordered queue is empty. */
   releaseLatched: boolean;
 }
@@ -138,6 +184,7 @@ export class PieceConveyors {
         lastDrainTick: Number.NEGATIVE_INFINITY,
         taken: new Set(),
         released: new Set(),
+        overflow: new Set(),
         releaseLatched: false,
       });
     }
@@ -151,6 +198,11 @@ export class PieceConveyors {
   /** Pieces queued in one conveyor, way-out end first. */
   queued(conveyorId: string): readonly string[] {
     return [...(this.states.get(conveyorId)?.queue ?? [])];
+  }
+
+  /** Pieces a full physical lane is riding on its elevated overflow surface. */
+  overflowed(conveyorId: string): readonly string[] {
+    return [...(this.states.get(conveyorId)?.overflow ?? [])];
   }
 
   /** Is this conveyor's way out currently open, including a latched release? */
@@ -178,8 +230,13 @@ export class PieceConveyors {
       this.blockInboundExit(spec, state, places, snapshot, world);
       if (this.releaseHeld(spec, snapshot)) state.releaseLatched = true;
       this.takeArrivals(spec, state, places, snapshot, world);
-      this.drain(spec, state, places, snapshot, tick, world);
-      this.holdQueue(state, places, world);
+      if (spec.lane === undefined) {
+        this.drain(spec, state, places, snapshot, tick, world);
+        this.holdQueue(state, places, world);
+      } else {
+        this.guideLane(spec, state, places, snapshot, world);
+        world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
+      }
       if (state.queue.length === 0) state.releaseLatched = false;
     }
   }
@@ -199,8 +256,19 @@ export class PieceConveyors {
 
       state.taken.add(piece.pieceId);
 
+      if (spec.lane !== undefined) world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
+
       if (state.queue.length < spec.capacity) {
         state.queue.push(piece.pieceId);
+        continue;
+      }
+
+      if (spec.lane !== undefined) {
+        // A full physical lane does not make an arriving ball vanish or occupy a
+        // fake tenth slot. It continues over the packed column on the lane's
+        // declared elevated overflow surface and becomes authorised once it
+        // reaches the return zone.
+        state.overflow.add(piece.pieceId);
         continue;
       }
 
@@ -222,6 +290,25 @@ export class PieceConveyors {
       if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) {
         state.released.delete(pieceId);
       }
+    }
+
+    // Guided-lane pieces remain physically active while they travel. Once one
+    // reaches the declared exit zone it no longer consumes classifier capacity,
+    // but remains authorised to continue through the one-way return.
+    for (let index = state.queue.length - 1; index >= 0; index--) {
+      const pieceId = state.queue[index] as string;
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      state.queue.splice(index, 1);
+      state.taken.delete(pieceId);
+      state.released.add(pieceId);
+    }
+    for (const pieceId of state.overflow) {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      state.overflow.delete(pieceId);
+      state.taken.delete(pieceId);
+      state.released.add(pieceId);
     }
   }
 
@@ -310,6 +397,57 @@ export class PieceConveyors {
     state.queue.forEach((pieceId, index) => {
       world.holdPiece(pieceId, slotPoint(places.queue, state.queue.length, index));
     });
+  }
+
+  /**
+   * Give every active lane piece the same physical guide. Their separation and
+   * release ordering are consequences of the ordinary collision solver and the
+   * live gate collider, never positions assigned by this class.
+   */
+  private guideLane(
+    spec: PieceConveyorSpec,
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+    world: ConveyorWorld,
+  ): void {
+    const lane = spec.lane;
+    if (lane === undefined) return;
+    const length = Math.hypot(lane.travelDirection.x, lane.travelDirection.y);
+    if (length < 1e-9) return;
+    const direction = vec2(lane.travelDirection.x / length, lane.travelDirection.y / length);
+    const lateral = vec2(-direction.y, direction.x);
+
+    const guide = (pieceId: string, overflow: boolean): void => {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || piece.heldByRobotId !== null) return;
+      const offsetX = places.queue.centerM.x - piece.pose.p.x;
+      const offsetY = places.queue.centerM.y - piece.pose.p.y;
+      const lateralDistance = offsetX * lateral.x + offsetY * lateral.y;
+      const lateralAcceleration = Math.max(
+        -lane.lateralCenteringAccelerationMps2,
+        Math.min(lane.lateralCenteringAccelerationMps2, lateralDistance * lane.lateralCenteringAccelerationMps2 * 4),
+      );
+      // Governed like a real slope's terminal speed: keep driving only while
+      // still below cruise. A piece packed against one ahead of it, or one
+      // that has already reached cruise speed with an open lane ahead, gets
+      // no further push — this is what keeps an unblocked ball from
+      // accelerating without limit into the gate collider.
+      const alongSpeed = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
+      const driveAcceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
+      world.guidePiece(
+        pieceId,
+        vec2(
+          direction.x * driveAcceleration + lateral.x * lateralAcceleration,
+          direction.y * driveAcceleration + lateral.y * lateralAcceleration,
+        ),
+        overflow ? lane.overflowHeightM : undefined,
+        overflow ? lane.overflowHeightRateMps : undefined,
+      );
+    };
+
+    for (const pieceId of state.queue) guide(pieceId, false);
+    for (const pieceId of state.overflow) guide(pieceId, true);
   }
 
   private releaseHeld(spec: PieceConveyorSpec, snapshot: WorldSnapshot): boolean {

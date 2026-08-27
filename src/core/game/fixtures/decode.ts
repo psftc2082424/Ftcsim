@@ -159,6 +159,27 @@ export const TUNNEL_EXIT_SPEED_MPS = inferred(
   72,
 );
 
+/** dSim-observed downslope guide for the physical classifier lane. */
+export const CLASSIFIER_LANE_ACCELERATION_MPS2 = inferred(
+  inchesToMeters(80),
+  'dSim rail acceleration (80 in/s²) used as an observable guide for the physical lane; the manual gives no slope acceleration.',
+  72,
+);
+
+/** Limited funnel pull so a landed ball joins the six-inch classifier lane. */
+export const CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2 = inferred(
+  inchesToMeters(80),
+  'dSim-style funnel guide, capped at the same 80 in/s² scale as the rail acceleration.',
+  72,
+);
+
+/** A tenth ball rides the upper physical overflow path above the packed column. */
+export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
+  inchesToMeters(10),
+  'dSim renders the overflow/rail surface at 10 in. The manual establishes overflow but not its exact ball-centre height.',
+  72,
+);
+
 // ---------------------------------------------------------------- regions ---
 
 /**
@@ -317,6 +338,20 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
     blocksInboundExit: true,
+    lane: {
+      travelDirection: vec2(0, -1),
+      driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
+      // The same speed a released ARTIFACT already leaves the GATE at
+      // (`exitVelocityMps` below): one coherent "how fast do these balls
+      // move" number rather than the lane quietly running faster or slower
+      // than the piece it eventually hands off to the SECRET TUNNEL.
+      maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
+      lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
+      gateColliderTag: `${alliance}-classifier-gate`,
+      overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
+      overflowHeightRateMps: inchesToMeters(30),
+      entryVelocityRetention: 0.2,
+    },
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers
     // (`decodeTiles.ts`), so "out of the tunnel" is toward -Y for both
@@ -862,7 +897,6 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
               params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
             },
             award: { points: classified, alliance },
-            oncePerPiece: true,
           },
           {
             id: `${alliance}-overflow-${phase.toLowerCase()}`,
@@ -876,7 +910,6 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
               params: { regionId: ramp, count: RAMP_SLOT_COUNT.value },
             },
             award: { points: overflowed, alliance },
-            oncePerPiece: true,
           },
         ];
       }),

@@ -43,18 +43,58 @@ const SPEC: PieceConveyorSpec = {
   drainIntervalSec: 0.25,
 };
 
+const GUIDED_SPEC: PieceConveyorSpec = {
+  ...SPEC,
+  lane: {
+    travelDirection: vec2(0, -1),
+    driveAccelerationMps2: 2,
+    maxDriveSpeedMps: 1,
+    lateralCenteringAccelerationMps2: 2,
+    gateColliderTag: 'chute-gate',
+    overflowHeightM: 0.3,
+    overflowHeightRateMps: 1,
+    entryVelocityRetention: 0.2,
+  },
+};
+
 const places = (spec: PieceConveyorSpec = SPEC) =>
   resolveConveyorPlaces([spec], [ENTRY, QUEUE], [EXIT, OPENER]);
+
+/**
+ * A queue/exit pair actually aligned with `GUIDED_SPEC.lane`'s -Y travel
+ * direction. `QUEUE`/`EXIT` above are built for the parked-slot tests, whose
+ * exit sits off to the side (`+X`) rather than down the corridor a driven
+ * piece travels — fine for a release that gets an explicit push in an
+ * arbitrary direction, wrong for a piece a lane actually has to accelerate
+ * into the exit zone under its own guidance.
+ */
+const LANE_QUEUE = createRectRegion({ id: 'lane-queue', centerXIn: 0, centerYIn: 20, widthIn: 10, lengthIn: 80 });
+const LANE_EXIT = createRectZone({ id: 'lane-exit', centerXIn: 0, centerYIn: -30, widthIn: 10, lengthIn: 20 });
+
+const LANE_SPEC: PieceConveyorSpec = {
+  ...GUIDED_SPEC,
+  queueRegionId: 'lane-queue',
+  exitZoneId: 'lane-exit',
+};
+
+const lanePlaces = (spec: PieceConveyorSpec = LANE_SPEC) =>
+  resolveConveyorPlaces([spec], [ENTRY, LANE_QUEUE], [LANE_EXIT, OPENER]);
 
 /** A tiny world: pieces at declared points, and one robot that can be moved. */
 class FakeWorld implements ConveyorWorld {
   readonly held = new Map<string, Vec2>();
   readonly released = new Map<string, { readonly positionM: Vec2; readonly velocityM: Vec2 }>();
   readonly blocked = new Map<string, Vec2>();
+  readonly guided = new Map<
+    string,
+    { readonly accelerationMps2: Vec2; readonly targetHeightM?: number; readonly heightRateMps?: number }
+  >();
+  readonly colliderStates = new Map<string, boolean>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
     private robotAt: Vec2 | null = null,
+    private readonly velocities: Map<string, Vec2> = new Map(),
   ) {}
 
   holdPiece(pieceId: string, positionM: Vec2): void {
@@ -74,6 +114,16 @@ class FakeWorld implements ConveyorWorld {
     this.released.delete(pieceId);
     this.positions.set(pieceId, positionM);
   }
+
+  guidePiece(pieceId: string, accelerationMps2: Vec2, targetHeightM?: number, heightRateMps?: number): void {
+    this.guided.set(pieceId, { accelerationMps2, targetHeightM, heightRateMps });
+  }
+
+  setColliderTagActive(tag: string, active: boolean): void {
+    this.colliderStates.set(tag, active);
+  }
+
+  dampPieceVelocity(_pieceId: string, _retention: number): void {}
 
   moveRobot(to: Vec2 | null): void {
     this.robotAt = to;
@@ -125,7 +175,7 @@ class FakeWorld implements ConveyorWorld {
         pieceType: 'P',
         pose: { p, theta: 0 },
         previousPose: { p, theta: 0 },
-        vel: { v: vec2(0, 0), omega: 0 },
+        vel: { v: this.velocities.get(pieceId) ?? vec2(0, 0), omega: 0 },
         radiusM: 0.06223,
         heightM: 0.06223,
         previousHeightM: 0.06223,
@@ -143,12 +193,37 @@ const away = vec2(0, -60 * 0.0254);
 function run(
   pieceIds: readonly string[],
   ticks: number,
-  options: { spec?: PieceConveyorSpec; robotAt?: Vec2 | null; openAt?: number } = {},
+  options: {
+    spec?: PieceConveyorSpec;
+    robotAt?: Vec2 | null;
+    openAt?: number;
+    velocities?: Map<string, Vec2>;
+  } = {},
 ): { conveyors: PieceConveyors; world: FakeWorld } {
   const spec = options.spec ?? SPEC;
   const positions = new Map(pieceIds.map((id, i) => [id, inEntry(i)] as const));
-  const world = new FakeWorld(positions, options.robotAt ?? null);
+  const world = new FakeWorld(positions, options.robotAt ?? null, options.velocities ?? new Map());
   const conveyors = new PieceConveyors([spec], places(spec), DT);
+
+  for (let tick = 0; tick < ticks; tick++) {
+    if (options.openAt !== undefined && tick === options.openAt) {
+      world.moveRobot(vec2(0, -20 * 0.0254));
+    }
+    conveyors.update(world.snapshot(tick), tick, world);
+  }
+  return { conveyors, world };
+}
+
+/** Same shape as `run`, but against the lane-aligned `LANE_SPEC` geometry. */
+function runLane(
+  pieceIds: readonly string[],
+  ticks: number,
+  options: { spec?: PieceConveyorSpec; openAt?: number } = {},
+): { conveyors: PieceConveyors; world: FakeWorld } {
+  const spec = options.spec ?? LANE_SPEC;
+  const positions = new Map(pieceIds.map((id, i) => [id, inEntry(i)] as const));
+  const world = new FakeWorld(positions);
+  const conveyors = new PieceConveyors([spec], lanePlaces(spec), DT);
 
   for (let tick = 0; tick < ticks; tick++) {
     if (options.openAt !== undefined && tick === options.openAt) {
@@ -208,6 +283,163 @@ describe('taking pieces in', () => {
     expect(at).toBeDefined();
     if (at === undefined) return;
     expect(at).toEqual(nearEndOf(EXIT, QUEUE.centerM));
+  });
+
+  it('uses a declared lane without parking pieces or assigning fixed slots', () => {
+    const { conveyors, world } = run(['a', 'b', 'c', 'd'], 1, { spec: GUIDED_SPEC });
+
+    // Three occupy the physical lane; the fourth is an elevated overflow
+    // traveller. All remain active bodies receiving ordinary guidance.
+    expect(conveyors.queued('chute')).toEqual(['a', 'b', 'c']);
+    expect(world.held.size).toBe(0);
+    expect([...world.guided.keys()].sort()).toEqual(['a', 'b', 'c', 'd']);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+  });
+});
+
+describe('guided lane physics', () => {
+  const NINE = { ...GUIDED_SPEC, capacity: 9 };
+  const NAMES = 'abcdefghijk'.split('');
+
+  it('packs up to capacity with no held position and no assigned slot for any of them', () => {
+    const { conveyors, world } = run(NAMES.slice(0, 9), 1, { spec: NINE });
+
+    expect(conveyors.queued('chute')).toEqual(NAMES.slice(0, 9));
+    expect(conveyors.overflowed('chute')).toEqual([]);
+    // Nothing here is "parked" — a lane piece is never given a fixed position,
+    // only a per-tick acceleration the ordinary collision solver resolves.
+    expect(world.held.size).toBe(0);
+    for (const id of NAMES.slice(0, 9)) expect(world.guided.has(id)).toBe(true);
+  });
+
+  it('sends the tenth and eleventh arrivals to the elevated overflow path, not a virtual slot', () => {
+    const { conveyors } = run(NAMES.slice(0, 11), 1, { spec: NINE });
+
+    expect(conveyors.queued('chute')).toEqual(NAMES.slice(0, 9));
+    expect(conveyors.overflowed('chute')).toEqual(NAMES.slice(9, 11));
+  });
+
+  it('rides an overflow piece at the lane\'s declared overflow height, unlike a packed one', () => {
+    const { world } = run(NAMES.slice(0, 10), 1, { spec: NINE });
+
+    const packed = world.guided.get(NAMES[0] as string);
+    const overflow = world.guided.get(NAMES[9] as string);
+    expect(packed?.targetHeightM).toBeUndefined();
+    expect(overflow?.targetHeightM).toBe(NINE.lane?.overflowHeightM);
+    expect(overflow?.heightRateMps).toBe(NINE.lane?.overflowHeightRateMps);
+  });
+
+  it('keeps guiding an overflow piece over the top even while the gate stays closed', () => {
+    // No robot ever opens the release zone: the gate collider stays active
+    // the whole time. §9.8.3's OVERFLOW explicitly does not wait for one.
+    const { conveyors, world } = run(NAMES.slice(0, 10), 5, { spec: NINE });
+
+    expect(world.colliderStates.get(NINE.lane?.gateColliderTag as string)).toBe(true);
+    expect(conveyors.overflowed('chute')).toContain(NAMES[9]);
+    expect(world.guided.has(NAMES[9] as string)).toBe(true);
+  });
+
+  it('opens the gate collider once latched, and closes it again once the queue empties', () => {
+    const { world } = run(['a', 'b', 'c'], 1, { spec: GUIDED_SPEC });
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+
+    const { world: opened } = run(['a', 'b', 'c'], 1, { spec: GUIDED_SPEC, openAt: 0 });
+    expect(opened.colliderStates.get('chute-gate')).toBe(false);
+
+    // Draining a physical lane has no per-piece timer: a piece leaves the
+    // instant its own real position reaches the exit zone. Rather than
+    // simulate the many ticks of real motion that would take (this harness
+    // hands out accelerations; it does not integrate them), move the one
+    // piece there directly and confirm the very next update both releases it
+    // and, seeing nothing left queued, lets the latch — and the gate
+    // collider it drives — close again.
+    const positions = new Map([['a', inEntry(0)]]);
+    const world2 = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
+    world2.moveRobot(vec2(0, -20 * 0.0254));
+    conveyors.update(world2.snapshot(0), 0, world2);
+    world2.moveRobot(null);
+    expect(conveyors.queued('chute')).toEqual(['a']);
+    expect(world2.colliderStates.get('chute-gate')).toBe(false);
+
+    positions.set('a', LANE_EXIT.centerM);
+    conveyors.update(world2.snapshot(1), 1, world2);
+    expect(conveyors.queued('chute')).toEqual([]);
+
+    // The collider tag itself follows one tick behind an emptied queue (this
+    // same update already opened it for the piece that just left); the next
+    // tick is what a season's own render loop would actually show closed.
+    conveyors.update(world2.snapshot(2), 2, world2);
+    expect(world2.colliderStates.get('chute-gate')).toBe(true);
+  });
+
+  it('governs the down-lane drive so an unblocked piece cruises rather than accelerating forever', () => {
+    const lane = GUIDED_SPEC.lane;
+    if (lane === undefined) throw new Error('GUIDED_SPEC needs a lane');
+    const direction = lane.travelDirection;
+
+    // Entering exactly on the queue's own centreline (shared x = 0) removes
+    // the lateral term, so the guided acceleration below is the drive term
+    // alone. The piece has to start inside the entry region to be taken at
+    // all, so this cannot simply sit at `QUEUE.centerM`.
+    const positions = new Map([['a', inEntry(0)]]);
+
+    const belowCap = new FakeWorld(positions, null, new Map([['a', vec2(0, 0)]]));
+    const belowConveyors = new PieceConveyors([GUIDED_SPEC], places(GUIDED_SPEC), DT);
+    belowConveyors.update(belowCap.snapshot(0), 0, belowCap);
+    expect(belowCap.guided.get('a')?.accelerationMps2).toEqual(
+      vec2(direction.x * lane.driveAccelerationMps2, direction.y * lane.driveAccelerationMps2),
+    );
+
+    const atCap = new FakeWorld(
+      positions,
+      null,
+      new Map([['a', vec2(direction.x * lane.maxDriveSpeedMps, direction.y * lane.maxDriveSpeedMps)]]),
+    );
+    const atCapConveyors = new PieceConveyors([GUIDED_SPEC], places(GUIDED_SPEC), DT);
+    atCapConveyors.update(atCap.snapshot(0), 0, atCap);
+    // Already at the governed cruise speed: no further push down the lane.
+    expect(atCap.guided.get('a')?.accelerationMps2).toEqual(vec2(0, 0));
+  });
+
+  it('keeps a lane piece flowing after the one ahead of it clears the exit, with no reassignment', () => {
+    const positions = new Map([
+      ['a', inEntry(0)],
+      ['b', inEntry(1)],
+    ]);
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
+    conveyors.update(world.snapshot(0), 0, world);
+    expect(conveyors.queued('chute')).toEqual(['a', 'b']);
+
+    // 'a' physically reaches the exit; 'b' does not move. Nothing here
+    // re-slots 'b' into 'a's old place — it was never in a slot, and it
+    // keeps receiving the exact same per-tick guidance either way.
+    positions.set('a', LANE_EXIT.centerM);
+    conveyors.update(world.snapshot(1), 1, world);
+
+    // A guided lane never gives an exiting piece a push of its own — real
+    // motion already carried it there — so it simply stops being tracked
+    // rather than appearing in `world.released` the way a legacy drain does.
+    expect(conveyors.queued('chute')).toEqual(['b']);
+    expect(conveyors.overflowed('chute')).toEqual([]);
+    expect(world.guided.has('b')).toBe(true);
+  });
+
+  it('still rejects a piece rolling backward into a one-way lane exit', () => {
+    const oneWayLane: PieceConveyorSpec = { ...GUIDED_SPEC, blocksInboundExit: true };
+    const publicMouth = farEndOf(EXIT, QUEUE.centerM);
+    const positions = new Map([['intruder', publicMouth]]);
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([oneWayLane], places(oneWayLane), DT);
+
+    const snapshot = world.snapshot(0);
+    const piece = snapshot.pieces[0];
+    if (piece === undefined) throw new Error('piece missing');
+    const inbound = { ...snapshot, pieces: [{ ...piece, vel: { v: vec2(0, -1), omega: 0 } }] };
+    conveyors.update(inbound, 0, world);
+
+    expect(world.blocked.get('intruder')).toBeDefined();
   });
 });
 

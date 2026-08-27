@@ -230,6 +230,8 @@ export class SimWorld {
   private readonly robots: SimRobot[] = [];
   private readonly pieces: SimPiece[] = [];
   private readonly bodies = new Map<EntityId, RigidBody>();
+  /** Static field colliders temporarily retracted by a declared mechanism. */
+  private readonly inactiveStaticBodies = new Set<EntityId>();
   private readonly battery: Battery;
   /** Actions produced by mechanisms this tick, consumed by MatchSimulation. */
   private pendingPieceActions: PendingPieceAction[] = [];
@@ -551,6 +553,70 @@ export class SimWorld {
    */
   blockPiece(pieceId: string, positionM: Vec2): void {
     this.releasePiece(pieceId, positionM);
+  }
+
+  /**
+   * Apply one tick of a field mechanism's declared lane guidance.
+   *
+   * This is deliberately limited to game pieces. A lane supplies an ordinary
+   * acceleration and optional sloped-surface height target; contacts still run
+   * through the normal piece collision solver on the next physics step.
+   */
+  guidePiece(
+    pieceId: string,
+    accelerationMps2: Vec2,
+    targetHeightM?: number,
+    heightRateMps = 0,
+  ): void {
+    const piece = this.pieceNamed(pieceId);
+    if (piece.carriedBy !== null || piece.parked) return;
+
+    piece.body.vel = {
+      v: vec2(
+        piece.body.vel.v.x + accelerationMps2.x * DT_SECONDS,
+        piece.body.vel.v.y + accelerationMps2.y * DT_SECONDS,
+      ),
+      omega: piece.body.vel.omega,
+    };
+    // Guidance changes the state just like an impulse.  Invalidate the
+    // per-tick view even for a level lane so the conveyor observes the actual
+    // moving body on its next fixed step rather than a stale pre-guide view.
+    this.cachedSnapshot = null;
+
+    if (targetHeightM === undefined || heightRateMps <= 0) return;
+    const delta = targetHeightM - piece.heightM;
+    const step = Math.min(Math.abs(delta), heightRateMps * DT_SECONDS);
+    if (step === 0) return;
+    piece.heightM += Math.sign(delta) * step;
+    piece.verticalVelocityMps = 0;
+    piece.body.span = {
+      bottom: Math.max(0, piece.heightM - piece.radiusM),
+      top: piece.heightM + piece.radiusM,
+    };
+    this.cachedSnapshot = null;
+  }
+
+  /** Enable or retract the static collider group named by a field fixture. */
+  setColliderTagActive(tag: string, active: boolean): void {
+    const ids = this.field.colliderTags?.[tag];
+    if (ids === undefined) return;
+    for (const id of ids) {
+      const body = this.bodies.get(id);
+      if (body?.kind !== 'static') continue;
+      if (active) this.inactiveStaticBodies.delete(id);
+      else this.inactiveStaticBodies.add(id);
+    }
+  }
+
+  /** Retain part of an active artifact's velocity when a field basin catches it. */
+  dampPieceVelocity(pieceId: string, retention: number): void {
+    const piece = this.pieceNamed(pieceId);
+    const clamped = Math.max(0, Math.min(1, retention));
+    piece.body.vel = {
+      v: vec2(piece.body.vel.v.x * clamped, piece.body.vel.v.y * clamped),
+      omega: piece.body.vel.omega * clamped,
+    };
+    this.cachedSnapshot = null;
   }
 
   /**
@@ -880,6 +946,7 @@ export class SimWorld {
 
     this.broadphase.clear();
     for (const body of this.bodies.values()) {
+      if (body.kind === 'static' && this.inactiveStaticBodies.has(body.id)) continue;
       if (carried.has(body.id)) continue;
       this.broadphase.insert(body.id, bodyAabb(body));
     }

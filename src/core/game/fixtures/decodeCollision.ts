@@ -16,11 +16,11 @@
 import { createStandardField, type FieldTemplate } from '../../field/fieldTemplate.js';
 import { createStaticBody, type EntityId, type RigidBody } from '../../physics/body.js';
 import { createObb } from '../../physics/shapes.js';
+import { vec2 } from '../../math/vec2.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
-import { DECODE_FIELD_ZONES } from './decodeField.js';
-import { CLASSIFIER, FIELD, GOAL, ZONES } from './decodeDimensions.js';
+import { CLASSIFIER, FIELD, GOAL } from './decodeDimensions.js';
 
 /** Human-auditable classification; it is not a physics shape type. */
 export type DecodeCollisionClass =
@@ -108,7 +108,7 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
       id: `${alliance}-gate`,
       classification: 'SOLID / COLLIDABLE' as const,
       provenance: cadRequired,
-      hasCollisionBody: false,
+      hasCollisionBody: true,
     },
     {
       id: `${alliance}-gate-zone`,
@@ -118,17 +118,15 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
     },
     {
       id: `${alliance}-secret-tunnel`,
-      classification: 'SOLID / COLLIDABLE' as const,
+      classification: 'PASSABLE' as const,
       provenance: explicitRule(
-        'side-railed corridor',
+        'taped SECRET TUNNEL ZONE',
         'Competition Manual §9.3',
         'SECRET TUNNEL ZONE: an approximately 46.5 in. long by approximately 6.125 in. wide infinitely tall volume',
       ),
-      // The corridor's footprint is sourced (§9.3) and already placed by
-      // `decodeField.ts`; only the rail height is a presentational choice
-      // (`tunnelRailBodies`), so this is not the CAD-only case the other
-      // `false` entries in this table are.
-      hasCollisionBody: true,
+      // The manual calls this a taped volume, not a physical tunnel wall.
+      // Directionality is enforced by the conveyor state, not collision.
+      hasCollisionBody: false,
     },
     {
       id: `${alliance}-base-zone`,
@@ -218,11 +216,10 @@ function goalSide(alliance: 'red' | 'blue'): number {
 const GOAL_WALL_THICKNESS_IN = 2;
 
 /**
- * The GOAL opening is a right triangle in the far corner. Its two legs — the
- * manual's top-view opening dimensions — are real backstop walls a robot
- * cannot drive through; the diagonal is the field-facing goal *face*, the
- * open mouth a shot arcs in through, and is deliberately left with no body at
- * all.
+ * The GOAL opening is a right triangle in the far corner. Its two legs and its
+ * diagonal field-facing face are real walls: robots and loose floor balls stay
+ * out, while a valid shot clears their top lip and then lands in the hollow
+ * basin.
  *
  * These used to be one filled triangular body from the floor to the full
  * assembly height. That is right for blocking a robot, but wrong the moment
@@ -230,10 +227,8 @@ const GOAL_WALL_THICKNESS_IN = 2;
  * *inside* the footprint: a solid interior has no "inside" for it to rest
  * in — the piece would already be in deep collision with the fill the
  * instant its 2D position crossed into the triangle, and the resolver would
- * shove it back out along whatever face it entered, sending a scored piece
- * sliding away across the floor instead of settling in the GOAL. Two thin
- * leg walls, not a filled triangle, are what makes that "inside" actually
- * empty.
+ * shove it back out along whatever face it entered. Three thin boundary walls,
+ * not a filled triangle, leave that interior genuinely usable after a shot.
  */
 function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly RigidBody[] {
   const sign = goalSide(alliance);
@@ -273,129 +268,97 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
     },
   });
 
-  return [backLeg, sideLeg];
+  const faceStart = vec2(
+    inchesToMeters(sign * (half - openingWidthIn)),
+    inchesToMeters(half),
+  );
+  const faceEnd = vec2(
+    inchesToMeters(sign * half),
+    inchesToMeters(half - openingDepthIn),
+  );
+  const faceDx = faceEnd.x - faceStart.x;
+  const faceDy = faceEnd.y - faceStart.y;
+  const face = createStaticBody({
+    id: firstId + 2,
+    shape: createObb(Math.hypot(faceDx, faceDy), thicknessM),
+    span,
+    pose: {
+      p: vec2((faceStart.x + faceEnd.x) / 2, (faceStart.y + faceEnd.y) / 2),
+      theta: Math.atan2(faceDy, faceDx),
+    },
+  });
+
+  return [backLeg, sideLeg, face];
 }
 
-/** The raised RAMP occupies its side-wall channel from the GATE to the far wall. */
-function classifierBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
+/** Rails bound a physical classifier lane while leaving its interior available to balls. */
+function classifierRailBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly RigidBody[] {
   const sign = goalSide(alliance);
   const half = FIELD.sideIn.value / 2;
   const widthIn = CLASSIFIER_CHANNEL_WIDTH_IN;
   const lengthIn = half - CLASSIFIER_RAMP_START_Y_IN;
+  const thicknessM = inchesToMeters(GOAL_WALL_THICKNESS_IN);
+  const centerX = inchesToMeters(sign * (half - widthIn / 2));
+  const centerY = inchesToMeters(CLASSIFIER_RAMP_START_Y_IN + lengthIn / 2);
+  const offsetM = inchesToMeters(widthIn) / 2 + thicknessM / 2;
+  const span = { bottom: 0, top: inchesToMeters(GOAL.heightIn.value) };
+  return [-1, 1].map((side, index) =>
+    createStaticBody({
+      id: firstId + index,
+      shape: createObb(thicknessM, inchesToMeters(lengthIn)),
+      span,
+      pose: { p: vec2(centerX + side * offsetM, centerY), theta: 0 },
+    }),
+  );
+}
+
+/** A live arm across the lane mouth. The conveyor retracts its semantic tag. */
+function gateBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
+  const sign = goalSide(alliance);
+  const half = FIELD.sideIn.value / 2;
   return createStaticBody({
     id,
-    shape: createObb(inchesToMeters(widthIn), inchesToMeters(lengthIn)),
-    // A 4.9 in ARTIFACT can travel through the tunnel opening below this raised
-    // structure, while a robot intersects the assembly. The clearance is the
-    // documented maximum closed GATE contact height.
-    span: {
-      bottom: inchesToMeters(CLASSIFIER.gateClosedMaxHeightIn.value),
-      top: inchesToMeters(GOAL.heightIn.value),
-    },
+    shape: createObb(
+      inchesToMeters(CLASSIFIER_CHANNEL_WIDTH_IN + GOAL_WALL_THICKNESS_IN),
+      inchesToMeters(1),
+    ),
+    span: { bottom: 0, top: inchesToMeters(CLASSIFIER.gateClosedMaxHeightIn.value) },
     pose: {
-      p: {
-        x: inchesToMeters(sign * (half - widthIn / 2)),
-        y: inchesToMeters(CLASSIFIER_RAMP_START_Y_IN + lengthIn / 2),
-      },
+      p: vec2(
+        inchesToMeters(sign * (half - CLASSIFIER_CHANNEL_WIDTH_IN / 2)),
+        inchesToMeters(0.5),
+      ),
       theta: 0,
     },
   });
 }
 
-/**
- * Curb height for a SECRET TUNNEL's side rails, inches.
- *
- * The manual sources the corridor's footprint (§9.3, `ZONES.secretTunnelWidthIn`
- * / `secretTunnelLengthIn`) but not a wall height, because the real ALLIANCE
- * colored tape marking it has none — it is floor tape, not a kerb. A rail tall
- * enough to register a contact (any positive height, since every body here
- * starts at the floor) is what turns a marked-but-open floor rectangle into a
- * corridor an ARTIFACT can be kept inside and a ROBOT must enter end-on rather
- * than drive across sideways. The exact height is otherwise unconstrained, so
- * it is kept short and presentational rather than picked to look like a wall.
- */
-const TUNNEL_RAIL_HEIGHT_IN = 2;
-const TUNNEL_RAIL_THICKNESS_IN = 1;
-
-/**
- * How far a SECRET TUNNEL's rails extend past the sourced corridor, on its
- * open (audience-side, -Y) end only, inches.
- *
- * `PieceConveyors` always releases a drained ARTIFACT moving toward -Y (see
- * `TUNNEL_EXIT_SPEED_MPS`), so that is the corridor's one real "out" — and,
- * without a wall there, also the one open floor-level approach a robot could
- * use to shove a loose ARTIFACT the wrong way up the corridor toward the
- * RAMP. A robot cannot fit *inside* the rails (any legal chassis is wider
- * than the sourced 6.125 in gap), so its own body is what a straight-on
- * approach actually hits — but with the rails ending exactly at the
- * corridor's real boundary, that hit lands with the robot's bumper already at
- * the mouth, close enough to have shoved a piece resting there first. Rails
- * that start this much further out move that stop well back from the mouth,
- * without narrowing the corridor an exiting piece actually leaves through.
- *
- * This is a standoff, not a true one-way gate — the geometry available here
- * (two static rails, no directional or trigger volumes) cannot make one, and
- * a piece already resting exactly at the true mouth can still be nudged a few
- * inches before a wide robot's own corners catch the extension. It removes
- * the case this fixture had no defense against at all: a robot driving
- * straight up the corridor's own axis and carrying a piece the full 46.5 in
- * length to the RAMP.
- */
-const TUNNEL_RAIL_OPEN_END_FLARE_IN = 14;
-
-/**
- * Two side rails flanking a SECRET TUNNEL ZONE, from its already-placed
- * footprint (`decodeField.ts`) rather than from a second copy of the seam
- * arithmetic that placed it.
- *
- * The rails run the corridor's length and sit just outside its sourced width,
- * so nothing about their span narrows the width an ARTIFACT actually has to
- * travel through — they bound the corridor, they do not intrude into it. They
- * extend past the corridor's real length on the open (-Y) end only, per
- * `TUNNEL_RAIL_OPEN_END_FLARE_IN`.
- */
-function tunnelRailBodies(zoneId: string, firstId: EntityId): readonly RigidBody[] {
-  const zone = DECODE_FIELD_ZONES.find((candidate) => candidate.id === zoneId);
-  if (zone === undefined) throw new Error(`DECODE collision needs zone "${zoneId}".`);
-
-  const widthM = inchesToMeters(ZONES.secretTunnelWidthIn.value);
-  const flareM = inchesToMeters(TUNNEL_RAIL_OPEN_END_FLARE_IN);
-  const lengthM = inchesToMeters(ZONES.secretTunnelLengthIn.value) + flareM;
-  const thicknessM = inchesToMeters(TUNNEL_RAIL_THICKNESS_IN);
-  const span = { bottom: 0, top: inchesToMeters(TUNNEL_RAIL_HEIGHT_IN) };
-
-  return [-1, 1].map((side, index) =>
-    createStaticBody({
-      id: firstId + index,
-      shape: createObb(thicknessM, lengthM),
-      span,
-      pose: {
-        p: {
-          x: zone.centerM.x + (side * (widthM + thicknessM)) / 2,
-          y: zone.centerM.y - flareM / 2,
-        },
-        theta: 0,
-      },
-    }),
-  );
-}
-
-/** Build DECODE's generic field plus its documented goal, classifier and tunnel assemblies. */
+/** Build DECODE's generic field plus physical GOAL, lane rails, and live gates. */
 export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate {
   const standard = createStandardField(firstEntityId);
+  const redGoal = goalWallBodies('red', firstEntityId + GOAL_BODY_ID_BASE);
+  const blueGoal = goalWallBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 3);
+  const redRails = classifierRailBodies('red', firstEntityId + GOAL_BODY_ID_BASE + 6);
+  const blueRails = classifierRailBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 8);
+  const redGate = gateBody('red', firstEntityId + GOAL_BODY_ID_BASE + 10);
+  const blueGate = gateBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 11);
   return {
     ...standard,
     id: 'ftc-decode-2025-26',
     name: 'FTC DECODE Field',
     bodies: [
       ...standard.bodies,
-      ...goalWallBodies('red', firstEntityId + GOAL_BODY_ID_BASE),
-      ...goalWallBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 2),
-      classifierBody('red', firstEntityId + GOAL_BODY_ID_BASE + 4),
-      classifierBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 5),
-      ...tunnelRailBodies(DECODE_ZONES.redSecretTunnel, firstEntityId + GOAL_BODY_ID_BASE + 6),
-      ...tunnelRailBodies(DECODE_ZONES.blueSecretTunnel, firstEntityId + GOAL_BODY_ID_BASE + 8),
+      ...redGoal,
+      ...blueGoal,
+      ...redRails,
+      ...blueRails,
+      redGate,
+      blueGate,
     ],
+    colliderTags: {
+      'red-classifier-gate': [redGate.id],
+      'blue-classifier-gate': [blueGate.id],
+    },
   };
 }
 

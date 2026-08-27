@@ -795,7 +795,7 @@ button.secondary:hover, .binding-key:hover, .pad-button:hover { border-color: #0
 .drive-mode label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
 .drive-mode input { accent-color: #0867d7; }
 
-.match-overlay { position: absolute; left: 20px; right: 20px; bottom: 18px; min-height: 72px; display: grid; grid-template-columns: 1fr 150px 1fr; overflow: hidden; border-radius: 9px; color: #fff; background: rgba(10, 29, 57, .94); box-shadow: 0 7px 20px rgba(0,0,0,.26); pointer-events: none; }
+.match-overlay { position: relative; width: 100%; margin-top: 10px; min-height: 72px; display: grid; grid-template-columns: 1fr 150px 1fr; overflow: hidden; border-radius: 9px; color: #fff; background: rgba(10, 29, 57, .94); box-shadow: 0 7px 20px rgba(0,0,0,.26); pointer-events: none; }
 .match-side { display: flex; align-items: center; gap: 16px; padding: 10px 22px; font-weight: 800; letter-spacing: .08em; }
 .match-side strong { font-size: 36px; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .match-side.red { background: linear-gradient(90deg,#ba172d,#e33248); justify-content: flex-start; }
@@ -823,6 +823,6 @@ button.secondary:hover, .binding-key:hover, .pad-button:hover { border-color: #0
   .made-by { display: none; }
   .app-main, .app-main.is-configure { grid-template-columns: 1fr; padding: 10px; }
   .canvas-wrap { height: 62vh; flex: none; }
-  .match-overlay { left: 8px; right: 8px; bottom: 8px; grid-template-columns: 1fr 110px 1fr; min-height: 60px; }
+  .match-overlay { margin-top: 8px; grid-template-columns: 1fr 110px 1fr; min-height: 60px; }
   .match-side { padding: 8px 10px; gap: 7px; }.match-side strong { font-size: 28px; }
 }

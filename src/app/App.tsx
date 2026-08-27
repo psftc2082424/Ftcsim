@@ -194,8 +194,8 @@ export function App() {
         <div className="field-column">
           <div className="canvas-wrap">
             <canvas ref={canvasRef} className="field-canvas" />
-            <MatchPanel game={DECODE_GAME} status={match} />
           </div>
+          <MatchPanel game={DECODE_GAME} status={match} />
 
           <div className="field-toolbar">
             <button type="button" onClick={() => runner.reset(robotConfig)}>Restart match</button>

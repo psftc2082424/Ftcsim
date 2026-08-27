@@ -968,6 +968,9 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
             createInputTrace('shoot', [
               { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
               { tick: 1, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
+              // Clear the returning classifier path after firing.  A physical
+              // ball must not be expected to pass through its own shooter.
+              { tick: 2, input: createControlInput(-1, 0, 0) },
             ]),
           ),
           startPose: { p: at(goal[0], goal[1] - standoffIn), theta: Math.PI / 2 },
@@ -980,7 +983,9 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       pieces: [{ pieceId: 'a1', pieceType: 'P', diameterIn: 5, massLb: 0.3, startPositionM: at(goal[0], startY) }],
     });
 
-    for (let i = 0; i < 600; i++) sim.step();
+    // The physical lane is deliberately damped and no longer teleports this
+    // ball into the tunnel. Give it a real controlled traverse.
+    for (let i = 0; i < 1200; i++) sim.step();
 
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(classified.length).toBeGreaterThan(0);
@@ -988,9 +993,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     const artifact = sim.world.snapshot().pieces.find((p) => p.pieceId === 'a1');
     if (artifact === undefined) throw new Error('artifact missing');
 
-    // The GATE panel is CAD-only and body-free (see decodeCollision.ts), so
-    // nothing here can assert the piece crossed a physical gate threshold —
-    // only that it left where it scored and is headed down the tunnel.
+    // The live GATE collider was opened by the robot in its release zone. The
+    // piece stays a normal body and must physically travel out of the lane.
     expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(startY) - inchesToMeters(6));
 
     // §9.8.3: an alliance's own CLASSIFIER exits down the *opposing*
@@ -1000,5 +1004,85 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect(Math.abs(metersToInches(meters(artifact.pose.p.x)) - tunnel[0])).toBeLessThan(tunnelHalfWidthIn);
     expect(Number.isFinite(artifact.pose.p.x)).toBe(true);
     expect(Number.isFinite(artifact.pose.p.y)).toBe(true);
+  });
+
+  /**
+   * Three real shots, one behind another, with the GATE never opened: nothing
+   * here is a virtual queue slot, so what keeps three balls apart is the same
+   * contact solver every other piece in the sim uses. This is also the "does
+   * not re-score" case that matters — with three balls jostling and settling
+   * against a closed gate, a piece bouncing back above the GOAL's lip and
+   * re-triggering `PieceEnteredRegion` would be indistinguishable from a
+   * second, illegitimate CLASSIFIED unless the rule's own de-duplication
+   * holds.
+   */
+  it('packs three real shots touching, each scoring exactly once with the GATE held shut', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const standoffIn = 48;
+    const startY = goal[1] - standoffIn + 11;
+
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      robots: [
+        {
+          config: TUNNEL_SHOOTER,
+          alliance: 'red',
+          controller: new ScriptedController(
+            createInputTrace('load and fire three', [
+              { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
+              // Storage is full (3/3) well before this; hold fire until then.
+              { tick: 210, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
+              // Clear the returning classifier path once all three are away.
+              { tick: 420, input: createControlInput(-1, 0, 0) },
+            ]),
+          ),
+          startPose: { p: at(goal[0], goal[1] - standoffIn), theta: Math.PI / 2 },
+        },
+        // No robot ever occupies the GATE ZONE: the classifier stays shut and
+        // every ball has to come to rest packed inside it.
+      ],
+      pieces: ['a1', 'a2', 'a3'].map((pieceId, index) => ({
+        pieceId,
+        pieceType: 'P',
+        diameterIn: 5,
+        massLb: 0.3,
+        startPositionM: at(goal[0], startY + (index - 1) * 4),
+      })),
+    });
+
+    for (let i = 0; i < 1800; i++) sim.step();
+
+    const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
+    expect(classified).toHaveLength(3);
+    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
+
+    const artifacts = ['a1', 'a2', 'a3'].map((id) => {
+      const piece = sim.world.snapshot().pieces.find((p) => p.pieceId === id);
+      if (piece === undefined) throw new Error(`${id} missing`);
+      return piece;
+    });
+
+    // None are airborne any more, and none sit at their original launch spot
+    // — every one actually flew, landed, and settled in the classifier.
+    for (const artifact of artifacts) {
+      expect(artifact.airborne).toBe(false);
+      expect(artifact.pose.p.y).not.toBeCloseTo(inchesToMeters(startY), 2);
+    }
+
+    // Packed touching, not spread across three invented slots: sorted along
+    // the lane, each centre-to-centre gap is close to one ball diameter
+    // (5 in) and never wildly more, the way independent parked positions
+    // could produce.
+    const sortedY = artifacts.map((a) => metersToInches(a.pose.p.y)).sort((a, b) => b - a);
+    for (let i = 1; i < sortedY.length; i++) {
+      const gapIn = (sortedY[i - 1] as number) - (sortedY[i] as number);
+      expect(gapIn).toBeGreaterThan(3);
+      expect(gapIn).toBeLessThan(8);
+    }
+
+    // Run well past settling: a piece resting in a closed, packed lane must
+    // not re-cross the GOAL's scoring threshold and score again.
+    for (let i = 0; i < 800; i++) sim.step();
+    expect(sim.score.deltas.filter((d) => d.ruleId.includes('classified'))).toHaveLength(3);
+    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
   });
 });

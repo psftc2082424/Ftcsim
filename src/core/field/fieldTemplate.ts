@@ -55,6 +55,14 @@ export interface FieldTemplate {
   readonly lengthM: number;
   /** Static collision geometry. */
   readonly bodies: readonly RigidBody[];
+  /**
+   * Named groups of static colliders whose state is owned by a field mechanism.
+   *
+   * A GameDefinition refers to a stable semantic tag ("gate", "door", or
+   * "chute-latch"), never a physics entity id. The world can then disable an
+   * open gate without a season fixture reaching into its body map.
+   */
+  readonly colliderTags?: Readonly<Record<string, readonly EntityId[]>> | undefined;
 }
 
 export interface FieldBounds {
