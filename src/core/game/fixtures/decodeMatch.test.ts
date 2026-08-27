@@ -29,6 +29,7 @@ import { validateRegions } from '../regions.js';
 import { totalMatchDurationSec } from '../matchStructure.js';
 import {
   DECODE_MATCH,
+  DECODE_MECHANISM_ACTION_ROUTES,
   DECODE_MOTIFS,
   DECODE_POINTS,
   DECODE_REGIONS,
@@ -199,6 +200,7 @@ function decodeMatch(patch: Partial<MatchSimulationOptions> = {}): MatchSimulati
     regions: DECODE_FIELD_REGIONS,
     zones: DECODE_FIELD_ZONES,
     slottedRegions: DECODE_SLOTTED_REGIONS,
+    mechanismActionRoutes: DECODE_MECHANISM_ACTION_ROUTES,
     slotAssignment: slots.assign,
     variables: { motif: DECODE_MOTIFS.GPP.pattern },
     robots: [idle('red', ...START_ON_LAUNCH_LINE.red)],

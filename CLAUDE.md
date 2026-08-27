@@ -182,6 +182,27 @@ mechanism state card, named keyboard/gamepad/virtual controls and collapsible
 engineering telemetry; Configure contains robot/preset/control editing. The
 GOAL-cluster CAD extraction remains a later data-quality task.
 
+### Latest handoff — 2026-08-27
+
+- **Functional shot scoring is green.** `DECODE_MECHANISM_ACTION_ROUTES`
+  routes a valid `launch` action to its alliance GOAL; the normal
+  `RegionMembershipDetector` then emits `PieceEnteredRegion`, and the ordinary
+  CLASSIFIED rule scores it. The direct DECODE test harness includes those
+  routes now. `oncePerPiece` prevents a parked goal piece scoring repeatedly.
+- **Do not restore removed mechanism physics.** No ballistics, projectile
+  motion, launch velocity, flywheel/RPM/energy model, shot RNG/spread/recoil or
+  roller-force intake model belongs in the current product. Intake, three-piece
+  storage, gate and shooter are deterministic state transitions; UI controls
+  feed the same `ControlInput` path.
+- **Verification:** targeted CLASSIFIED tests pass; `npm run verify` is clean
+  (typecheck, ESLint, full Vitest). The redesigned UI production build also
+  passed before this fixture-only scoring correction.
+- **Inspect first next time:** `decodeMatch.test.ts` for fixture wiring,
+  `matchSimulation.ts` for event routing, then `App.tsx` and
+  `MechanismPanel.tsx` for the field-first UI. The remaining data-quality task
+  is extracting inferred GOAL/RAMP/DEPOT placement from the full-field CAD;
+  region IDs are the contract and must not change.
+
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not
 assessed and no robot-contact event exists.
