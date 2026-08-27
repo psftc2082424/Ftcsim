@@ -464,6 +464,35 @@ describe('letting pieces out', () => {
     expect(conveyors.isOpen('chute', world.snapshot(drainTicks * 3 + 3))).toBe(false);
   });
 
+  it('closes after draining even when the activating robot remains at the gate', () => {
+    const positions = new Map(['a', 'b', 'c'].map((id, index) => [id, inEntry(index)] as const));
+    const gate = vec2(0, -20 * 0.0254);
+    const world = new FakeWorld(positions, gate);
+    const conveyors = new PieceConveyors([SPEC], places(), DT);
+
+    // The robot remains in the release zone for the entire drain. That is one
+    // touch, not an instruction to re-open an empty GATE every simulation tick.
+    conveyors.update(world.snapshot(0), 0, world);
+    expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
+
+    const drainTicks = Math.round(SPEC.drainIntervalSec / DT);
+    for (let tick = 1; tick <= drainTicks * 3 + 2; tick++) {
+      conveyors.update(world.snapshot(tick), tick, world);
+    }
+
+    expect(conveyors.queued('chute')).toEqual([]);
+    expect([...world.released.keys()]).toEqual(['a', 'b', 'c']);
+    expect(conveyors.isOpen('chute', world.snapshot(drainTicks * 3 + 3))).toBe(false);
+
+    // Leaving and making a new touch is what permits a later batch to open.
+    world.moveRobot(null);
+    conveyors.update(world.snapshot(drainTicks * 3 + 4), drainTicks * 3 + 4, world);
+    positions.set('d', inEntry(0));
+    conveyors.update(world.snapshot(drainTicks * 3 + 5), drainTicks * 3 + 5, world);
+    world.moveRobot(gate);
+    expect(conveyors.isOpen('chute', world.snapshot(drainTicks * 3 + 6))).toBe(true);
+  });
+
   it('drains in arrival order, way-out end first', () => {
     const drainTicks = Math.round(SPEC.drainIntervalSec / DT);
     const { conveyors } = run(['a', 'b', 'c'], 10 + drainTicks, { openAt: 10 });
@@ -495,6 +524,9 @@ describe('letting pieces out', () => {
 
     const conveyors = new PieceConveyors([SPEC], places(), DT);
     expect(conveyors.isOpen('chute', closed.snapshot(0))).toBe(false);
+
+    // A gate only opens to release a real, already-arrived piece.
+    conveyors.update(closed.snapshot(0), 0, closed);
 
     closed.moveRobot(vec2(0, -20 * 0.0254));
     expect(conveyors.isOpen('chute', closed.snapshot(1))).toBe(true);

@@ -174,6 +174,8 @@ interface ConveyorState {
   readonly basin: Set<string>;
   /** A gate activation keeps the path open until this ordered queue is empty. */
   releaseLatched: boolean;
+  /** Previous raw gate-contact state, for one activation per touch. */
+  releaseHeldLastTick: boolean;
 }
 
 /**
@@ -200,6 +202,7 @@ export class PieceConveyors {
         overflow: new Set(),
         basin: new Set(),
         releaseLatched: false,
+        releaseHeldLastTick: false,
       });
     }
   }
@@ -228,7 +231,10 @@ export class PieceConveyors {
   isOpen(conveyorId: string, snapshot: WorldSnapshot): boolean {
     const spec = this.specs.find((candidate) => candidate.id === conveyorId);
     const state = this.states.get(conveyorId);
-    return spec !== undefined && (state?.releaseLatched === true || this.releaseHeld(spec, snapshot));
+    if (spec === undefined || state === undefined) return false;
+    const hasPieces = state.queue.length > 0 || state.basin.size > 0;
+    return state.releaseLatched ||
+      (hasPieces && !state.releaseHeldLastTick && this.releaseHeld(spec, snapshot));
   }
 
   /**
@@ -248,16 +254,30 @@ export class PieceConveyors {
       this.refreshReleased(state, places, snapshot);
       this.blockInboundExit(spec, state, places, snapshot, world);
       this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
-      if (this.releaseHeld(spec, snapshot)) state.releaseLatched = true;
+      const releaseHeldNow = this.releaseHeld(spec, snapshot);
       this.takeArrivals(spec, state, places, snapshot, world);
+      // A contact is one gate activation, not a continuously-held override.
+      // This lets a robot remain parked after a drain without keeping an empty
+      // gate open forever; it must leave and touch again to activate a later
+      // batch.
+      if (
+        releaseHeldNow &&
+        !state.releaseHeldLastTick &&
+        (state.queue.length > 0 || state.basin.size > 0)
+      ) {
+        state.releaseLatched = true;
+      }
+      state.releaseHeldLastTick = releaseHeldNow;
       if (spec.lane === undefined) {
-        this.drain(spec, state, places, snapshot, tick, world);
+        this.drain(spec, state, places, tick, world);
         this.holdQueue(state, places, world);
       } else {
         this.guideLane(spec, state, places, snapshot, world);
-        world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
       }
       if (state.queue.length === 0 && state.basin.size === 0) state.releaseLatched = false;
+      if (spec.lane !== undefined) {
+        world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
+      }
     }
   }
 
@@ -403,12 +423,11 @@ export class PieceConveyors {
     spec: PieceConveyorSpec,
     state: ConveyorState,
     places: ConveyorPlaces,
-    snapshot: WorldSnapshot,
     tick: number,
     world: ConveyorWorld,
   ): void {
     if (state.queue.length === 0) return;
-    if (!state.releaseLatched && !this.releaseHeld(spec, snapshot)) return;
+    if (!state.releaseLatched) return;
 
     const intervalTicks = Math.round(spec.drainIntervalSec / this.dtSec);
     if (tick - state.lastDrainTick < intervalTicks) return;

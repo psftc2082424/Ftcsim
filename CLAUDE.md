@@ -608,3 +608,20 @@ shoot; then Phase 4 (PDF ingestion).
   `src/core/game/fixtures/classifierPhysicalLane.test.ts` first. Do not restore
   the removed tagged-collider permission, fixed slots, or physics-heavy shooter
   systems. Run `npm run verify` before further field work.
+
+### Latest handoff — 2026-08-27 (self-closing GATE activation)
+
+- **A GATE touch is now a one-shot activation.** `PieceConveyors` records the
+  previous raw release-zone contact and latches only on a false→true transition
+  when the lane/basin contains ARTIFACTS. The current batch drains normally;
+  after its last physical ball leaves, `releaseLatched` clears and the tagged
+  GATE collider closes on that same update even when the robot stays parked on
+  the gate. To release a later batch, the robot must leave and touch again.
+- **Regression coverage:** `conveyor.test.ts` now keeps a robot at the release
+  zone through a three-piece drain, asserts all pieces release in order and the
+  GATE closes, then verifies a leave/re-touch opens a newly arrived piece.
+  Existing live-lane collider coverage remains intact. No drivetrain or ball
+  contact physics changed.
+- **Verification:** focused conveyor test passes. Run `npm run verify` after
+  this handoff before continuing field/UI work. Inspect
+  `src/core/game/conveyor.ts` and `src/core/game/conveyor.test.ts` first.

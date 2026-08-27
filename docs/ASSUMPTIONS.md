@@ -1671,13 +1671,17 @@ and ball/field contacts as every other loose ball.
 The live GATE stays a tagged solid collider until its owner latches it open.
 Opening it does not release or animate any ball; it simply retracts that one
 collider, allowing the already-packed physical balls to roll under their normal
-lane guidance. This preserves the one-way return guard and never changes robot
-or drivetrain collision behaviour.
+lane guidance. One continuous robot contact is one activation: when the lane
+and receiving basin become empty, the gate closes even if that robot remains in
+the release zone. A later batch requires the robot to leave and make a new
+touch. This preserves the one-way return guard and never changes robot or
+drivetrain collision behaviour.
 
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Updated §10.18: GATE contact is edge-triggered. One activation drains the current physical batch, then the tagged collider closes as soon as the lane and basin are empty, even if the robot stays parked at the release zone. |
 | 2026-08-27 | Updated §10.18: a generic receiving basin now retains a valid GOAL entry before feeding its physical lane. The GOAL face is clipped at the classifier throat and a data-declared public-side guard rejects loose, unaccepted lane intrusions; no per-piece collider bypass remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |
 | 2026-08-24 | Ledger created for Phase 1. |
