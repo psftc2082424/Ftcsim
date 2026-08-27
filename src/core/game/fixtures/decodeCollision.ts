@@ -19,7 +19,8 @@ import { createObb, createPoly } from '../../physics/shapes.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
-import { CLASSIFIER, FIELD, GOAL } from './decodeDimensions.js';
+import { DECODE_FIELD_ZONES } from './decodeField.js';
+import { CLASSIFIER, FIELD, GOAL, ZONES } from './decodeDimensions.js';
 
 /** Human-auditable classification; it is not a physics shape type. */
 export type DecodeCollisionClass =
@@ -117,9 +118,17 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
     },
     {
       id: `${alliance}-secret-tunnel`,
-      classification: 'PASSABLE' as const,
-      provenance: setupTape,
-      hasCollisionBody: false,
+      classification: 'SOLID / COLLIDABLE' as const,
+      provenance: explicitRule(
+        'side-railed corridor',
+        'Competition Manual §9.3',
+        'SECRET TUNNEL ZONE: an approximately 46.5 in. long by approximately 6.125 in. wide infinitely tall volume',
+      ),
+      // The corridor's footprint is sourced (§9.3) and already placed by
+      // `decodeField.ts`; only the rail height is a presentational choice
+      // (`tunnelRailBodies`), so this is not the CAD-only case the other
+      // `false` entries in this table are.
+      hasCollisionBody: true,
     },
     {
       id: `${alliance}-base-zone`,
@@ -188,9 +197,16 @@ const GOAL_BODY_ID_BASE = 1100;
 const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
 const CLASSIFIER_GATE_Y_IN = 2;
 
-/** A GOAL is cross-court from its alliance area: blue far-left, red far-right. */
+/**
+ * A GOAL sits on the *same* side as its own alliance, not cross-court from it.
+ *
+ * Red occupies -X and blue +X (`decodeField.ts`'s `SIDE`, from G402's TILE
+ * columns). The GOAL, RAMP and GATE are one physical CLASSIFIER assembly, so
+ * they share that sign — this used to disagree with `SIDE` and put an
+ * alliance's own GATE and its own GOAL/RAMP in opposite corners of the field.
+ */
 function goalSide(alliance: 'red' | 'blue'): number {
-  return alliance === 'red' ? 1 : -1;
+  return alliance === 'red' ? -1 : 1;
 }
 
 /**
@@ -235,7 +251,56 @@ function classifierBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
   });
 }
 
-/** Build DECODE's generic field plus its documented goal and classifier assemblies. */
+/**
+ * Curb height for a SECRET TUNNEL's side rails, inches.
+ *
+ * The manual sources the corridor's footprint (§9.3, `ZONES.secretTunnelWidthIn`
+ * / `secretTunnelLengthIn`) but not a wall height, because the real ALLIANCE
+ * colored tape marking it has none — it is floor tape, not a kerb. A rail tall
+ * enough to register a contact (any positive height, since every body here
+ * starts at the floor) is what turns a marked-but-open floor rectangle into a
+ * corridor an ARTIFACT can be kept inside and a ROBOT must enter end-on rather
+ * than drive across sideways. The exact height is otherwise unconstrained, so
+ * it is kept short and presentational rather than picked to look like a wall.
+ */
+const TUNNEL_RAIL_HEIGHT_IN = 2;
+const TUNNEL_RAIL_THICKNESS_IN = 1;
+
+/**
+ * Two side rails flanking a SECRET TUNNEL ZONE, from its already-placed
+ * footprint (`decodeField.ts`) rather than from a second copy of the seam
+ * arithmetic that placed it.
+ *
+ * The rails run the corridor's length and sit just outside its sourced width,
+ * so nothing about their span narrows the width an ARTIFACT actually has to
+ * travel through — they bound the corridor, they do not intrude into it.
+ */
+function tunnelRailBodies(zoneId: string, firstId: EntityId): readonly RigidBody[] {
+  const zone = DECODE_FIELD_ZONES.find((candidate) => candidate.id === zoneId);
+  if (zone === undefined) throw new Error(`DECODE collision needs zone "${zoneId}".`);
+
+  const widthM = inchesToMeters(ZONES.secretTunnelWidthIn.value);
+  const lengthM = inchesToMeters(ZONES.secretTunnelLengthIn.value);
+  const thicknessM = inchesToMeters(TUNNEL_RAIL_THICKNESS_IN);
+  const span = { bottom: 0, top: inchesToMeters(TUNNEL_RAIL_HEIGHT_IN) };
+
+  return [-1, 1].map((side, index) =>
+    createStaticBody({
+      id: firstId + index,
+      shape: createObb(thicknessM, lengthM),
+      span,
+      pose: {
+        p: {
+          x: zone.centerM.x + (side * (widthM + thicknessM)) / 2,
+          y: zone.centerM.y,
+        },
+        theta: 0,
+      },
+    }),
+  );
+}
+
+/** Build DECODE's generic field plus its documented goal, classifier and tunnel assemblies. */
 export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate {
   const standard = createStandardField(firstEntityId);
   return {
@@ -248,6 +313,8 @@ export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate
       goalBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 1),
       classifierBody('red', firstEntityId + GOAL_BODY_ID_BASE + 2),
       classifierBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 3),
+      ...tunnelRailBodies(DECODE_ZONES.redSecretTunnel, firstEntityId + GOAL_BODY_ID_BASE + 4),
+      ...tunnelRailBodies(DECODE_ZONES.blueSecretTunnel, firstEntityId + GOAL_BODY_ID_BASE + 6),
     ],
   };
 }

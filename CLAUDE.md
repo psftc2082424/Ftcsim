@@ -160,11 +160,12 @@ ingestion) and Phase 5 (metrics, archetypes) are not started.
   LAUNCH ZONE triangle vertices (`DECODE_LAUNCH_ZONE_SHAPE`), ARTIFACT mass
   (`ARTIFACT_MASS_LB` — the manual names the part, AndyMark publishes its
   weight).
-- **Still inferred:** fine component outlines for the RAMP/GATE/tunnel walls.
-  The cross-court GOAL cluster is now placed from the setup-guide/dSim
-  top-down reference (blue far-left, red far-right); its triangle footprint
-  uses the manual opening dimensions. The supplied full-field CAD (untracked,
-  13 MB) remains the authority for the remaining component-level shapes.
+- **Still inferred:** the low GATE panel's own outline, and the SECRET
+  TUNNEL's wall *height* (its footprint is sourced, §9.3). The GOAL cluster
+  sits on the *same* side as its own alliance — **red is -X, blue is +X**,
+  matching `decodeField.ts`'s `SIDE` — not cross-court from it; its triangle
+  footprint uses the manual opening dimensions. The supplied full-field CAD
+  (untracked, 13 MB) remains the authority for the GATE panel's shape.
 
 ### Deployment
 
@@ -177,15 +178,94 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Extract CAD-backed GATE and tunnel-wall component geometry.** The new field
-fixture has the perimeter, cross-court triangular GOALS and raised classifier
-channels, but intentionally does not invent a low GATE panel or tunnel-wall
-outline. Read the supplied STEP assembly before adding those bodies; keep the
-passable/logic-only contract in `decodeCollision.ts` and never derive an
-obstacle from a game region.
+**Extract the CAD-backed GATE panel's own shape.** The GATE ZONE now has a
+real, live-state visual (an arm that reads open/closed from
+`PieceConveyors.isOpen`, drawn in `fieldRenderer.ts`'s `drawGate`) and the
+SECRET TUNNEL now has real side-rail collision bodies built from its already-
+sourced footprint (`tunnelRailBodies` in `decodeCollision.ts`). What is still
+missing is the GATE's own physical panel outline — the manual gives its
+contact heights (§9.8.3) but not a plan-view shape, and the setup guide
+installs it by figure. Read the supplied STEP assembly before inventing one;
+keep the passable/logic-only contract elsewhere in `decodeCollision.ts` and
+never derive an obstacle from a game region.
 
-### Latest handoff — 2026-08-27
+### Latest handoff — 2026-08-27 (dSim-aligned field pass)
 
+- **Found and fixed a real alignment bug: the GOAL cluster was cross-court
+  from its own GATE.** `decodeField.ts`'s `GOAL_CLUSTER_SIDE` (`{red:1,
+  blue:-1}`) disagreed with the `SIDE` convention every other alliance-owned
+  zone uses (`{red:-1, blue:1}`, from G402's TILE columns) — so an alliance's
+  own GOAL/RAMP/DEPOT sat in the opposite corner from its own GATE ZONE, LOAD
+  ING ZONE and BASE. A shot still scored (regions are self-consistent with
+  the physics fixture), but a driver standing where the manual puts the GATE
+  could never open their own classifier, and the GATE render (added this
+  session) would have been reading the wrong robot's position entirely.
+  Fixed by setting `GOAL_CLUSTER_SIDE = SIDE` and flipping
+  `decodeCollision.ts`'s `goalSide()` to match. A second, dependent bug
+  followed from the same root cause: `fieldRenderer.ts`'s "which triangle is
+  red" heuristic (`sum of vertex x >= 0`) was tuned for the old, wrong sign
+  and needed flipping too — caught by screenshot, not by any test, because no
+  test checked colour against alliance identity before this session.
+  Regression test: `decodeField.test.ts` → "keeps a GOAL, its RAMP, its GATE
+  and its own half on the same side" (verified it fails on the old sign by
+  reverting it locally and confirming the failure, then restoring the fix).
+- **The SECRET TUNNEL is now a real, collidable corridor**, not an invisible
+  region. `decodeCollision.ts`'s `tunnelRailBodies` builds two thin static
+  rails flanking each already-sourced tunnel footprint (§9.3's 46.5 × 6.125 in,
+  already placed by `decodeField.ts` — nothing about the footprint was
+  invented, only the rail height, ~2 in, which is presentational). A rolling
+  ARTIFACT is confined between the rails; a robot must enter end-on rather
+  than drive through the side, which is the first "robot collision" the
+  tunnel has ever had. Rendered in a neutral gold, distinct from a plain wall
+  (`COLORS.tunnelRail`), detected in `fieldRenderer.ts` by rail thickness
+  (~1 in, thinner than the 6 in classifier channel or the 12 in perimeter) —
+  the same kind of geometry-guess `drawField` already used for goal colour.
+- **The GATE ZONE has a real, live-state visual.** `drawGate` in
+  `fieldRenderer.ts` draws a literal arm across the low end of the classifier
+  channel, reading `PieceConveyors.isOpen` through a new `FieldOverlay
+  .openConveyorIds` set (computed once per frame in `simRunner.ts` from
+  `simulation.conveyors.conveyorIds`) — closed is a heavy solid line, open is
+  thin and pale. It is not a scoring rectangle: the state it draws is the
+  exact fact that already gates the CLASSIFIER's drain, so the two can never
+  disagree. Needed a `presentationKind` fix first — gate zones were being
+  swept into the same "skip, a real body already draws this" branch as the
+  RAMP and TUNNEL, so the branch never ran. The GATE's own panel *shape* is
+  still CAD-only (see "exact next task").
+- **ARTIFACTS render by colour: purple for `P`, green for `G`.** Previously
+  every piece drew the same purple regardless of type. Type-keyed, not
+  per-instance, so a replay draws identically every time
+  (`renderer.test.ts` asserts both the colour split and the determinism).
+- **A shot now visibly travels**, without becoming a second physics model.
+  `MatchSimulation.drainLaunchAnimations()` exposes `PieceLaunchAnimation`
+  (pieceId, pieceType, alliance, `fromM`/`toM`, tick) purely as description —
+  the underlying piece has *already* made its deterministic
+  `HELD -> destination` move (PRODUCT_SPEC.md §1.1) by the time one exists,
+  so a caller that never drains it changes nothing about the match. `App`'s
+  `SimRunner` drains it once per fixed tick, stamps a wall-clock start time,
+  and for 350 ms interpolates a straight line with a small cosmetic parabolic
+  lift (`SHOT_ARC_HEIGHT_M`) between the shot's origin and its resolved
+  destination — real projectile physics, spread and RNG were explicitly kept
+  out of this per the product spec. `fieldRenderer.ts`'s `renderFrame` skips
+  the ordinary draw for any piece with an active animation so it is never
+  drawn twice. Verified end to end with a scripted-controller test that fires
+  a real shot and reads back the animation's `fromM`/`toM`/`pieceType` before
+  asserting the score (`matchSimulation.test.ts`).
+- **Browser verification, and its limit.** `npm run verify` is clean — 46
+  files, 945 tests (some regressed/added this session), typecheck, ESLint —
+  and `npm run build` succeeds. Static rendering was inspected directly in
+  Chrome and matches the fixes above (red left / blue right consistently
+  across GOAL, GATE, DEPOT, BASE, SPIKE MARKS; gold tunnel rails; branding and
+  scoreboard intact). Live interactive testing (drive → intake → fire →
+  watch the shot animate) could not be completed in this session: the
+  automated browser tab's `document.hidden` stayed `true` throughout, which
+  suspends `requestAnimationFrame` almost entirely — a tooling limitation of
+  remote/backgrounded tab automation, confirmed directly (`document.hidden`
+  read from the page), not a product defect. One earlier interactive run,
+  before this was diagnosed, *did* drive, collide, and score correctly with
+  no console errors, which is corroborating but not a substitute for a real
+  driver session. **Next session: if browser-testing this, drive from a
+  visible/foregrounded tab, or accept that the deterministic test suite is
+  the authority and use the browser only for visual/static checks.**
 - **Functional shot scoring is green.** `DECODE_MECHANISM_ACTION_ROUTES`
   routes a valid `launch` action to its alliance GOAL; the normal
   `RegionMembershipDetector` then emits `PieceEnteredRegion`, and the ordinary

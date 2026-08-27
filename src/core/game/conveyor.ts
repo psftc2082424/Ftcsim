@@ -117,6 +117,11 @@ export class PieceConveyors {
     }
   }
 
+  /** Every conveyor id this game declared, for a caller enumerating them all. */
+  get conveyorIds(): readonly string[] {
+    return this.specs.map((spec) => spec.id);
+  }
+
   /** Pieces queued in one conveyor, way-out end first. */
   queued(conveyorId: string): readonly string[] {
     return [...(this.states.get(conveyorId)?.queue ?? [])];

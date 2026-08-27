@@ -388,4 +388,49 @@ describe('element placement comes from the setup guide', () => {
     );
     expect(overlaps).toBe(false);
   });
+
+  /**
+   * Regression: the GOAL/RAMP/DEPOT cluster and its own GATE ZONE used to be
+   * placed with opposite sign conventions (`GOAL_CLUSTER_SIDE` disagreed with
+   * `SIDE`), so an alliance's own classifier queue and the GATE that opens it
+   * sat in opposite corners of the field — a shot would score, but a driver
+   * standing where the manual puts the GATE would never open it. The GOAL,
+   * RAMP, GATE and the alliance's own half must all fall on the same side.
+   */
+  it('keeps a GOAL, its RAMP, its GATE and its own half on the same side', () => {
+    for (const alliance of ['red', 'blue'] as const) {
+      const sideX = centreIn(alliance === 'red' ? DECODE_ZONES.redSide : DECODE_ZONES.blueSide)[0];
+      const goalX = centreIn(
+        alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal,
+      )[0];
+      const rampX = centreIn(
+        alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
+      )[0];
+      const gateX = centreIn(
+        alliance === 'red' ? DECODE_ZONES.redGateZone : DECODE_ZONES.blueGateZone,
+      )[0];
+
+      expect(Math.sign(goalX), `${alliance} goal vs side`).toBe(Math.sign(sideX));
+      expect(Math.sign(rampX), `${alliance} ramp vs side`).toBe(Math.sign(sideX));
+      expect(Math.sign(gateX), `${alliance} gate vs side`).toBe(Math.sign(sideX));
+    }
+  });
+
+  /**
+   * The GATE marks the boundary between an alliance's own RAMP (goal side of
+   * the centreline) and the CLASSIFIER's low end (at the centreline) — they
+   * have to be close together lengthwise, not just on the same half.
+   */
+  it('puts each GATE at the near end of its own RAMP', () => {
+    for (const alliance of ['red', 'blue'] as const) {
+      const gate = centreIn(alliance === 'red' ? DECODE_ZONES.redGateZone : DECODE_ZONES.blueGateZone);
+      const ramp = shapeById(alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp);
+      if (ramp.shape.kind === 'circle') continue;
+
+      const rampMinY = Math.min(...ramp.shape.vertices.map((v) => v.y)) / inchesToMeters(1);
+      // Within a couple of ARTIFACT diameters of the RAMP's low end, not
+      // merely "somewhere on the correct half of a 144 in field".
+      expect(Math.abs(gate[1] - rampMinY), alliance).toBeLessThan(20);
+    }
+  });
 });

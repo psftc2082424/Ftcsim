@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY } from './camera.js';
-import { DEFAULT_RENDER_OPTIONS, renderFrame } from './fieldRenderer.js';
+import { DEFAULT_RENDER_OPTIONS, renderFrame, type ShotAnimation } from './fieldRenderer.js';
+import { createDecodeField } from '../../core/game/fixtures/decodeCollision.js';
+import { DECODE_ZONES } from '../../core/game/fixtures/decode.js';
 import {
   DECODE_FIELD_REGIONS,
   DECODE_FIELD_ZONES,
@@ -53,6 +55,11 @@ describe('camera', () => {
 interface DrawCall {
   readonly op: string;
   readonly args: readonly number[];
+  /** The style/alpha state in effect *at the moment* this call was made. */
+  readonly fillStyle: string;
+  readonly strokeStyle: string;
+  readonly lineWidth: number;
+  readonly globalAlpha: number;
 }
 
 function createRecordingContext(width: number, height: number) {
@@ -61,7 +68,14 @@ function createRecordingContext(width: number, height: number) {
   const record =
     (op: string) =>
     (...args: number[]): void => {
-      calls.push({ op, args });
+      calls.push({
+        op,
+        args,
+        fillStyle: String(ctx.fillStyle),
+        strokeStyle: String(ctx.strokeStyle),
+        lineWidth: ctx.lineWidth,
+        globalAlpha: ctx.globalAlpha,
+      });
     };
 
   const ctx = {
@@ -69,6 +83,7 @@ function createRecordingContext(width: number, height: number) {
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
+    globalAlpha: 1,
     fillRect: record('fillRect'),
     strokeRect: record('strokeRect'),
     beginPath: record('beginPath'),
@@ -83,7 +98,14 @@ function createRecordingContext(width: number, height: number) {
     fill: record('fill'),
     arc: record('arc'),
     fillText: (text: string, x: number, y: number): void => {
-      calls.push({ op: 'fillText', args: [x, y] });
+      calls.push({
+        op: 'fillText',
+        args: [x, y],
+        fillStyle: String(ctx.fillStyle),
+        strokeStyle: String(ctx.strokeStyle),
+        lineWidth: ctx.lineWidth,
+        globalAlpha: ctx.globalAlpha,
+      });
       texts.push(text);
     },
     font: '',
@@ -351,5 +373,234 @@ describe('game overlay and pieces', () => {
         Math.abs((c.args[1] ?? 0) - target.y) < 1e-6,
     );
     expect(hit).toBe(true);
+  });
+});
+
+/**
+ * Ball colour, the GATE's live-state arm, and a shot's cosmetic flight.
+ *
+ * All three read state the renderer is handed — piece type, `openConveyorIds`,
+ * a `ShotAnimation` list — and none of it can change a score: this file only
+ * ever asserts what gets drawn, never what gets scored.
+ */
+describe('DECODE presentation: balls, the GATE, and a shot in flight', () => {
+  const decodeField = createDecodeField();
+
+  const twoColourSnapshot = () =>
+    runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(-1.0, 0.5), theta: 0 },
+        },
+      ],
+      pieces: [
+        { pieceId: 'purple', pieceType: 'P', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(0.3, 0.2) },
+        { pieceId: 'green', pieceType: 'G', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(-0.3, -0.2) },
+      ],
+      field: decodeField,
+      ticks: 1,
+    }).finalSnapshot;
+
+  /** The `fill()` immediately after a piece's own `arc()`, i.e. its body colour. */
+  function fillStyleAfterArcNear(
+    calls: readonly DrawCall[],
+    screenX: number,
+    screenY: number,
+  ): string | undefined {
+    const arcIndex = calls.findIndex(
+      (c) =>
+        c.op === 'arc' &&
+        Math.abs((c.args[0] ?? 0) - screenX) < 1e-6 &&
+        Math.abs((c.args[1] ?? 0) - screenY) < 1e-6,
+    );
+    if (arcIndex === -1) return undefined;
+    return calls.slice(arcIndex).find((c) => c.op === 'fill')?.fillStyle;
+  }
+
+  it('draws purple and green ARTIFACTS in different, type-specific colours', () => {
+    const snapshot = twoColourSnapshot();
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, decodeField, 1);
+
+    const camera = fitCamera(800, 800, decodeField.widthM, decodeField.lengthM);
+    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
+    const green = snapshot.pieces.find((p) => p.pieceId === 'green');
+    expect(purple).toBeDefined();
+    expect(green).toBeDefined();
+    if (purple === undefined || green === undefined) return;
+
+    const purpleFill = fillStyleAfterArcNear(
+      calls,
+      worldToScreenX(camera, purple.pose.p.x),
+      worldToScreenY(camera, purple.pose.p.y),
+    );
+    const greenFill = fillStyleAfterArcNear(
+      calls,
+      worldToScreenX(camera, green.pose.p.x),
+      worldToScreenY(camera, green.pose.p.y),
+    );
+
+    expect(purpleFill).toBeDefined();
+    expect(greenFill).toBeDefined();
+    expect(purpleFill).not.toBe(greenFill);
+    // Green actually reads as green; purple does not double as green.
+    expect(purpleFill?.toLowerCase()).not.toContain('3fae55');
+    expect(greenFill?.toLowerCase()).toContain('3fae55');
+  });
+
+  it('draws every piece the same colour on every frame', () => {
+    // A type-keyed colour, not a per-instance random one: determinism holds
+    // for the picture on screen the same way it holds for the score.
+    const snapshot = twoColourSnapshot();
+    const camera = fitCamera(800, 800, decodeField.widthM, decodeField.lengthM);
+    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
+    expect(purple).toBeDefined();
+    if (purple === undefined) return;
+
+    const first = createRecordingContext(800, 800);
+    renderFrame(first.ctx, snapshot, decodeField, 1);
+    const second = createRecordingContext(800, 800);
+    renderFrame(second.ctx, snapshot, decodeField, 1);
+
+    const at = (calls: readonly DrawCall[]) =>
+      fillStyleAfterArcNear(
+        calls,
+        worldToScreenX(camera, purple.pose.p.x),
+        worldToScreenY(camera, purple.pose.p.y),
+      );
+    expect(at(first.calls)).toBe(at(second.calls));
+  });
+
+  const decodeOverlay = { regions: DECODE_FIELD_REGIONS, zones: DECODE_FIELD_ZONES };
+  const oneRobotSnapshot = () =>
+    runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      field: decodeField,
+      ticks: 1,
+    }).finalSnapshot;
+
+  it('draws the GATE differently open than closed', () => {
+    const snapshot = oneRobotSnapshot();
+
+    const closed = createRecordingContext(800, 800);
+    renderFrame(closed.ctx, snapshot, decodeField, 0, DEFAULT_RENDER_OPTIONS, {
+      ...decodeOverlay,
+      openConveyorIds: new Set(),
+    });
+
+    const open = createRecordingContext(800, 800);
+    renderFrame(open.ctx, snapshot, decodeField, 0, DEFAULT_RENDER_OPTIONS, {
+      ...decodeOverlay,
+      openConveyorIds: new Set([
+        DECODE_ZONES.redGateZone.replace('-gate-zone', '-classifier'),
+        DECODE_ZONES.blueGateZone.replace('-gate-zone', '-classifier'),
+      ]),
+    });
+
+    const gateStrokes = (calls: readonly DrawCall[]) =>
+      calls.filter((c) => c.op === 'stroke' && (c.lineWidth === 5 || c.lineWidth === 2));
+
+    const closedStrokes = gateStrokes(closed.calls);
+    const openStrokes = gateStrokes(open.calls);
+    expect(closedStrokes.length).toBeGreaterThan(0);
+    expect(openStrokes.length).toBeGreaterThan(0);
+
+    // Somewhere in the frame, the GATE reads as visibly more "there" when
+    // closed than when open: a heavier line at full opacity.
+    const maxLineWidth = (calls: readonly DrawCall[]) => Math.max(...calls.map((c) => c.lineWidth));
+    expect(maxLineWidth(closedStrokes)).toBeGreaterThan(maxLineWidth(openStrokes));
+  });
+
+  it('leaves the GATE closed for a season with no matching conveyor id', () => {
+    const snapshot = oneRobotSnapshot();
+    const withUnrelatedOpenSet = createRecordingContext(800, 800);
+    renderFrame(withUnrelatedOpenSet.ctx, snapshot, decodeField, 0, DEFAULT_RENDER_OPTIONS, {
+      ...decodeOverlay,
+      openConveyorIds: new Set(['not-a-real-conveyor']),
+    });
+
+    const noneOpen = createRecordingContext(800, 800);
+    renderFrame(noneOpen.ctx, snapshot, decodeField, 0, DEFAULT_RENDER_OPTIONS, {
+      ...decodeOverlay,
+      openConveyorIds: new Set(),
+    });
+
+    // Same picture either way: an id this presentation does not recognise
+    // cannot open a GATE, it can only fail to match.
+    expect(withUnrelatedOpenSet.calls).toEqual(noneOpen.calls);
+  });
+
+  it('draws a shot in flight along its arc, and skips its resolved position', () => {
+    const snapshot = twoColourSnapshot();
+    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
+    expect(purple).toBeDefined();
+    if (purple === undefined) return;
+
+    const shot: ShotAnimation = {
+      pieceId: 'purple',
+      pieceType: 'P',
+      radiusM: purple.radiusM,
+      fromM: vec2(-1, -1),
+      toM: purple.pose.p,
+      progress: 0.5,
+    };
+
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, decodeField, 1, DEFAULT_RENDER_OPTIONS, undefined, [shot]);
+
+    const camera = fitCamera(800, 800, decodeField.widthM, decodeField.lengthM);
+    // Halfway from (-1,-1) to the piece's true resting point.
+    const midM = vec2((shot.fromM.x + shot.toM.x) / 2, (shot.fromM.y + shot.toM.y) / 2);
+    const midScreen = { x: worldToScreenX(camera, midM.x), y: worldToScreenY(camera, midM.y) };
+
+    const atMidpoint = calls.some(
+      (c) =>
+        c.op === 'arc' &&
+        Math.abs((c.args[0] ?? 0) - midScreen.x) < 0.5 &&
+        Math.abs((c.args[1] ?? 0) - midScreen.y) < 0.5,
+    );
+    expect(atMidpoint).toBe(true);
+
+    // Not drawn a second time at its already-resolved destination.
+    const atDestination = calls.some(
+      (c) =>
+        c.op === 'arc' &&
+        Math.abs((c.args[0] ?? 0) - worldToScreenX(camera, purple.pose.p.x)) < 1e-6 &&
+        Math.abs((c.args[1] ?? 0) - worldToScreenY(camera, purple.pose.p.y)) < 1e-6,
+    );
+    expect(atDestination).toBe(false);
+  });
+
+  it('grows the ball at the top of its arc and shrinks it back down for landing', () => {
+    const snapshot = twoColourSnapshot();
+    const purple = snapshot.pieces.find((p) => p.pieceId === 'purple');
+    expect(purple).toBeDefined();
+    if (purple === undefined) return;
+
+    const radiusAt = (progress: number): number => {
+      const shot: ShotAnimation = {
+        pieceId: 'purple',
+        pieceType: 'P',
+        radiusM: purple.radiusM,
+        fromM: vec2(-1, -1),
+        toM: purple.pose.p,
+        progress,
+      };
+      const { ctx, calls } = createRecordingContext(800, 800);
+      renderFrame(ctx, snapshot, decodeField, 1, DEFAULT_RENDER_OPTIONS, undefined, [shot]);
+      const arcs = calls.filter((c) => c.op === 'arc');
+      return arcs[arcs.length - 1]?.args[2] ?? 0;
+    };
+
+    expect(radiusAt(0.5)).toBeGreaterThan(radiusAt(0));
+    expect(radiusAt(0.5)).toBeGreaterThan(radiusAt(1));
   });
 });

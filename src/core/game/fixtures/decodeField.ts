@@ -119,8 +119,20 @@ export const DECODE_FIELD_ORIENTATION: Sourced<string> = inferred(
 /** Red occupies -X, blue +X in the alliance/staging half. */
 const SIDE = { red: -1, blue: 1 } as const;
 
-/** DECODE's GOALS and classifier ramps are cross-court from their alliance. */
-const GOAL_CLUSTER_SIDE = { red: 1, blue: -1 } as const;
+/**
+ * The GOAL, RAMP and DEPOT sit on the *same* side as their alliance's own
+ * GATE, not cross-court from it.
+ *
+ * They are one physical assembly, not three: the code that builds the CLASSIFIER
+ * conveyor (`decode.ts`) says outright that the RAMP "runs from the GATE ... at
+ * the low end ... toward the GOAL" at the high end. The GATE ZONE is placed by
+ * TILE column, and TILE columns are alliance-owned by an explicit rule (G402) —
+ * so wherever an alliance's GATE sits, its own GOAL and RAMP sit with it. This
+ * must equal `SIDE`, not oppose it; the two used to disagree, which put an
+ * alliance's classifier queue and the GATE that opens it on opposite corners of
+ * the field.
+ */
+const GOAL_CLUSTER_SIDE = SIDE;
 
 interface Placement {
   readonly centerXIn: number;

@@ -16,6 +16,7 @@ import { worldVertices } from '../../core/physics/shapes.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
 import type { FieldTemplate } from '../../core/field/fieldTemplate.js';
 import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
+import type { Vec2 } from '../../core/math/vec2.js';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera } from './camera.js';
 
 /** FTC fields are laid out on 24 in foam tiles, 6 x 6 of them. */
@@ -27,13 +28,16 @@ const COLORS = {
   tileLine: '#415363',
   fieldEdge: '#d8e2e9',
   wall: '#a9b8c3',
+  tunnelRail: '#d9a441',
   axis: '#2f3d4d',
   robotBody: '#3d7dca',
   robotOutline: '#9ecbff',
   robotFront: '#ffd166',
   velocity: '#5ce0a0',
-  piece: '#b072d6',
-  pieceOutline: '#e0c6f2',
+  piecePurple: '#8b3fd1',
+  piecePurpleOutline: '#d9baf5',
+  pieceGreen: '#3fae55',
+  pieceGreenOutline: '#bdeecb',
   pieceShadow: 'rgba(0, 0, 0, 0.35)',
   regionFill: 'rgba(120, 170, 220, 0.10)',
   regionEdge: 'rgba(255, 255, 255, 0.74)',
@@ -53,6 +57,34 @@ const COLORS = {
 export interface FieldOverlay {
   readonly regions: readonly FieldRegion[];
   readonly zones: readonly FieldZone[];
+  /**
+   * Which of the game's own conveyors (`game/conveyor.ts`) are open right now.
+   *
+   * Optional read-only presentation state: a season with no GATE-like element
+   * simply never populates it, and the renderer still has no idea what any id
+   * means beyond "does this one draw as open".
+   */
+  readonly openConveyorIds?: ReadonlySet<string> | undefined;
+}
+
+/**
+ * A ball's visible flight from a mechanism launch to where it lands.
+ *
+ * Purely cosmetic, per PRODUCT_SPEC.md §1.1: the underlying piece has already
+ * made its deterministic `HELD -> destination` transition by the time this
+ * exists (`MatchSimulation.drainLaunchAnimations`). This only tells the
+ * renderer to draw that one piece along an interpolated arc instead of at its
+ * true (already-resolved) position while `progress` runs from 0 to 1 — never a
+ * second, competing physics model.
+ */
+export interface ShotAnimation {
+  readonly pieceId: string;
+  readonly pieceType: string;
+  readonly radiusM: number;
+  readonly fromM: Vec2;
+  readonly toM: Vec2;
+  /** 0 at the moment of launch, 1 on arrival. Advanced by wall-clock time. */
+  readonly progress: number;
 }
 
 export interface RenderOptions {
@@ -78,6 +110,7 @@ export function renderFrame(
   alpha: number,
   options: RenderOptions = DEFAULT_RENDER_OPTIONS,
   overlay?: FieldOverlay | undefined,
+  shotAnimations?: readonly ShotAnimation[] | undefined,
 ): void {
   const width = ctx.canvas.clientWidth;
   const height = ctx.canvas.clientHeight;
@@ -94,10 +127,16 @@ export function renderFrame(
     drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true, field.id === 'ftc-decode-2025-26');
   }
 
-  for (const piece of snapshot.pieces) drawPiece(ctx, camera, piece, alpha);
+  // A piece with an active flight animation is drawn along its arc instead of
+  // at its already-resolved position, so it is skipped in the ordinary pass.
+  const animating = new Set((shotAnimations ?? []).map((shot) => shot.pieceId));
+  for (const piece of snapshot.pieces) {
+    if (!animating.has(piece.pieceId)) drawPiece(ctx, camera, piece, alpha);
+  }
   for (const robot of snapshot.robots) {
     drawRobot(ctx, camera, robot, alpha, options.showVelocity);
   }
+  for (const shot of shotAnimations ?? []) drawShotAnimation(ctx, camera, shot);
 }
 
 /**
@@ -114,6 +153,7 @@ function drawOverlay(
   showLabels: boolean,
   decodePresentation: boolean,
 ): void {
+  const openConveyorIds = overlay.openConveyorIds ?? EMPTY_OPEN_SET;
   for (const shaped of [...overlay.regions, ...overlay.zones]) {
     const kind = presentationKind(shaped.id);
     // DECODE's physical goal/ramp assemblies come from the field fixture, not
@@ -153,16 +193,7 @@ function drawOverlay(
       }
 
       if (decodePresentation && shaped.id.includes('gate-zone')) {
-        const minX = Math.min(...vertices.map((vertex) => vertex.x));
-        const maxX = Math.max(...vertices.map((vertex) => vertex.x));
-        const minY = Math.min(...vertices.map((vertex) => vertex.y));
-        const maxY = Math.max(...vertices.map((vertex) => vertex.y));
-        ctx.beginPath();
-        ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, minY));
-        ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, minY));
-        ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, maxY));
-        ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, maxY));
-        ctx.stroke();
+        drawGate(ctx, camera, shaped, allianceColor, isConveyorOpenFor(shaped.id, openConveyorIds));
         continue;
       }
 
@@ -200,9 +231,119 @@ function drawOverlay(
   }
 }
 
+const EMPTY_OPEN_SET: ReadonlySet<string> = new Set();
+
+/**
+ * Does the GATE beside this zone currently let CLASSIFIED ARTIFACTS out?
+ *
+ * The conveyor that owns a `<alliance>-gate-zone` is named `<alliance>-classifier`
+ * (`decode.ts`'s `DECODE_CONVEYORS`) — a naming convention local to this one
+ * season's presentation, the same way the rest of `decodePresentation` already
+ * is. It costs nothing to be wrong: a season with no matching conveyor id
+ * simply never appears in `openConveyorIds` and the gate draws closed.
+ */
+function isConveyorOpenFor(gateZoneId: string, openConveyorIds: ReadonlySet<string>): boolean {
+  return openConveyorIds.has(gateZoneId.replace('-gate-zone', '-classifier'));
+}
+
+/**
+ * The GATE: a literal arm across the low end of the CLASSIFIER, not a scoring
+ * rectangle. Its state is read straight from `PieceConveyors.isOpen`, the same
+ * fact that governs whether CLASSIFIED ARTIFACTS actually drain — so the arm
+ * shown is never out of step with what the RAMP is really doing.
+ *
+ * Closed: solid, spanning the ROBOT-pushed width, exactly like the manual's
+ * "closed by gravity" resting state. Open: swung clear, drawn thin and pale so
+ * the passage it just made reads as open at a glance.
+ */
+function drawGate(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  shaped: FieldRegion | FieldZone,
+  allianceColor: string,
+  isOpen: boolean,
+): void {
+  if (shaped.shape.kind !== 'poly') return;
+  const vertices = shaped.shape.vertices;
+  if (vertices.length === 0) return;
+
+  const minX = Math.min(...vertices.map((vertex) => vertex.x));
+  const maxX = Math.max(...vertices.map((vertex) => vertex.x));
+  const minY = Math.min(...vertices.map((vertex) => vertex.y));
+  const maxY = Math.max(...vertices.map((vertex) => vertex.y));
+  const centerY = (minY + maxY) / 2;
+  // Swung most of the way clear rather than fully gone: "may or may not stay
+  // open" (§9.8.3) reads better as a gate still visibly there than as one that
+  // vanishes.
+  const openInsetFrac = 0.35;
+  const spanMinX = isOpen ? minX + (maxX - minX) * openInsetFrac : minX;
+
+  ctx.save();
+  ctx.strokeStyle = allianceColor;
+  ctx.lineWidth = isOpen ? 2 : 5;
+  ctx.globalAlpha = isOpen ? 0.45 : 1;
+  ctx.beginPath();
+  ctx.moveTo(worldToScreenX(camera, spanMinX), worldToScreenY(camera, centerY));
+  ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, centerY));
+  ctx.stroke();
+  ctx.restore();
+}
+
+/** Fill/outline pair for a game piece, by its type id. Unknown types fall back
+ * to the purple pair rather than a warning colour: an unrecognised type is
+ * still a real piece and should not look like an error. */
+function pieceColors(pieceType: string): { fill: string; outline: string } {
+  if (pieceType === 'G') return { fill: COLORS.pieceGreen, outline: COLORS.pieceGreenOutline };
+  return { fill: COLORS.piecePurple, outline: COLORS.piecePurpleOutline };
+}
+
+/**
+ * Draw a piece mid-flight, along a straight line from launch to landing with a
+ * simple cosmetic lift — not a trajectory the physics computed.
+ *
+ * `progress` is driven by wall-clock time in the caller (`simRunner.ts`), which
+ * is exactly why this cannot read `piece.pose`: the underlying piece already
+ * sits at its resolved destination the instant the shot is queued
+ * (PRODUCT_SPEC.md §1.1), and only the *drawing* takes the animation's time to
+ * catch up.
+ */
+const SHOT_ARC_HEIGHT_M = 0.5;
+
+function drawShotAnimation(ctx: CanvasRenderingContext2D, camera: Camera, shot: ShotAnimation): void {
+  const t = Math.min(1, Math.max(0, shot.progress));
+  const x = shot.fromM.x + (shot.toM.x - shot.fromM.x) * t;
+  const y = shot.fromM.y + (shot.toM.y - shot.fromM.y) * t;
+  // A parabola that is zero at both ends and peaks at the midpoint — a visual
+  // hop, not an integrated height.
+  const liftM = SHOT_ARC_HEIGHT_M * 4 * t * (1 - t);
+
+  const screenX = worldToScreenX(camera, x);
+  const screenY = worldToScreenY(camera, y);
+  const groundRadius = Math.max(2, metersToPixels(camera, shot.radiusM));
+  const { fill, outline } = pieceColors(shot.pieceType);
+
+  ctx.beginPath();
+  ctx.arc(screenX, screenY, groundRadius, 0, Math.PI * 2);
+  ctx.fillStyle = COLORS.pieceShadow;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(screenX, screenY, groundRadius * (1 + liftM * HEIGHT_SCALE_PER_M), 0, Math.PI * 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.strokeStyle = outline;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
 /** Presentation-only classification; game rules and collision never read this. */
-function presentationKind(id: string): 'goal' | 'structure' | 'tape' | 'zone' {
+function presentationKind(id: string): 'goal' | 'structure' | 'gate' | 'tape' | 'zone' {
   if (id.endsWith('-goal')) return 'goal';
+  // The GATE ZONE has no collision body of its own — unlike the RAMP and the
+  // TUNNEL, which now render from real fixture geometry (`classifierBody`,
+  // `tunnelRailBodies`) — so it must stay off the "skip, a real body already
+  // draws this" path below and keep going to `drawGate`.
+  if (id.includes('gate-zone')) return 'gate';
   if (id.endsWith('-ramp') || id.includes('tunnel') || id.includes('gate')) return 'structure';
   if (id.includes('spike') || id.includes('launch') || id.includes('base') || id.includes('loading') || id.includes('depot')) return 'tape';
   return 'zone';
@@ -243,11 +384,12 @@ function drawPiece(
     ctx.fill();
   }
 
+  const { fill, outline } = pieceColors(piece.pieceType);
   ctx.beginPath();
   ctx.arc(screenX, screenY, groundRadius * (1 + airborneM * HEIGHT_SCALE_PER_M), 0, Math.PI * 2);
-  ctx.fillStyle = COLORS.piece;
+  ctx.fillStyle = fill;
   ctx.fill();
-  ctx.strokeStyle = COLORS.pieceOutline;
+  ctx.strokeStyle = outline;
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -303,9 +445,22 @@ function drawField(
     if (body.shape.kind === 'circle') continue;
     const vertices = worldVertices(body.shape, body.pose.p, body.pose.theta);
     const goal = field.id === 'ftc-decode-2025-26' && body.shape.kind === 'poly';
-    const redGoal = goal && vertices.reduce((sum, vertex) => sum + vertex.x, 0) >= 0;
-    ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : COLORS.wall;
-    ctx.strokeStyle = goal ? '#f3f7fb' : COLORS.wall;
+    // A field body carries no alliance tag, only geometry, so colour is guessed
+    // from which side of the field it sits on. Red is -X (`decodeCollision.ts`'s
+    // `goalSide`, which follows `decodeField.ts`'s `SIDE`), so a shell whose
+    // vertices sum negative is red's.
+    const redGoal = goal && vertices.reduce((sum, vertex) => sum + vertex.x, 0) < 0;
+    // A SECRET TUNNEL rail is a thin OBB — `tunnelRailBodies`' rails are ~1 in
+    // thick, far slimmer than the 6 in classifier channel or the 12 in
+    // perimeter — so it reads apart from an ordinary wall rather than as more
+    // of one. Drawn as a neutral colour: the tunnel is shared floor, not
+    // territory either alliance owns outright.
+    const tunnelRail =
+      field.id === 'ftc-decode-2025-26' &&
+      body.shape.kind === 'obb' &&
+      Math.min(body.shape.halfExtents.x, body.shape.halfExtents.y) < inchesToMeters(1);
+    ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
+    ctx.strokeStyle = goal ? '#f3f7fb' : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
     ctx.beginPath();
     vertices.forEach((vertex, index) => {
       const x = worldToScreenX(camera, vertex.x);

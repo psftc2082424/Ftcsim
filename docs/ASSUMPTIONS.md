@@ -1079,6 +1079,16 @@ in the current product and are intentionally absent. Drivetrain and collision
 models remain only where they make driver navigation and field constraints
 observable.
 
+**A visible flight is not a reintroduction of that physics.**
+`MatchSimulation.drainLaunchAnimations()` and `fieldRenderer.ts`'s
+`ShotAnimation` (added alongside §10.16/§10.17) draw a piece travelling from
+its launch point to its already-resolved destination over a fixed wall-clock
+duration, with a cosmetic parabolic lift. The piece has already completed its
+one deterministic `HELD → destination` transition before either exists; a
+caller that never asks for them changes nothing about the match. No velocity,
+no spread, no RNG informs where the piece ends up — only how long the picture
+takes to catch up.
+
 ## 10. Game layer and the DECODE fixture
 
 ### 10.1 What is *not* assumed
@@ -1545,12 +1555,89 @@ Premier Events set their own; `rankingPointsFor` therefore throws on an unknown
 tier rather than defaulting, since a silent default would score a Championship
 match against the lowest bar.
 
+### 10.16 The GOAL cluster's side was flipped from its own GATE — found and fixed
+
+| | |
+|---|---|
+| **Status** | Bug, fixed. Regression test added. |
+| **Location** | `src/core/game/fixtures/decodeField.ts` (`GOAL_CLUSTER_SIDE`), `decodeCollision.ts` (`goalSide`), `app/render/fieldRenderer.ts` |
+
+`decodeField.ts` places every alliance-owned zone — GATE, LOADING, BASE, SECRET
+TUNNEL, the alliance half itself — with one sign convention, `SIDE = {red: -1,
+blue: 1}`, read off G402's TILE columns (an explicit rule). The GOAL, RAMP and
+DEPOT used a *second*, independent constant, `GOAL_CLUSTER_SIDE = {red: 1,
+blue: -1}` — the opposite sign. Both conventions were internally consistent (a
+valid mirrored pair each), so nothing about a single alliance's *own* geometry
+looked wrong in isolation, and nothing failed: a shot into "the red GOAL" still
+counted, because the physical GOAL shell (`decodeCollision.ts`) and the scoring
+region (`decodeField.ts`) at least agreed *with each other*.
+
+What they did not agree with is red and blue's own GATE, LOADING ZONE, BASE and
+half of the field. The GOAL/RAMP/DEPOT — one physical CLASSIFIER assembly with
+the GATE, per the code's own description of the conveyor ("the RAMP runs from
+the GATE ... toward the GOAL") — sat in the *opposite corner* from the GATE that
+opens it. A driver standing where the manual puts their own GATE ZONE would
+never be near their own RAMP or GOAL at all.
+
+**Why nothing caught it.** Every existing test asked one of two questions: "is
+this alliance's own geometry internally consistent" (yes, both conventions were
+self-consistent) or "does a shot into a GOAL located by `centreOf(...)` score"
+(yes, because the query and the geometry used the same, if wrong, value). No
+test ever asked "are two *different* elements — a GATE and its own RAMP — on
+the same physical side." That is now `decodeField.test.ts`'s "keeps a GOAL, its
+RAMP, its GATE and its own half on the same side", which fails against the old
+sign (verified directly: reverted the fix locally, confirmed the test caught
+it, restored the fix).
+
+**A second bug shared the same root cause.** `fieldRenderer.ts` colours a GOAL
+triangle by guessing from its vertices (`sum of x >= 0` ⇒ red), because a static
+`RigidBody` carries no alliance tag. That guess was tuned to the old, wrong
+sign and needed flipping in step — caught only by looking at a screenshot after
+the fix (the left triangle drew blue when the underlying body was red's), which
+is the reason this session also added `renderer.test.ts` assertions that a
+piece's fill colour actually matches its type, so a colour/identity mismatch
+like this one has a test that would have caught it.
+
+**How it was found.** Not by a failing test — by print-diagnosing every named
+region and zone's actual centre coordinates side by side and checking, by hand,
+whether each alliance's own elements clustered on one side. This is worth
+repeating whenever a new field element is added: two internally-consistent
+mirror conventions can still disagree with each other, and nothing enforces
+that automatically except an explicit cross-element test.
+
+### 10.17 The SECRET TUNNEL has real rails; the GATE has a real, live-state visual
+
+| | |
+|---|---|
+| **Status** | Presentational geometry added on top of already-sourced footprints |
+| **Location** | `decodeCollision.ts` (`tunnelRailBodies`), `app/render/fieldRenderer.ts` (`drawGate`) |
+
+Two gaps the collision table (§10.9, `decodeCollision.ts`) used to leave
+`PASSABLE` / no-body are filled, without inventing any footprint the manual
+does not already give:
+
+- **The SECRET TUNNEL** already had a sourced footprint (§9.3: 46.5 × 6.125 in)
+  placed by `decodeField.ts`; only a wall existed nowhere. `tunnelRailBodies`
+  reads that same zone's already-computed centre and adds two thin (~1 in)
+  static rails flanking it, ~2 in tall — tall enough to register any contact,
+  since every body here starts at the floor. The **height** is the only
+  invented number, and it is bounded: any positive height turns a marked-but-
+  open rectangle into a corridor a rolling ARTIFACT is kept inside of and a
+  ROBOT must enter end-on. Nothing about the corridor's *width* changed.
+- **The GATE ZONE** gets a literal drawn arm (`drawGate`) instead of the two
+  short tick-marks it drew before, reading `PieceConveyors.isOpen` through a
+  new `FieldOverlay.openConveyorIds` — the exact fact that already gates the
+  CLASSIFIER's drain (§10.15's conveyor), so the visual cannot disagree with
+  what the RAMP is actually doing. It has no collision body of its own; the
+  GATE's own panel shape remains CAD-only (§10.9).
+
 ---
 
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |
 | 2026-08-24 | Ledger created for Phase 1. |
 | 2026-08-24 | Added §2.5 (efficiency direction), §5 (collision and contact), §6 (input), §7 (motor catalogue provenance and cross-checks), §8.1 (net bias direction) as the corresponding code landed. |
 | 2026-08-24 | Motor catalogue extended from 5 to 10 verified entries, including the 1:1 base motor. Base free speed and base stall torque are now datasheet-read rather than inferred; added the implied-gearbox-efficiency integrity check (§7.1). |

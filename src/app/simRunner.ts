@@ -38,7 +38,10 @@ import {
   syncCanvasSize,
   type FieldOverlay,
   type RenderOptions,
+  type ShotAnimation,
 } from './render/fieldRenderer.js';
+import type { PieceLaunchAnimation } from '../core/game/matchSimulation.js';
+import type { WorldSnapshot } from '../core/sim/snapshot.js';
 import type { InputHub } from './input/sources.js';
 import { FixedTimestepAccumulator } from './fixedTimestep.js';
 
@@ -52,6 +55,25 @@ import { FixedTimestepAccumulator } from './fixedTimestep.js';
  * simulation never stalls.
  */
 const MAX_FRAME_SECONDS = 0.25;
+
+/**
+ * How long a shot's cosmetic flight takes, wall-clock milliseconds.
+ *
+ * Purely a presentation choice — long enough to actually see the ball leave
+ * and arrive, short enough that firing again is not stuck waiting on it. It
+ * has no bearing on scoring: the piece is already resolved the tick the shot
+ * is queued (PRODUCT_SPEC.md §1.1), so a slower or faster monitor never
+ * changes what the match records, only how the trip looks.
+ */
+const SHOT_ANIMATION_DURATION_MS = 350;
+
+/**
+ * Fallback ball radius, metres, for the vanishingly unlikely case a shot
+ * animation outlives the piece it was drawn for. Never observed in practice —
+ * a delivered piece is never removed from the world — but the renderer must
+ * still receive a finite number rather than propagate `undefined`.
+ */
+const DEFAULT_SHOT_RADIUS_M = 0.06;
 
 /** How many recent awards the live scoring feed carries. */
 const RECENT_AWARD_COUNT = 6;
@@ -121,6 +143,9 @@ export class SimRunner {
   private framesPerSecond = 0;
   private ticksPerSecond = 0;
 
+  /** Shots currently animating, each carrying the wall-clock time it began. */
+  private activeShots: (PieceLaunchAnimation & { readonly startedAtMs: number })[] = [];
+
   constructor(
     private robotConfig: RobotConfig,
     private readonly inputHub: InputHub,
@@ -181,6 +206,7 @@ export class SimRunner {
     this.controller.set(NEUTRAL_INPUT);
     this.simulation = this.createSimulation();
     this.stepper.reset();
+    this.activeShots = [];
     this.lastTelemetryTick = -1;
     this.emitTelemetry();
     this.emitMatch();
@@ -222,9 +248,12 @@ export class SimRunner {
     for (let i = 0; i < steps; i++) {
       this.controller.set(this.inputHub.read() ?? NEUTRAL_INPUT);
       this.simulation.step();
+      for (const launch of this.simulation.drainLaunchAnimations()) {
+        this.activeShots.push({ ...launch, startedAtMs: nowMs });
+      }
     }
 
-    this.render(this.stepper.alpha);
+    this.render(this.stepper.alpha, nowMs);
 
     if (this.simulation.tick - this.lastTelemetryTick >= TELEMETRY_TICK_INTERVAL) {
       this.emitTelemetry();
@@ -234,7 +263,7 @@ export class SimRunner {
     this.updateRates(nowMs);
   };
 
-  private render(alpha: number): void {
+  private render(alpha: number, nowMs: number): void {
     const canvas = this.canvas;
     if (canvas === null) return;
 
@@ -242,15 +271,52 @@ export class SimRunner {
     const ctx = canvas.getContext('2d');
     if (ctx === null) return;
 
+    const snapshot = this.simulation.world.snapshot();
+
     renderFrame(
       ctx,
-      this.simulation.world.snapshot(),
+      snapshot,
       this.field,
       alpha,
       this.renderOptions,
-      this.overlay,
+      { ...this.overlay, openConveyorIds: this.openConveyorIds(snapshot) },
+      this.currentShotAnimations(snapshot, nowMs),
     );
     this.frameCount++;
+  }
+
+  /** Which of the game's conveyors are open right now, for the gate's visual. */
+  private openConveyorIds(snapshot: WorldSnapshot): ReadonlySet<string> {
+    const open = new Set<string>();
+    for (const id of this.simulation.conveyors.conveyorIds) {
+      if (this.simulation.conveyors.isOpen(id, snapshot)) open.add(id);
+    }
+    return open;
+  }
+
+  /**
+   * Advance every in-flight shot by wall-clock time and drop the finished ones.
+   *
+   * Wall-clock rather than sim ticks on purpose: the animation is a
+   * presentation duration, not a simulated duration, so it plays at the same
+   * speed on every monitor regardless of tick rate (PRODUCT_SPEC.md §1.1).
+   */
+  private currentShotAnimations(snapshot: WorldSnapshot, nowMs: number): readonly ShotAnimation[] {
+    this.activeShots = this.activeShots.filter(
+      (shot) => nowMs - shot.startedAtMs < SHOT_ANIMATION_DURATION_MS,
+    );
+
+    return this.activeShots.map((shot) => {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === shot.pieceId);
+      return {
+        pieceId: shot.pieceId,
+        pieceType: shot.pieceType,
+        radiusM: piece?.radiusM ?? DEFAULT_SHOT_RADIUS_M,
+        fromM: shot.fromM,
+        toM: shot.toM,
+        progress: (nowMs - shot.startedAtMs) / SHOT_ANIMATION_DURATION_MS,
+      };
+    });
   }
 
   private emitTelemetry(): void {

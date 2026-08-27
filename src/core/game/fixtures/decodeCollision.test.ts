@@ -9,12 +9,13 @@ import { NEUTRAL_INPUT } from '../../control/controlInput.js';
 import { SimWorld } from '../../sim/simWorld.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
+import { DECODE_FIELD_ZONES } from './decodeField.js';
 import {
   createDecodeField,
   DECODE_FIELD_COLLISION_CLASSIFICATION,
   DECODE_GAME_LOGIC_REGION_IDS,
 } from './decodeCollision.js';
-import { GOAL } from './decodeDimensions.js';
+import { GOAL, ZONES } from './decodeDimensions.js';
 
 const classified = (id: string) => {
   const entry = DECODE_FIELD_COLLISION_CLASSIFICATION.find((candidate) => candidate.id === id);
@@ -27,8 +28,6 @@ describe('DECODE collision classification', () => {
     for (const id of [
       'red-gate-zone',
       'blue-gate-zone',
-      'red-secret-tunnel',
-      'blue-secret-tunnel',
       'red-base-zone',
       'blue-base-zone',
       'audience-launch-zone',
@@ -54,10 +53,11 @@ describe('DECODE collision classification', () => {
   it('models the triangular GOAL shell and raised classifier channel', () => {
     const field = createDecodeField();
 
-    // Four standard perimeter walls plus cross-court GOAL triangles and their
-    // raised classifier channels.  The old three-rectangle approximation is
+    // Four standard perimeter walls, two cross-court GOAL triangles, two
+    // raised classifier channels and two side-railed SECRET TUNNEL corridors
+    // (two rails each).  The old three-rectangle GOAL approximation is
     // intentionally gone: it did not match the real/dSim top view.
-    expect(field.bodies).toHaveLength(8);
+    expect(field.bodies).toHaveLength(12);
     expect(classified('red-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('blue-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('red-ramp-assembly').hasCollisionBody).toBe(true);
@@ -151,7 +151,51 @@ describe('DECODE collision classification', () => {
     // south of it, so no static fixture closes that floor-level passage.
     expect(bounds.minY).toBeCloseTo(inchesToMeters(2), 12);
     expect(classifier.span.bottom).toBeCloseTo(inchesToMeters(5.5), 12);
-    expect(classified('red-secret-tunnel').hasCollisionBody).toBe(false);
+  });
+
+  it('gives the SECRET TUNNEL a real, side-railed corridor', () => {
+    expect(classified('red-secret-tunnel').hasCollisionBody).toBe(true);
+    expect(classified('blue-secret-tunnel').hasCollisionBody).toBe(true);
+
+    const field = createDecodeField();
+    const redTunnel = field.bodies.find((body) => body.id === 2104);
+    const otherRail = field.bodies.find((body) => body.id === 2105);
+    if (redTunnel === undefined || otherRail === undefined) {
+      throw new Error('SECRET TUNNEL rails missing');
+    }
+
+    const zone = DECODE_FIELD_ZONES.find((candidate) => candidate.id === DECODE_ZONES.redSecretTunnel);
+    if (zone === undefined) throw new Error('red secret tunnel zone missing');
+
+    // Both rails sit outside the sourced 6.125 in corridor width, one on each
+    // side, so nothing narrows the passage an ARTIFACT actually rolls through.
+    const halfWidthM = inchesToMeters(ZONES.secretTunnelWidthIn.value) / 2;
+    const gap = Math.abs(redTunnel.pose.p.x - otherRail.pose.p.x) / 2 - halfWidthM;
+    expect(gap).toBeGreaterThanOrEqual(0);
+    expect(redTunnel.pose.p.y).toBeCloseTo(zone.centerM.y, 6);
+  });
+
+  /**
+   * A ball travelling along the corridor's own axis passes clean through: the
+   * rails bound the sides, not the ends the manual actually routes ARTIFACTS
+   * through.
+   */
+  it('lets an ARTIFACT travel the length of the SECRET TUNNEL corridor', () => {
+    const field = createDecodeField();
+    const zone = DECODE_FIELD_ZONES.find((candidate) => candidate.id === DECODE_ZONES.redSecretTunnel);
+    if (zone === undefined) throw new Error('red secret tunnel zone missing');
+
+    // Half the nominal 4.9 in ARTIFACT diameter.
+    const artifact = createCircle(inchesToMeters(2.45));
+    for (const rail of field.bodies.filter((body) => body.id === 2104 || body.id === 2105)) {
+      const contact = collide(
+        artifact,
+        { p: vec2(zone.centerM.x, zone.centerM.y), theta: 0 },
+        rail.shape,
+        rail.pose,
+      );
+      expect(contact, `rail ${rail.id} at the corridor centre`).toBeNull();
+    }
   });
 
   it('does not invent a collision body for CAD-only gate parts', () => {

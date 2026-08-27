@@ -156,6 +156,70 @@ describe('pipeline wiring', () => {
     );
   });
 
+  /**
+   * The launch animation is purely descriptive (PRODUCT_SPEC.md §1.1): the
+   * piece has already made its deterministic `HELD -> destination` move by the
+   * time this exists, so draining it — or never draining it at all — cannot
+   * change the score.
+   */
+  it('records a launch animation from the robot to the destination, without touching the score', () => {
+    const controller = new ScriptedController(
+      createInputTrace('intake then score', [
+        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
+        { tick: 1, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
+      ]),
+    );
+    const sim = simulation({
+      robots: [
+        {
+          config: COMPETITION_ROBOT_CONFIG,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(inchesToMeters(3), inchesToMeters(2)), theta: 0 },
+        },
+      ],
+      pieces: [
+        {
+          pieceId: 'p',
+          pieceType: 'G',
+          diameterIn: 4.9,
+          massLb: 0.165,
+          startPositionM: vec2(inchesToMeters(14), inchesToMeters(2)),
+        },
+      ],
+      mechanismActionRoutes: [
+        { id: 'own-goal', action: 'launch', destinationRegionByAlliance: { red: 'goal', blue: 'goal' } },
+      ],
+    });
+
+    expect(sim.drainLaunchAnimations()).toEqual([]);
+
+    sim.step();
+    expect(sim.drainLaunchAnimations()).toEqual([]);
+    const scoreBeforeSecondStep = sim.score.red;
+
+    sim.step();
+    const animations = sim.drainLaunchAnimations();
+
+    expect(animations).toHaveLength(1);
+    expect(animations[0]).toMatchObject({
+      pieceId: 'p',
+      pieceType: 'G',
+      alliance: 'red',
+      fromM: { x: inchesToMeters(3), y: inchesToMeters(2) },
+    });
+    expect(animations[0]?.toM).toEqual(
+      sim.world
+        .snapshot()
+        .pieces.find((piece) => piece.pieceId === 'p')?.pose.p,
+    );
+    // Scoring already happened this same step, before the animation is drained.
+    expect(sim.score.red).toBeGreaterThan(scoreBeforeSecondStep);
+
+    // Drained, not merely peeked: a second read finds nothing left.
+    expect(sim.drainLaunchAnimations()).toEqual([]);
+  });
+
   it('scores three stored balls through three deterministic shot actions', () => {
     const controller = new ScriptedController(
       createInputTrace('three functional shots', [

@@ -29,6 +29,7 @@
  */
 
 import { DT_SECONDS, SimWorld, type GamePieceSpec, type RobotSpec } from '../sim/simWorld.js';
+import type { WorldSnapshot } from '../sim/snapshot.js';
 import { matchStateAt, periodOf, type MatchState, type MatchStructure } from './matchStructure.js';
 import { MatchRunner } from './matchRunner.js';
 import { RegionMembershipDetector } from './membershipDetector.js';
@@ -44,9 +45,10 @@ import type { FieldRegion, FieldZone } from './regions.js';
 import type { ScoringRule, FilterValue } from './scoring.js';
 import type { Effect, ScoreState } from './effects.js';
 import type { FieldTemplate } from '../field/fieldTemplate.js';
-import type { SimEvent } from './events.js';
+import type { Alliance, SimEvent } from './events.js';
 import type { GameDefinition } from './gameDefinition.js';
 import type { MechanismActionRoute } from './gameDefinition.js';
+import type { Vec2 } from '../math/vec2.js';
 
 /**
  * How a game assigns ordered slots within a region.
@@ -92,6 +94,26 @@ export interface MatchSimulationOptions {
   readonly seed?: number | undefined;
 }
 
+/**
+ * A piece's route from where a mechanism launched it to where it landed.
+ *
+ * Purely descriptive: the piece has *already* been moved by the deterministic
+ * `HELD -> TRANSFERRING -> destination` transition (PRODUCT_SPEC.md §1.1)
+ * before this is ever produced. Nothing about scoring or match state depends on
+ * a consumer draining these — a caller with no renderer can ignore them
+ * completely and the match plays out identically. They exist only so a
+ * presentation layer can show the *travel* a deterministic teleport otherwise
+ * skips, as a purely cosmetic animation (never a second physics model).
+ */
+export interface PieceLaunchAnimation {
+  readonly pieceId: string;
+  readonly pieceType: string;
+  readonly alliance: Alliance;
+  readonly fromM: Vec2;
+  readonly toM: Vec2;
+  readonly tick: number;
+}
+
 export interface MatchResult {
   readonly score: ScoreState;
   readonly ticks: number;
@@ -106,6 +128,15 @@ export class MatchSimulation {
   readonly detector: RegionMembershipDetector;
   readonly possession: PossessionTracker;
   readonly conveyors: PieceConveyors;
+
+  /**
+   * Launch animations produced since the last drain.
+   *
+   * A queue, not a log: a renderer drains it once per rendered frame the same
+   * way `SimWorld.drainPieceActions` is drained once per tick, so nothing here
+   * grows unbounded when no one is watching.
+   */
+  private readonly launchAnimations: PieceLaunchAnimation[] = [];
 
   private readonly options: MatchSimulationOptions;
   private readonly attribution: PieceAttribution;
@@ -173,6 +204,12 @@ export class MatchSimulation {
     return this.eventLog;
   }
 
+  /** Take every launch animation produced since the previous read. */
+  drainLaunchAnimations(): readonly PieceLaunchAnimation[] {
+    if (this.launchAnimations.length === 0) return [];
+    return this.launchAnimations.splice(0, this.launchAnimations.length);
+  }
+
   /**
    * Advance one tick through the whole pipeline.
    *
@@ -209,7 +246,7 @@ export class MatchSimulation {
     const observation = observationFrom(snapshot, { attribution: this.attribution });
     this.ingestAll(this.detector.update(observation, this.world.tick));
 
-    this.routeMechanismActions(this.options.mechanismActionRoutes ?? []);
+    this.routeMechanismActions(this.options.mechanismActionRoutes ?? [], snapshot);
 
     // Action routing moved one or more pieces. A second diff on the same tick
     // emits only those transitions and preserves the event -> rules boundary.
@@ -259,8 +296,17 @@ export class MatchSimulation {
     }
   }
 
-  /** Resolve a pending robot action only through data on the GameDefinition. */
-  private routeMechanismActions(routes: readonly MechanismActionRoute[]): void {
+  /**
+   * Resolve a pending robot action only through data on the GameDefinition.
+   *
+   * @param snapshotBeforeRouting Read for each piece's type before it is moved,
+   *   so the (purely presentational) launch animation can show the right
+   *   colour without a second world query.
+   */
+  private routeMechanismActions(
+    routes: readonly MechanismActionRoute[],
+    snapshotBeforeRouting: WorldSnapshot,
+  ): void {
     for (const action of this.world.drainPieceActions()) {
       const route = routes.find((candidate) => candidate.action === action.kind);
       if (route === undefined) {
@@ -279,6 +325,17 @@ export class MatchSimulation {
           `Mechanism action route "${route.id}" needs region "${destinationId}" for ${action.alliance}.`,
         );
       }
+
+      this.launchAnimations.push({
+        pieceId: action.pieceId,
+        pieceType:
+          snapshotBeforeRouting.pieces.find((piece) => piece.pieceId === action.pieceId)
+            ?.pieceType ?? '',
+        alliance: action.alliance,
+        fromM: action.originM,
+        toM: destination.centerM,
+        tick: this.world.tick,
+      });
 
       this.world.deliverPiece(
         action.pieceId,
