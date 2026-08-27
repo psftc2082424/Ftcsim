@@ -176,12 +176,11 @@ production and the page goes blank locally with nothing left to reproduce it.
 
 ### The exact next task
 
-**Build the robot-configuration page and persistent keybind editor.** Play is
-field-first with a broadcast-style bottom score overlay, mechanism card, named
-keyboard/gamepad/virtual controls and collapsible engineering telemetry. The
-existing Configure view needs to become a clearer setup flow with persisted,
-user-meaningful robot settings and complete editable bindings; do not expose
-removed flywheel/projectile parameters.
+**Complete CAD-backed collision geometry for the RAMP, GATE and tunnel walls.**
+The setup guide is sufficient for classification but not their component-level
+footprints. Read the supplied STEP assembly before adding those bodies; keep
+the passable/logic-only contract in `decodeCollision.ts` and never derive an
+obstacle from a game region.
 
 ### Latest handoff — 2026-08-27
 
@@ -226,6 +225,15 @@ removed flywheel/projectile parameters.
   `app/App.tsx`, `app/input/bindings.ts`, `app/components/ControlsPanel.tsx`
   and `storage/` for the configuration/keybind pass. The full-field STEP CAD
   remains the exact next source for ramp, gate and tunnel-wall geometry.
+- **Configure/Controls flow complete:** top navigation now separates Play,
+  Configure and Controls. Configure keeps the existing validated
+  RobotBuilder/preset workflow; Controls groups drive versus mechanism actions
+  and every keyboard binding persists automatically through the existing
+  `KeyValueStore` as `settings/keyboard-bindings-v1`. IndexedDB schema v2 adds
+  that `settings` collection while memory storage remains the fallback.
+  `bindingPreferences.test.ts` protects default, round-trip and corrupt-value
+  behavior. Browser inspection verified both setup screens and the full
+  `npm run verify` suite remains clean.
 
 **Out of scope by decision, not by oversight:** robot-to-robot interaction. The
 simulator assumes solo runs, so G402 (AUTO opponent interference) is not

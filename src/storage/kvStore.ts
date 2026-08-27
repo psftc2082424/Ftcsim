@@ -52,7 +52,8 @@ export class MemoryStore implements KeyValueStore {
 }
 
 const DB_NAME = 'ftc-simulator';
-const DB_VERSION = 1;
+// v2 adds the browser settings collection used for durable driver bindings.
+const DB_VERSION = 2;
 
 /** IndexedDB-backed store, one object store per named collection. */
 export class IndexedDbStore implements KeyValueStore {
@@ -72,7 +73,7 @@ export class IndexedDbStore implements KeyValueStore {
 
       request.onupgradeneeded = () => {
         const db = request.result;
-        for (const name of ['presets', 'gameDefinitions', 'replays']) {
+        for (const name of ['presets', 'gameDefinitions', 'replays', 'settings']) {
           if (!db.objectStoreNames.contains(name)) db.createObjectStore(name);
         }
       };

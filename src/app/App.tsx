@@ -20,6 +20,7 @@ import type { MatchStatus } from './simRunner.js';
 import { SimRunner, type RunnerStats } from './simRunner.js';
 import { GamepadSource, InputHub, KeyboardSource, VirtualPadSource } from './input/sources.js';
 import { DEFAULT_KEY_BINDINGS, type KeyBindings } from './input/bindings.js';
+import { loadKeyBindings, saveKeyBindings } from './input/bindingPreferences.js';
 import { DEFAULT_RENDER_OPTIONS, type RenderOptions } from './render/fieldRenderer.js';
 import { TelemetryPanel } from './components/TelemetryPanel.js';
 import { MatchPanel } from './components/MatchPanel.js';
@@ -48,8 +49,9 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const [bindings, setBindings] = useState<KeyBindings>(DEFAULT_KEY_BINDINGS);
+  const [bindingsReady, setBindingsReady] = useState(false);
   const [robotConfig, setRobotConfig] = useState<RobotConfig>(COMPETITION_ROBOT_CONFIG);
-  const [view, setView] = useState<'play' | 'configure'>('play');
+  const [view, setView] = useState<'play' | 'configure' | 'controls'>('play');
   const [showDebug, setShowDebug] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetrySample | null>(null);
   const [stats, setStats] = useState<RunnerStats | null>(null);
@@ -84,6 +86,24 @@ export function App() {
   // The repository is created once; recreating it per render would reopen the
   // database and drop the listing on every keystroke.
   const presets = useMemo(() => new PresetRepository(createStore('presets')), []);
+  const bindingStore = useMemo(() => createStore('settings'), []);
+
+  useEffect(() => {
+    let current = true;
+    void loadKeyBindings(bindingStore).then((saved) => {
+      if (!current) return;
+      setBindings(saved);
+      setBindingsReady(true);
+    });
+    return () => {
+      current = false;
+    };
+  }, [bindingStore]);
+
+  useEffect(() => {
+    if (!bindingsReady) return;
+    void saveKeyBindings(bindingStore, bindings);
+  }, [bindingStore, bindings, bindingsReady]);
 
   /**
    * Loading or applying a robot rebuilds the world. A robot's mass and geometry
@@ -140,6 +160,7 @@ export function App() {
         <nav className="app-nav" aria-label="Main navigation">
           <button type="button" className={view === 'play' ? 'is-selected' : ''} onClick={() => setView('play')}>Play</button>
           <button type="button" className={view === 'configure' ? 'is-selected' : ''} onClick={() => setView('configure')}>Configure</button>
+          <button type="button" className={view === 'controls' ? 'is-selected' : ''} onClick={() => setView('controls')}>Controls</button>
         </nav>
         <span className="made-by">Made by 10298 Brain Stormz</span>
       </header>
@@ -207,10 +228,13 @@ export function App() {
             </button>
             {showDebug && <TelemetryPanel sample={telemetry} stats={stats} />}
           </aside>
-        ) : (
+        ) : view === 'configure' ? (
           <aside className="side-column configure-sidebar">
             <RobotBuilder key={robotConfig.id} applied={robotConfig} onApply={applyRobot} />
             <PresetPanel repository={presets} current={robotConfig} onLoad={applyRobot} />
+          </aside>
+        ) : (
+          <aside className="side-column configure-sidebar">
             <ControlsPanel bindings={bindings} onChange={setBindings} gamepadConnected={gamepadConnected} />
           </aside>
         )}

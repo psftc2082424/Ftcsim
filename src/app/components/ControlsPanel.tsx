@@ -55,15 +55,36 @@ export function ControlsPanel({ bindings, onChange, gamepadConnected }: Props) {
 
   return (
     <section className="panel">
-      <h2>Controls</h2>
+      <h2>Driver controls</h2>
 
       <p className="muted small">
         Keyboard, this page&rsquo;s virtual pad, and a real controller through the browser Gamepad
         API all feed the same input path. Whichever you touch last takes over.
       </p>
 
+      <h3>Drive</h3>
       <div className="binding-list">
-        {DRIVE_ACTIONS.map((action) => (
+        {DRIVE_ACTIONS.slice(0, 7).map((action) => (
+          <div key={action} className="binding-row">
+            <span className="binding-label">{ACTION_LABELS[action]}</span>
+            <button
+              type="button"
+              className={`binding-key ${capturing === action ? 'is-capturing' : ''}`}
+              onClick={() => setCapturing(capturing === action ? null : action)}
+            >
+              {capturing === action
+                ? 'Press a key…'
+                : bindings[action] === ''
+                  ? 'Unbound'
+                  : describeKey(bindings[action])}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <h3>Mechanisms</h3>
+      <div className="binding-list">
+        {DRIVE_ACTIONS.slice(7).map((action) => (
           <div key={action} className="binding-row">
             <span className="binding-label">{ACTION_LABELS[action]}</span>
             <button
@@ -91,6 +112,7 @@ export function ControlsPanel({ bindings, onChange, gamepadConnected }: Props) {
         <span className={gamepadConnected ? 'dot dot-on' : 'dot'} />
         {gamepadConnected ? 'Gamepad connected' : 'No gamepad detected'}
       </div>
+      <p className="muted small">Bindings save automatically in this browser.</p>
     </section>
   );
 }
