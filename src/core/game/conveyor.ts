@@ -205,6 +205,11 @@ export interface ConveyorWorld {
   ): void;
   /** Enable/disable a semantic static-collider group, e.g. a gate arm. */
   setColliderTagActive(tag: string, active: boolean): void;
+  /**
+   * Separate an active physical piece from a gate as it closes, preserving its
+   * current field-surface height rather than resetting it to floor level.
+   */
+  pushPieceOutOfGate(pieceId: string, positionM: Vec2): void;
   /** Inelastic field-basin capture; keeps a piece active at its current pose. */
   dampPieceVelocity(pieceId: string, retention: number): void;
 }
@@ -380,6 +385,7 @@ export class PieceConveyors {
         (state.releaseFlowed && !hasQueuedPieces) ||
         tick >= state.releaseDeadlineTick
       )) {
+        this.pushNormalLaneBallsOutOfClosingGate(spec, state, places, snapshot, world);
         state.releaseLatched = false;
         state.releaseFlowed = false;
         state.releaseDeadlineTick = Number.NEGATIVE_INFINITY;
@@ -739,6 +745,42 @@ export class PieceConveyors {
       if (piece === undefined || piece.heldByRobotId !== null) return false;
       return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <= piece.radiusM * 2;
     });
+  }
+
+  /**
+   * Keep a closing gate from materialising through a normal lane ball.
+   *
+   * The correction is the same minimal separation a contact solver would make:
+   * put the centre two radii back up the lane and stop it. The next ordinary
+   * lane guide/contact step owns all subsequent movement. Overflow is above the
+   * arm and is intentionally not included.
+   */
+  private pushNormalLaneBallsOutOfClosingGate(
+    spec: PieceConveyorSpec,
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+    world: ConveyorWorld,
+  ): void {
+    const lane = spec.lane;
+    if (lane === undefined) return;
+    const magnitude = Math.hypot(lane.travelDirection.x, lane.travelDirection.y);
+    if (magnitude < 1e-9) return;
+    const direction = vec2(lane.travelDirection.x / magnitude, lane.travelDirection.y / magnitude);
+    const gateM = nearEndOf(places.exit, places.queue.centerM);
+    for (const pieceId of state.queue) {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || piece.heldByRobotId !== null) continue;
+      const distance = Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y);
+      if (distance > piece.radiusM * 2) continue;
+      world.pushPieceOutOfGate(
+        pieceId,
+        vec2(
+          gateM.x - direction.x * piece.radiusM * 2,
+          gateM.y - direction.y * piece.radiusM * 2,
+        ),
+      );
+    }
   }
 
   /** dSim's observed two-second stop window is the generic default. */

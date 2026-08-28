@@ -1037,7 +1037,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
 
     // The physical lane is deliberately damped and no longer teleports this
     // ball into the tunnel. The gate is only touched at match start, well
-    // before the ball reaches it, so its requested 0.4 s quiet window closes.
+    // before the ball reaches it, so its requested one-second quiet window closes.
     for (let i = 0; i < 1200; i++) sim.step();
 
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));

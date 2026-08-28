@@ -957,10 +957,11 @@ shoot; then Phase 4 (PDF ingestion).
   renderer-only field lines, direct classifier placement, or alter the
   drivetrain.
 
-### Latest handoff — 2026-08-28 (short GATE window and classifier boundary)
+### Prior handoff — 2026-08-28 (superseded short GATE window and classifier boundary)
 
-- **DECODE GATE timing is now the requested 0.4 seconds.** A push with no
-  normal classifier ball through it gravity-closes after that quiet window.
+- **DECODE GATE timing was temporarily 0.4 seconds.** A push with no
+  normal classifier ball through it gravity-closed after that quiet window;
+  the current requested one-second value is recorded in the following handoff.
   If the driver is still holding the arm when the leading physical lane ball
   reaches it, the arm briefly reopens; a parked driver cannot leave an empty
   GATE visibly open, but the arm cannot pin the leading ball.
@@ -981,3 +982,24 @@ shoot; then Phase 4 (PDF ingestion).
   against a ready classifier ball in Play mode. Keep classifier protection as
   the generic nearest-boundary rule; do not restore the old
   `inboundRejectPointM` or add direct placement/teleport behaviour.
+
+### Latest handoff — 2026-08-28 (one-second GATE close and arm clearance)
+
+- **The DECODE GATE now remains open for one second after a push or an actual
+  normal-lane release.** This supersedes the prior 0.4-second quiet-window
+  tuning. An idle held GATE still closes; a robot is not an indefinite open
+  command.
+- **A closing live GATE cannot trap a physical classifier ARTIFACT.** Generic
+  `PieceConveyors` checks normal lane bodies within two radii of the declared
+  arm plane before reactivating the gate collider. `SimWorld.pushPieceOutOfGate`
+  places only an overlapping, active lane ball two radii upstream along the
+  lane and stops it, retaining its raised support/height and normal collision
+  state. Overflow remains above the arm and is deliberately excluded.
+- `conveyor.test.ts` has a focused timed-close regression proving the ball is
+  cleared before the collider is active. No drivetrain, robot collision, GOAL
+  capture, classifier capacity, or one-way tunnel behaviour changed.
+- Verification: `npm run verify` passed: TypeScript, ESLint, and **984 tests
+  across 48 files**.
+- **Next priority:** inspect any remaining actual GOAL/classifier congestion
+  through the canonical assembly and conveyor boundary; do not restore parked
+  slots, direct tunnel placement, or drivetrain changes.

@@ -162,8 +162,8 @@ export const TUNNEL_EXIT_SPEED_MPS = inferred(
 
 /** Time a pushed GATE stays open without a normal classifier ball passing it. */
 export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
-  0.4,
-  'Requested gameplay timing: a GATE that is pushed open but has no classifier ball pass through must gravity-close after 0.4 s. Each real normal-lane release renews the same short window, while elevated OVERFLOW does not.',
+  1,
+  'Requested gameplay timing: a GATE that is pushed open but has no classifier ball pass through must gravity-close after 1 s. Each real normal-lane release renews the same window, while elevated OVERFLOW does not.',
   72,
 );
 

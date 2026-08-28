@@ -96,6 +96,7 @@ class FakeWorld implements ConveyorWorld {
     }
   >();
   readonly colliderStates = new Map<string, boolean>();
+  readonly pushedOut = new Map<string, Vec2>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -133,6 +134,11 @@ class FakeWorld implements ConveyorWorld {
 
   setColliderTagActive(tag: string, active: boolean): void {
     this.colliderStates.set(tag, active);
+  }
+
+  pushPieceOutOfGate(pieceId: string, positionM: Vec2): void {
+    this.pushedOut.set(pieceId, positionM);
+    this.positions.set(pieceId, positionM);
   }
 
   dampPieceVelocity(_pieceId: string, _retention: number): void {}
@@ -379,6 +385,31 @@ describe('guided lane physics', () => {
     conveyors.update(world.snapshot(10), 10, world);
     expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
+  });
+
+  it('pushes a normal lane ball clear before a timed gate closes through it', () => {
+    const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
+    const positions = new Map([['a', inEntry(0)]]);
+    const gate = vec2(0, -20 * 0.0254);
+    const world = new FakeWorld(positions, gate);
+    const conveyors = new PieceConveyors([timedLane], lanePlaces(timedLane), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    world.moveRobot(null);
+
+    // A 4.9 in ARTIFACT four inches upstream is pressing the GATE, but is
+    // not yet in the return zone.  The closing arm must resolve this overlap
+    // before its collider becomes active again.
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(4)));
+    conveyors.update(world.snapshot(10), 10, world);
+
+    const cleared = world.pushedOut.get('a');
+    expect(cleared).toBeDefined();
+    expect(cleared?.x).toBeCloseTo(gateM.x);
+    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 2);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+    expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
   });
 
   it('re-opens a held gate only when its leading physical lane ball reaches the arm', () => {
