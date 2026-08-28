@@ -103,6 +103,10 @@ export interface GuidedLaneSpec {
   readonly receivingBasinHandoffDistanceM?: number | undefined;
   /** Bounded funnel acceleration used only inside a declared receiving basin. */
   readonly receivingBasinAccelerationMps2?: number | undefined;
+  /** Linear damping on a receiving basin's surface, in s⁻¹. */
+  readonly receivingBasinVelocityDampingPerSec?: number | undefined;
+  /** Extra clearance required before the next physical ball boards the lane. */
+  readonly receivingBasinEntryClearanceM?: number | undefined;
   /** Public-side correction point for a loose piece that intrudes into a protected lane. */
   readonly inboundRejectPointM?: Vec2 | undefined;
   /** Unit-ish world-frame direction from the entry toward the release gate. */
@@ -126,6 +130,8 @@ export interface GuidedLaneSpec {
   readonly maxDriveSpeedMps: number;
   /** Maximum lateral centring acceleration toward the queue region centreline. */
   readonly lateralCenteringAccelerationMps2: number;
+  /** Linear damping on the lane surface, in s⁻¹. */
+  readonly laneVelocityDampingPerSec?: number | undefined;
   /** Centre height of the normal lane surface, when it is raised above the field. */
   readonly surfaceHeightM?: number | undefined;
   /** Vertical approach rate to a declared normal lane surface, m/s. */
@@ -154,6 +160,7 @@ export interface ConveyorWorld {
     accelerationMps2: Vec2,
     targetHeightM?: number,
     heightRateMps?: number,
+    velocityDampingPerSec?: number,
   ): void;
   /** Enable/disable a semantic static-collider group, e.g. a gate arm. */
   setColliderTagActive(tag: string, active: boolean): void;
@@ -182,6 +189,8 @@ interface ConveyorState {
   readonly basin: Set<string>;
   /** A gate activation keeps the path open until this ordered queue is empty. */
   releaseLatched: boolean;
+  /** True after this gate activation has admitted at least one real piece. */
+  releaseHasServedBatch: boolean;
   /** Previous raw gate-contact state, for one activation per touch. */
   releaseHeldLastTick: boolean;
 }
@@ -210,6 +219,7 @@ export class PieceConveyors {
         overflow: new Set(),
         basin: new Set(),
         releaseLatched: false,
+        releaseHasServedBatch: false,
         releaseHeldLastTick: false,
       });
     }
@@ -270,15 +280,13 @@ export class PieceConveyors {
       this.takeArrivals(spec, state, places, snapshot, world);
       this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       // A contact is one gate activation, not a continuously-held override.
-      // This lets a robot remain parked after a drain without keeping an empty
-      // gate open forever; it must leave and touch again to activate a later
-      // batch.
-      if (
-        releaseHeldNow &&
-        !state.releaseHeldLastTick &&
-        (state.queue.length > 0 || state.basin.size > 0)
-      ) {
+      // It may happen before a ball arrives: a real robot can push a light
+      // gate open first, then feed a ball through it. `releaseHasServedBatch`
+      // distinguishes that armed opening from one that has already drained,
+      // so an unmoved robot cannot reopen the gate after it falls closed.
+      if (releaseHeldNow && !state.releaseHeldLastTick) {
         state.releaseLatched = true;
+        state.releaseHasServedBatch = false;
       }
       state.releaseHeldLastTick = releaseHeldNow;
       if (spec.lane === undefined) {
@@ -287,7 +295,13 @@ export class PieceConveyors {
       } else {
         this.guideLane(spec, state, places, snapshot, world);
       }
-      if (state.queue.length === 0 && state.basin.size === 0) state.releaseLatched = false;
+      if (state.releaseLatched && (state.queue.length > 0 || state.basin.size > 0)) {
+        state.releaseHasServedBatch = true;
+      }
+      if (state.releaseHasServedBatch && state.queue.length === 0 && state.basin.size === 0) {
+        state.releaseLatched = false;
+        state.releaseHasServedBatch = false;
+      }
       if (spec.lane !== undefined) {
         world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
       }
@@ -516,7 +530,21 @@ export class PieceConveyors {
       // throat” rather than asking a real disc to overlap the wall just to
       // board the lane.
       const handoffDistance = lane.receivingBasinHandoffDistanceM ?? piece.radiusM * 2;
-      if (distance <= handoffDistance) {
+      const laneEntryClear = state.queue.every((queuedId) => {
+        const queued = snapshot.pieces.find((candidate) => candidate.pieceId === queuedId);
+        if (queued === undefined) return true;
+        const separation = Math.hypot(
+          queued.pose.p.x - piece.pose.p.x,
+          queued.pose.p.y - piece.pose.p.y,
+        );
+        const required = queued.radiusM + piece.radiusM + (lane.receivingBasinEntryClearanceM ?? 0);
+        return separation >= required;
+      });
+      // Board one physical ball only when the top of the rail is clear. This
+      // is the same occupancy constraint a narrow chute imposes: it does not
+      // pick a slot or move a body, it simply prevents two discs entering the
+      // single-file opening on top of one another.
+      if (distance <= handoffDistance && laneEntryClear) {
         state.basin.delete(pieceId);
         state.queue.push(pieceId);
         continue;
@@ -529,6 +557,7 @@ export class PieceConveyors {
         vec2((dx / distance) * acceleration, (dy / distance) * acceleration),
         lane.receivingBasinHeightM,
         lane.surfaceHeightRateMps,
+        lane.receivingBasinVelocityDampingPerSec,
       );
     }
 
@@ -557,6 +586,7 @@ export class PieceConveyors {
         ),
         overflow ? lane.overflowHeightM : lane.surfaceHeightM,
         overflow ? lane.overflowHeightRateMps : lane.surfaceHeightRateMps,
+        lane.laneVelocityDampingPerSec,
       );
     };
 

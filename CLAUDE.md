@@ -718,3 +718,16 @@ shoot; then Phase 4 (PDF ingestion).
   TUNNEL in the browser and compare the visible arch/rail spacing with the
   CAD/dSim reference. Keep the single-arch, continuous-rail invariant; do not
   restore `oncePerPiece`, fixed slots, or drivetrain changes.
+
+### Latest handoff — 2026-08-27 (single-file settling and gate batch latch)
+
+- Raised basin/rail ARTIFACTS now receive the same rolling loss as a floor
+  ball plus data-declared surface damping. The receiving basin admits one body
+  at a time only when the physical rail entrance is clear. This gives the
+  narrow six-inch channel a stable, end-to-end contact column without invented
+  slot coordinates or nonphysical parked pieces.
+- A GATE contact now arms an activation even if the channel is initially empty.
+  Once a ball enters, that activation serves the whole physical batch and then
+  closes the tagged collider; holding the robot in place cannot reopen it.
+  The end-to-end tunnel regression explicitly checks the queue and basin empty
+  and the gate closed after drain. Drivetrain behavior remains unchanged.

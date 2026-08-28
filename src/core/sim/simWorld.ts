@@ -587,14 +587,16 @@ export class SimWorld {
     accelerationMps2: Vec2,
     targetHeightM?: number,
     heightRateMps = 0,
+    velocityDampingPerSec = 0,
   ): void {
     const piece = this.pieceNamed(pieceId);
     if (piece.carriedBy !== null || piece.parked) return;
 
+    const damping = Math.max(0, 1 - velocityDampingPerSec * DT_SECONDS);
     piece.body.vel = {
       v: vec2(
-        piece.body.vel.v.x + accelerationMps2.x * DT_SECONDS,
-        piece.body.vel.v.y + accelerationMps2.y * DT_SECONDS,
+        piece.body.vel.v.x * damping + accelerationMps2.x * DT_SECONDS,
+        piece.body.vel.v.y * damping + accelerationMps2.y * DT_SECONDS,
       ),
       omega: piece.body.vel.omega,
     };
@@ -1011,9 +1013,13 @@ export class SimWorld {
     }
   }
 
-  /** Remove a small, constant floor-roll speed from loose ground artifacts only. */
+  /** Remove a small, constant roll speed from loose field-surface artifacts. */
   private applyArtifactRollingLoss(piece: SimPiece): void {
-    if (piece.heightM > piece.radiusM || piece.verticalVelocityMps !== 0) return;
+    if (piece.verticalVelocityMps !== 0) return;
+    // A raised basin/rail is a field surface too. It must dissipate rolling
+    // energy just like the tile floor; otherwise a classifier ball stays
+    // lively forever because it sits above `radiusM` and bypasses this loss.
+    if (!piece.supportedByField && piece.heightM > piece.radiusM) return;
 
     const speed = Math.hypot(piece.body.vel.v.x, piece.body.vel.v.y);
     if (speed === 0) return;

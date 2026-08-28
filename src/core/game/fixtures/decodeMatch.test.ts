@@ -1013,6 +1013,11 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect(Math.abs(metersToInches(meters(artifact.pose.p.x)) - tunnel[0])).toBeLessThan(tunnelHalfWidthIn);
     expect(Number.isFinite(artifact.pose.p.x)).toBe(true);
     expect(Number.isFinite(artifact.pose.p.y)).toBe(true);
+    // The robot remains on the GATE zone throughout this scenario. Once its
+    // only physical ball has cleared, the latched gate must still fall closed.
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+    expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
+    expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
   });
 
   /**
@@ -1092,8 +1097,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     const sortedY = artifacts.map((a) => metersToInches(meters(a.pose.p.y))).sort((a, b) => b - a);
     for (let i = 1; i < sortedY.length; i++) {
       const gapIn = (sortedY[i - 1] as number) - (sortedY[i] as number);
-      expect(gapIn).toBeGreaterThan(3);
-      expect(gapIn).toBeLessThan(8);
+      expect(gapIn).toBeGreaterThan(4.5);
+      expect(gapIn).toBeLessThan(5.5);
     }
 
     // Run well past settling: a piece resting in a closed, packed lane must

@@ -1687,12 +1687,23 @@ height, while a top-down raised-ball model needs the envelope to overlap a
 10 in rail ball. They are deliberately fixture geometry, not a generic drive
 or ball-physics parameter.
 
+Receiving-basin and rail surfaces also apply modest linear damping (`4 s⁻¹`
+and `2 s⁻¹`, respectively) in addition to the documented `20 in/s²` rolling
+loss. Without it, an elevated ball avoids the floor-only rolling-loss path and
+keeps enough lateral energy to bunch or orbit instead of forming a single-file
+physical column. The basin admits the next ball only when its shared lane
+entrance is clear; this is a chute-occupancy condition, not a coordinate slot.
+One GATE touch may arm the gate before a ball arrives. It becomes a served
+batch only once a real ball enters, then gravity-closes when that batch clears;
+a stationary robot cannot reopen it without leaving and touching again.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |
+| 2026-08-27 | Updated §10.18: raised GOAL/rail surfaces now dissipate rolling energy, basin admission is one physical ball at a time, and a GATE touch arms a future batch rather than being lost when the channel is initially empty. |
 | 2026-08-27 | Updated §10.18: GATE contact is edge-triggered. One activation drains the current physical batch, then the tagged collider closes as soon as the lane and basin are empty, even if the robot stays parked at the release zone. |
 | 2026-08-27 | Updated §10.18: a generic receiving basin now retains a valid GOAL entry before feeding its physical lane. The GOAL face is clipped at the classifier throat and a data-declared public-side guard rejects loose, unaccepted lane intrusions; no per-piece collider bypass remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |

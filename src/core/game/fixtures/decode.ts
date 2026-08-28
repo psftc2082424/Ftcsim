@@ -173,6 +173,19 @@ export const CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2 = inferred(
   72,
 );
 
+/** dSim-style surface damping keeps funnel and rail balls from oscillating. */
+export const CLASSIFIER_BASIN_DAMPING_PER_SEC = inferred(
+  4,
+  'dSim applies linear basin damping after each funnel pull so landed ARTIFACTS stream to the classifier throat instead of orbiting or bouncing indefinitely.',
+  72,
+);
+
+export const CLASSIFIER_LANE_DAMPING_PER_SEC = inferred(
+  2,
+  'dSim-style rail damping lets a single-file physical stack settle into contact while the declared downslope guide still carries it through an open GATE.',
+  72,
+);
+
 /** dSim's stronger GOAL-funnel surface pulls accepted balls toward the arch. */
 export const GOAL_BASIN_FUNNEL_ACCELERATION_MPS2 = inferred(
   inchesToMeters(1150),
@@ -395,6 +408,8 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
       receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
       receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
+      receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
+      receivingBasinEntryClearanceM: 0,
       inboundRejectPointM: vec2(
         inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
         inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
@@ -407,6 +422,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       // than the piece it eventually hands off to the SECRET TUNNEL.
       maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
       lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
+      laneVelocityDampingPerSec: CLASSIFIER_LANE_DAMPING_PER_SEC.value,
       surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,
       surfaceHeightRateMps: inchesToMeters(30),
       gateColliderTag: `${alliance}-classifier-gate`,
