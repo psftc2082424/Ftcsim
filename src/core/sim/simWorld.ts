@@ -211,6 +211,8 @@ interface SimPiece {
    * the robot that holds it.
    */
   carriedBy: EntityId | null;
+  /** A deterministic shot ignores unrelated contacts until its declared GOAL captures it. */
+  transferring: boolean;
   /**
    * Held by a *field* mechanism rather than a robot (`game/conveyor.ts`).
    *
@@ -335,6 +337,7 @@ export class SimWorld {
       previousHeightM: heightM,
       verticalVelocityMps: 0,
       carriedBy: null,
+      transferring: false,
       parked: false,
     });
   }
@@ -521,6 +524,7 @@ export class SimWorld {
     const piece = this.pieceNamed(pieceId);
     piece.parked = true;
     piece.carriedBy = null;
+    piece.transferring = false;
     this.settlePiece(piece, positionM);
     this.cachedSnapshot = null;
   }
@@ -530,6 +534,7 @@ export class SimWorld {
     const piece = this.pieceNamed(pieceId);
     piece.parked = false;
     piece.carriedBy = null;
+    piece.transferring = false;
     this.settlePiece(piece, positionM);
   }
 
@@ -546,6 +551,7 @@ export class SimWorld {
     const piece = this.pieceNamed(pieceId);
     piece.parked = false;
     piece.carriedBy = null;
+    piece.transferring = false;
     this.settlePiece(piece, positionM);
     piece.body.vel = { v: velocityM, omega: 0 };
     this.cachedSnapshot = null;
@@ -621,6 +627,9 @@ export class SimWorld {
       v: vec2(piece.body.vel.v.x * clamped, piece.body.vel.v.y * clamped),
       omega: piece.body.vel.omega * clamped,
     };
+    // A field basin is the declared end of a deterministic shot transfer.
+    // From this tick onward the piece rejoins ordinary ball/body contacts.
+    piece.transferring = false;
     this.cachedSnapshot = null;
   }
 
@@ -653,6 +662,7 @@ export class SimWorld {
 
     piece.parked = false;
     piece.carriedBy = null;
+    piece.transferring = true;
     piece.body.vel = { v: vec2(direction.x * horizontalMps, direction.y * horizontalMps), omega: 0 };
     piece.heightM = Math.max(piece.radiusM, launchHeightM);
     piece.verticalVelocityMps = verticalMps;
@@ -946,7 +956,7 @@ export class SimWorld {
     // see it would push it straight back out of the hopper.
     const carried = new Set<EntityId>();
     for (const piece of this.pieces) {
-      if (piece.carriedBy !== null || piece.parked) carried.add(piece.body.id);
+      if (piece.carriedBy !== null || piece.parked || piece.transferring) carried.add(piece.body.id);
     }
 
     this.broadphase.clear();

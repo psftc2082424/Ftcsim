@@ -685,3 +685,12 @@ shoot; then Phase 4 (PDF ingestion).
   ARTIFACTS can only travel to the classifier through that arch, while the
   existing vertical-entry and unauthorized-lane guards still reject loose
   ground balls. Inspect `goalWallBodies()` before changing GOAL geometry.
+
+### Latest handoff — 2026-08-27 (deterministic shot transfer)
+
+- `SimWorld` now marks a routed deterministic shot as `transferring`: it skips
+  all contacts while flying to its declared GOAL, so a robot, field rail, or
+  unrelated ARTIFACT cannot deflect it into the wrong part of the structure.
+  `dampPieceVelocity()` clears that marker on receiving-basin capture, before
+  GOAL → classifier physics begins. This is only transfer access control; the
+  captured ball remains an ordinary active, collidable body.
