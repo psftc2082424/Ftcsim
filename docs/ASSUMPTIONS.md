@@ -477,7 +477,7 @@ now so the number is not mistaken for a measurement later.
 
 | | |
 |---|---|
-| **Value** | contact restitution `0.20`; floor-roll deceleration `24 in/s²` (`0.610 m/s²`); robot-push velocity retention `0.65` |
+| **Value** | contact restitution `0.20`; floor-roll deceleration `24 in/s²` (`0.610 m/s²`); robot-push speed cap `1.20×` the active robot speed |
 | **Confidence** | **INFERRED** from dSim's published game-ball configuration, then calibrated from observed simulator pile behaviour; not an FTC manual dimension |
 | **Location** | `src/core/sim/simWorld.ts` |
 
@@ -485,10 +485,12 @@ ARTIFACTS need to form a useful queue in the GOAL classifier and SECRET TUNNEL:
 an entirely elastic ball keeps artificial gaps alive, while a fully inelastic
 one looks like clay. The piece material therefore retains 20% of approach speed
 along a ball↔ball or ball↔static-field contact and loses `24 in/s²` of loose,
-floor-level rolling speed. When a robot compresses a pile, the normal contact
-solver first runs unchanged, then only the contacted ARTIFACT retains 65% of its
-velocity as field-facing ground grip. This stops a light ball from skating away
-at robot speed while preserving the robot's drivetrain and collision response.
+floor-level rolling speed. Robot↔ARTIFACT contacts use their ordinary impulse;
+only an ARTIFACT that exceeds `1.20×` its actively pushing robot's speed is
+capped. This preserves the momentum of a normally pushed ball after it clears
+the bumper, while preventing a compressed pile from receiving a solver-created
+super-robot-speed launch. A stationary robot applies no additional game-piece
+speed cap, and no robot drivetrain or collision response changes.
 
 It is an observable gameplay calibration, not a generic friction model. The
 only reason it exists is to let loose ARTIFACTS settle and pack after impacts;
@@ -1982,6 +1984,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Kept accepted deterministic shots collision-free through the shared GOAL funnel, then restore ordinary physical contacts exactly when each ARTIFACT boards the classifier lane. This prevents top-basin bunching without weakening classifier packing. |
 | 2026-08-28 | Increased loose ARTIFACT rolling loss to 30 in/s² and retain 65% of a ball's velocity after robot contact, while raising GATE outflow to 62 in/s to preserve SECRET TUNNEL return distance. A closed live GATE now also clears any lane ball that later intrudes into its arm. |
 | 2026-08-28 | Reduced loose ARTIFACT rolling loss from 30 to 24 in/s² to increase general field rolling speed while retaining 65% robot-contact velocity retention. Retuned GATE outflow from 62 to 56 in/s, preserving roughly 65 in of SECRET TUNNEL coast. |
+| 2026-08-28 | Replaced the per-contact 65% robot-push velocity reduction with a `1.20×` active-robot speed cap. Ordinary robot pushes now retain momentum and coast after release; only excess solver-induced push speed is limited. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |

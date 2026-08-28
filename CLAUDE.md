@@ -1055,9 +1055,9 @@ shoot; then Phase 4 (PDF ingestion).
 ### Latest handoff — 2026-08-28 (faster general ARTIFACT rolling)
 
 - **Loose ARTIFACTs now carry momentum farther.** Floor rolling loss is
-  `24 in/s²` (was `30 in/s²`). The existing `0.65` post-robot-contact velocity
-  retention remains, so compressed piles still dissipate a robot shove without
-  changing the robot collision solver, motor model, or drivetrain.
+  `24 in/s²` (was `30 in/s²`). This checkpoint's `0.65` post-robot-contact
+  velocity retention was superseded by the speed-cap model below; neither
+  approach changes the robot collision solver, motor model, or drivetrain.
 - **Return travel remains bounded.** GATE outflow is `56 in/s` (was `62 in/s`);
   under the new loss this preserves roughly the prior 65 in SECRET TUNNEL
   coast, instead of making released balls overshoot the loading area.
@@ -1066,3 +1066,17 @@ shoot; then Phase 4 (PDF ingestion).
 - **Next priority:** use interactive playtesting to tune only observable
   game-piece flow if needed. Do not restore parked slots, direct tunnel
   placement, or drivetrain changes.
+
+### Latest handoff — 2026-08-28 (persistent robot-pushed ARTIFACT momentum)
+
+- **Robot pushes no longer erase normal ball momentum.** The old post-contact
+  `0.65` velocity multiplier has been replaced by a `1.20×` active-robot-speed
+  cap. A ball pushed at an ordinary robot speed keeps that speed and coasts
+  after it clears the bumper; only excess solver-induced launch speed is
+  limited for pile stability.
+- **Drivetrain and ordinary collision response remain unchanged.** This is a
+  ball-only post-contact guard; normal ARTIFACT rolling loss remains `24 in/s²`.
+- **Regression coverage:** `pieces.test.ts` verifies sustained pushing stays
+  bounded and that a released pushed ball keeps rolling independently.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **988
+  tests across 48 files**.

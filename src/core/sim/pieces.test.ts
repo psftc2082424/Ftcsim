@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
+  ARTIFACT_ROBOT_PUSH_MAX_SPEED_RATIO,
   ARTIFACT_ROLLING_DECELERATION_MPS2,
   PIECE_ENTITY_ID_BASE,
   SimWorld,
@@ -148,7 +148,7 @@ describe('pieces interact through the existing collision resolver', () => {
     expect(piece.pose.p.x).toBeGreaterThan(startX + 0.05);
   });
 
-  it('dissipates a robot shove through ball-only ground grip', () => {
+  it('keeps ordinary robot push momentum while bounding an excessive shove', () => {
     const w = new SimWorld({
       robots: [{
         config: DEFAULT_ROBOT_CONFIG,
@@ -166,7 +166,35 @@ describe('pieces interact through the existing collision resolver', () => {
     const pieceSpeed = Math.hypot(piece.vel.v.x, piece.vel.v.y);
     const robotSpeed = Math.hypot(robot.vel.v.x, robot.vel.v.y);
     expect(piece.pose.p.x).toBeGreaterThan(-0.95);
-    expect(pieceSpeed).toBeCloseTo(robotSpeed * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION, 8);
+    expect(pieceSpeed).toBeGreaterThan(robotSpeed * 0.9);
+    expect(pieceSpeed).toBeLessThanOrEqual(robotSpeed * ARTIFACT_ROBOT_PUSH_MAX_SPEED_RATIO);
+  });
+
+  it('keeps rolling after the robot releases a pushed artifact', () => {
+    const w = new SimWorld({
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        controller: new ScriptedController(createInputTrace('push then release', [
+          { tick: 0, input: createControlInput(1, 0, 0) },
+          { tick: 120, input: NEUTRAL_INPUT },
+        ])),
+        startPose: { p: vec2(-1.25, 0), theta: 0 },
+      }],
+      pieces: [artifact({ startPositionM: vec2(-0.95, 0) })],
+    });
+
+    w.stepMany(120);
+    const pushed = w.snapshot().pieces[0];
+    if (pushed === undefined) return;
+    const positionAtRelease = pushed.pose.p.x;
+
+    w.stepMany(40);
+    const released = w.snapshot().pieces[0];
+    if (released === undefined) return;
+    const releasedSpeed = Math.hypot(released.vel.v.x, released.vel.v.y);
+
+    expect(released.pose.p.x).toBeGreaterThan(positionAtRelease + 0.02);
+    expect(releasedSpeed).toBeGreaterThan(0.1);
   });
 
   it('uses ball-only rolling loss while preserving ordinary robot motion', () => {

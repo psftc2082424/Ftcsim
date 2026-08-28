@@ -120,13 +120,14 @@ export const ARTIFACT_CONTACT_RESTITUTION = 0.2;
 export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(24);
 
 /**
- * Fraction of an ARTIFACT's velocity retained after a robot pushes it.
+ * Maximum speed an ARTIFACT may gain from a robot contact, relative to
+ * that robot's current centre speed.
  *
- * This is game-piece ground grip, applied after the ordinary contact solver;
- * it dissipates the excess energy of a robot compressing a loose pile without
- * modifying a robot's collision response, motor model, or drivetrain.
+ * This caps only excessive forward transfer from an actively moving robot. It
+ * does not damp ordinary push speed, so a ball keeps its acquired momentum
+ * when the robot releases it. The normal rolling loss then slows the ball.
  */
-export const ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION = 0.65;
+export const ARTIFACT_ROBOT_PUSH_MAX_SPEED_RATIO = 1.2;
 
 /** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
 export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
@@ -1054,7 +1055,7 @@ export class SimWorld {
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked || piece.transferring) carried.add(piece.body.id);
     }
-    const robotPushedPieces = new Set<EntityId>();
+    const robotPushSpeedByPiece = new Map<EntityId, number>();
 
     this.broadphase.clear();
     for (const body of this.bodies.values()) {
@@ -1088,8 +1089,12 @@ export class SimWorld {
         if (contact === null) continue;
 
         resolveContact(a, b, contact, artifactContactRestitution(a, b));
-        if (a.kind === 'piece' && b.kind === 'robot') robotPushedPieces.add(a.id);
-        if (b.kind === 'piece' && a.kind === 'robot') robotPushedPieces.add(b.id);
+        if (a.kind === 'piece' && b.kind === 'robot') {
+          recordRobotPushSpeed(robotPushSpeedByPiece, a.id, b);
+        }
+        if (b.kind === 'piece' && a.kind === 'robot') {
+          recordRobotPushSpeed(robotPushSpeedByPiece, b.id, a);
+        }
         resolvedAny = true;
       }
 
@@ -1097,19 +1102,14 @@ export class SimWorld {
       if (!resolvedAny) break;
     }
 
-    // A robot is far heavier than an ARTIFACT. The normal solver still gives
-    // the robot its exact reaction, while the ball's field-facing material
-    // dissipates the part of that shove that would otherwise send a compressed
-    // pile skating unrealistically far.
+    // A robot is far heavier than an ARTIFACT. Preserve normal contact momentum
+    // so a released ball coasts naturally; limit only a solver-created
+    // overspeed that would make a compressed pile skate away faster than its
+    // pushing robot.
     for (const piece of this.pieces) {
-      if (!robotPushedPieces.has(piece.body.id)) continue;
-      piece.body.vel = {
-        v: vec2(
-          piece.body.vel.v.x * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
-          piece.body.vel.v.y * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
-        ),
-        omega: piece.body.vel.omega * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
-      };
+      const robotSpeed = robotPushSpeedByPiece.get(piece.body.id);
+      if (robotSpeed === undefined) continue;
+      limitRobotPushedArtifactSpeed(piece.body, robotSpeed);
     }
   }
 
@@ -1130,6 +1130,35 @@ export class SimWorld {
       omega: piece.body.vel.omega,
     };
   }
+}
+
+/** Keep an ARTIFACT from outrunning the robot that is actively driving it. */
+function recordRobotPushSpeed(
+  speedByPiece: Map<EntityId, number>,
+  pieceId: EntityId,
+  robot: RigidBody,
+): void {
+  const speed = Math.hypot(robot.vel.v.x, robot.vel.v.y);
+  const previous = speedByPiece.get(pieceId) ?? 0;
+  if (speed > previous) speedByPiece.set(pieceId, speed);
+}
+
+/**
+ * Preserve all velocity except speed above the active robot's transfer
+ * cap. There is intentionally no reduction for a stationary robot: a ball that
+ * has already separated must keep rolling under its normal floor loss.
+ */
+function limitRobotPushedArtifactSpeed(piece: RigidBody, robotSpeed: number): void {
+  if (robotSpeed === 0) return;
+  const pieceSpeed = Math.hypot(piece.vel.v.x, piece.vel.v.y);
+  const maximum = robotSpeed * ARTIFACT_ROBOT_PUSH_MAX_SPEED_RATIO;
+  if (pieceSpeed <= maximum) return;
+
+  const scale = maximum / pieceSpeed;
+  piece.vel = {
+    v: vec2(piece.vel.v.x * scale, piece.vel.v.y * scale),
+    omega: piece.vel.omega,
+  };
 }
 
 /** Preserve robot contacts exactly; only ball contacts use the material override. */
