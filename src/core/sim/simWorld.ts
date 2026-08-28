@@ -111,13 +111,13 @@ export const CONTACT_PASSES = 4;
 export const ARTIFACT_CONTACT_RESTITUTION = 0.2;
 
 /**
- * Floor-level ARTIFACT rolling loss. Increased from dSim's baseline so loose
- * balls settle after driver contact instead of coasting across the field.
+ * Floor-level ARTIFACT rolling loss. Kept moderate so loose balls settle after
+ * driver contact without making ordinary field rolling feel sluggish.
  *
  * It is a game-piece-only floor effect: drivetrain coasting/braking and robot
  * collision behaviour do not read it.
  */
-export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(30);
+export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(24);
 
 /**
  * Fraction of an ARTIFACT's velocity retained after a robot pushes it.

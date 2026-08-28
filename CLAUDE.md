@@ -1051,3 +1051,18 @@ shoot; then Phase 4 (PDF ingestion).
 - Verification: `npm run verify` passed: TypeScript, ESLint, and **987 tests
   across 48 files**. The generic conveyor regression also proves a normal lane
   body cannot semantically cross a closed live GATE, while overflow still can.
+
+### Latest handoff — 2026-08-28 (faster general ARTIFACT rolling)
+
+- **Loose ARTIFACTs now carry momentum farther.** Floor rolling loss is
+  `24 in/s²` (was `30 in/s²`). The existing `0.65` post-robot-contact velocity
+  retention remains, so compressed piles still dissipate a robot shove without
+  changing the robot collision solver, motor model, or drivetrain.
+- **Return travel remains bounded.** GATE outflow is `56 in/s` (was `62 in/s`);
+  under the new loss this preserves roughly the prior 65 in SECRET TUNNEL
+  coast, instead of making released balls overshoot the loading area.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **987
+  tests across 48 files**.
+- **Next priority:** use interactive playtesting to tune only observable
+  game-piece flow if needed. Do not restore parked slots, direct tunnel
+  placement, or drivetrain changes.

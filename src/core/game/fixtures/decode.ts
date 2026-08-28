@@ -148,15 +148,15 @@ export const RAMP_DRAIN_INTERVAL_SEC = inferred(
  * Exit speed for a released ARTIFACT, m/s.
  *
  * The returned ARTIFACT has to coast from the GATE through the SECRET TUNNEL
- * to the human-player LOADING ZONE. With the documented 30 in/s² rolling
- * loss and the CAD-derived return length, 62 in/s has a 64 in stopping
+ * to the human-player LOADING ZONE. With the documented 24 in/s² rolling
+ * loss and the CAD-derived return length, 56 in/s has a 65 in stopping
  * distance, which carries it to that zone without a hidden conveyor force.
  * The manual supplies the tunnel geometry but no release speed, so this is
  * explicitly inferred rather than pretending this is a sourced fact.
  */
 export const TUNNEL_EXIT_SPEED_MPS = inferred(
-  inchesToMeters(62),
-  'Visible return momentum recalibrated with the 30 in/s² game-piece rolling loss, preserving a roughly 64 in coast through the CAD-derived SECRET TUNNEL; the manual specifies no release rate.',
+  inchesToMeters(56),
+  'Visible return momentum recalibrated with the 24 in/s² game-piece rolling loss, preserving a roughly 65 in coast through the CAD-derived SECRET TUNNEL; the manual specifies no release rate.',
   72,
 );
 
