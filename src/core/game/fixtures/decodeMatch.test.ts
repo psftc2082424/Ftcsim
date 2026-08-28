@@ -1071,6 +1071,9 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
     expect(sim.conveyors.queued('red-classifier')).toHaveLength(3);
+    // Every accepted shot reaches the actual arch and boards the rail; none
+    // may mill indefinitely in the GOAL's receiving basin above it.
+    expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
 
     const artifacts = ['a1', 'a2', 'a3'].map((id) => {
       const piece = sim.world.snapshot().pieces.find((p) => p.pieceId === id);

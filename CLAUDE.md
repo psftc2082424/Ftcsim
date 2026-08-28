@@ -731,3 +731,13 @@ shoot; then Phase 4 (PDF ingestion).
   closes the tagged collider; holding the robot in place cannot reopen it.
   The end-to-end tunnel regression explicitly checks the queue and basin empty
   and the gate closed after drain. Drivetrain behavior remains unchanged.
+
+### Latest handoff — 2026-08-27 (corrected GOAL funnel throat)
+
+- dSim's basin funnel/rail hand-off is at `x=69 in, y=57 in`. The fixture had
+  incorrectly aimed at `y=68 in`, above the physical inner-rail arch; this was
+  the remaining source of balls stalled high in the GOAL. `decode.ts` now aims
+  directly at the arch centre and waits for one-radius physical clearance
+  before changing a body from basin to rail guidance. The three-shot packing
+  test explicitly requires an empty basin after all balls have reached the
+  single-file column.

@@ -1697,6 +1697,13 @@ One GATE touch may arm the gate before a ball arrives. It becomes a served
 batch only once a real ball enters, then gravity-closes when that batch clears;
 a stationary robot cannot reopen it without leaving and touching again.
 
+The physical basin target is the dSim rail hand-off at `x = 69 in, y = 57 in`,
+the centre of the single GOAL-to-classifier arch. A previous target above that
+arch could leave an accepted ball pressing against the inner rail. The body now
+remains under basin guidance until its centre reaches the throat (one-radius
+clearance), then boards the physical rail. This is an **inferred** placement
+from dSim's observable geometry, not a new fixed storage position.
+
 ## 11. Revision log
 
 | Date | Change |
@@ -1704,6 +1711,7 @@ a stationary robot cannot reopen it without leaving and touching again.
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |
 | 2026-08-27 | Updated §10.18: raised GOAL/rail surfaces now dissipate rolling energy, basin admission is one physical ball at a time, and a GATE touch arms a future batch rather than being lost when the channel is initially empty. |
+| 2026-08-27 | Corrected the basin target from an above-rail point to dSim's actual `y = 57 in` arch centre. Accepted ARTIFACTS must physically reach that arch before rail hand-off; the packed-shot regression now asserts no piece remains in the basin. |
 | 2026-08-27 | Updated §10.18: GATE contact is edge-triggered. One activation drains the current physical batch, then the tagged collider closes as soon as the lane and basin are empty, even if the robot stays parked at the release zone. |
 | 2026-08-27 | Updated §10.18: a generic receiving basin now retains a valid GOAL entry before feeding its physical lane. The GOAL face is clipped at the classifier throat and a data-declared public-side guard rejects loose, unaccepted lane intrusions; no per-piece collider bypass remains. |
 | 2026-08-27 | Added §10.16: found and fixed `GOAL_CLUSTER_SIDE` disagreeing with `SIDE`, which put an alliance's own GOAL/RAMP/DEPOT in the opposite corner from its own GATE/LOADING/BASE; a dependent renderer colour-guess needed the same flip. Added §10.17: the SECRET TUNNEL got real side-rail collision bodies from its already-sourced footprint, and the GATE ZONE got a live-state visual reading `PieceConveyors.isOpen`. Added a note under §9.9 that the new cosmetic shot-flight animation does not reintroduce the removed mechanism physics. |

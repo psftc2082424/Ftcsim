@@ -216,14 +216,14 @@ export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
 /**
  * Physical approach point for the GOAL-to-classifier throat.
  *
- * dSim's logical rail hand-off is at y=57 in.  In this simulator the same
- * transition is performed by a 5 in physical disc around a 2 in face wall, so
- * the basin first aims at the clear side of that arch (y=68 in); normal lane
- * guidance then carries it down through the observed 57 in throat.
+ * dSim's logical rail hand-off is at y=57 in. In this simulator a 5 in
+ * physical disc must reach that same open arch before it becomes a rail ball;
+ * this keeps the basin's slope aimed at the real channel inlet rather than at
+ * an unreachable point above the inner rail.
  */
 export const CLASSIFIER_BASIN_THROAT = inferred(
-  { xIn: 69, yIn: 68 },
-  'Adapted from dSim\'s x = field half - 3 in, y = gate origin + 55 in rail hand-off: the physical disc/face-wall clearance requires a short turn at the back of the basin before the same lane flow.',
+  { xIn: 69, yIn: 57 },
+  'dSim\'s x = field half - 3 in, y = gate origin + 55 in rail hand-off; the physical classifier arch is centred at this point.',
   72,
 );
 
@@ -236,8 +236,8 @@ export const CLASSIFIER_INBOUND_REJECT_POINT = inferred(
 
 /** Shared GOAL/ramp guide surface reaches the physical basin hand-off neighbourhood. */
 export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
-  inchesToMeters(10),
-  "dSim's basin and rail overlap at the GOAL/classifier arch; the physical disc model hands to lane guidance within a 10 in throat neighbourhood rather than requiring a centre to occupy the wall corner.",
+  inchesToMeters(2.5),
+  "A 5 in ARTIFACT must reach the physical GOAL/classifier arch before changing from basin to rail guidance; one radius gives contact-safe numerical clearance without boarding above the opening.",
   72,
 );
 
