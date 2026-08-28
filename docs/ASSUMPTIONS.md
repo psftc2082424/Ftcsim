@@ -1713,13 +1713,16 @@ skipping a perfect-accuracy destination; it is not a score shortcut or a
 replacement for GOAL/classifier physics. The membership detector, rules engine,
 and physical basin still perform the capture and scoring transition.
 
-### 10.19 Indexed elevated classifier representation
+### 10.19 Superseded: indexed elevated classifier representation
 
 | | |
 |---|---|
 | **Values** | nine 4.9 in ARTIFACT centres in the RAMP; `0.35 s` release cadence; `50 in/s` gate exit speed |
 | **Confidence** | capacity and ARTIFACT diameter are **EXPLICIT**; storage representation, cadence and exit speed are **INFERRED** gameplay abstractions |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
+
+> Superseded on 2026-08-27 by §10.20. This records the brief direct-storage
+> fallback only; it is not current simulator behaviour.
 
 The real GOAL/RAMP is an elevated three-dimensional gravity mechanism. Its
 funnel and ball-to-ball contact behaviour did not remain reliable when projected
@@ -1754,10 +1757,40 @@ GOAL target so a perfect-accuracy shot cannot skip the membership detector. The
 membership detector and rules engine remain the only scoring path; classifier
 storage never awards score directly.
 
+### 10.20 Physical classifier run after GOAL admission
+
+| | |
+|---|---|
+| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; governed `22 in/s` lane speed; `50 in/s` gate outflow |
+| **Confidence** | **INFERRED** top-down projection from dSim/CAD-observed GOAL arch; ARTIFACT diameter and RAMP capacity remain **EXPLICIT** |
+| **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
+
+The classifier is again an active `GuidedLaneSpec` for DECODE, but only after
+the normal height-gated GOAL membership transition. The 3D GOAL funnel is not
+re-solved inside the 2D contact system: an authorised shot is placed one time
+at the physical lane intake (`x = ±69 in, y = 54 in`), immediately below the
+GOAL arch and above the visible classifier run. It is not placed in a storage
+slot, at the GATE, or in the SECRET TUNNEL.
+
+From that intake onward, the ARTIFACT is an active, collidable body. The lane's
+bounded downhill guide and the existing ball contacts carry it to the live
+GATE; a closed gate retains it and other arriving ARTIFACTS pack normally. At
+the moment a ball physically crosses into the return zone, the GATE applies its
+declared `50 in/s` outflow velocity **without changing its position**. The ball
+then rolls through the SECRET TUNNEL under normal rolling loss, restitution and
+field collision. No direct classifier exit placement is permitted.
+
+The tenth accepted piece follows the declared elevated overflow lane rather
+than becoming a fixed tenth slot. Unaccepted ground pieces retain the existing
+height-gated GOAL and protected-lane rejection path, so a robot cannot push one
+into the classifier. The membership detector and rules engine remain the only
+scoring path.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
 | 2026-08-27 | Superseded the unreliable 2D physical GOAL-to-classifier lane experiment with an indexed elevated field mechanism after legitimate GOAL membership. The nine explicit 4.9 in ARTIFACT positions are end-to-end at the GATE end; tenth-and-later arrivals use the ordinary overflow release. Added the generic `queuePitchM` and `gateColliderTag` conveyor data, and raised return speed to 50 in/s so normal rolling loss carries released ARTIFACTS to the human-player loading side. |
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |

@@ -115,6 +115,12 @@ class FakeWorld implements ConveyorWorld {
     this.positions.set(pieceId, positionM);
   }
 
+  setPieceVelocity(pieceId: string, velocityM: Vec2): void {
+    const positionM = this.positions.get(pieceId);
+    if (positionM === undefined) throw new Error(`unknown piece ${pieceId}`);
+    this.released.set(pieceId, { positionM, velocityM });
+  }
+
   blockPiece(pieceId: string, positionM: Vec2): void {
     this.blocked.set(pieceId, positionM);
     this.released.delete(pieceId);
@@ -404,12 +410,16 @@ describe('guided lane physics', () => {
     positions.set('a', LANE_EXIT.centerM);
     conveyors.update(world.snapshot(1), 1, world);
 
-    // A guided lane never gives an exiting piece a push of its own — real
-    // motion already carried it there — so it simply stops being tracked
-    // rather than appearing in `world.released` the way a legacy drain does.
+    // The piece reached this point under its own real motion. The gate now
+    // supplies the declared outflow velocity at that exact point — it is not
+    // repositioned at the end of the tunnel like a legacy drain would be.
     expect(conveyors.queued('chute')).toEqual(['b']);
     expect(conveyors.overflowed('chute')).toEqual([]);
     expect(world.guided.has('b')).toBe(true);
+    expect(world.released.get('a')).toEqual({
+      positionM: LANE_EXIT.centerM,
+      velocityM: EXIT_VELOCITY_MPS,
+    });
   });
 
   it('still rejects a piece rolling backward into a one-way lane exit', () => {

@@ -779,3 +779,26 @@ shoot; then Phase 4 (PDF ingestion).
   stored → GATE touch → sequential return to loading side. Preserve the
   deterministic classifier representation and existing drivetrain/collision
   tuning.
+
+### Latest handoff — 2026-08-27 (physical classifier run)
+
+- **Supersedes the direct indexed-storage fallback above.** DECODE again uses
+  the generic active `GuidedLaneSpec`, but an authorised shot is placed only at
+  its *intake* (`x = ±69 in, y = 54 in`) immediately below the GOAL arch. It
+  visibly rolls the remaining classifier length with normal ball contacts and
+  the live GATE; it is never placed in a classifier slot, at the GATE, or in
+  the SECRET TUNNEL.
+- The physical lane had previously stranded balls in the projected GOAL funnel.
+  The one allowed placement bypasses only that elevated 3D-to-2D hand-off. It
+  happens after the normal height-gated GOAL event, so loose field balls remain
+  unable to enter the classifier.
+- `PieceConveyors.refreshReleased` now applies `exitVelocityMps` at the actual
+  position where a physical lane ball crosses into its exit zone. This is a
+  velocity change, not a teleport, and carries a gated ARTIFACT through the
+  SECRET TUNNEL under normal rolling loss/collision.
+- `classifierPhysicalLane.test.ts` now observes a nonzero-speed ARTIFACT in
+  the middle of the classifier run; it fails if a ball appears directly in
+  storage or at the tunnel exit. `npm run verify` is green: TypeScript, ESLint,
+  and **972 tests across 48 files**.
+- **Next priority:** browser check of valid shot → visible classifier roll →
+  physical gate crossing → tunnel return. Do not alter drivetrain physics.

@@ -108,6 +108,15 @@ export interface PieceConveyorSpec {
 /** A generic ramp/channel that guides, but never parks, active game pieces. */
 export interface GuidedLaneSpec {
   /**
+   * Optional physical lane intake for a piece that has completed a declared
+   * elevated entry.  This is a one-time placement at the *start* of the lane,
+   * never a parked slot or an exit shortcut: from there the piece remains an
+   * active body and rolls/collides through the entire channel.
+   */
+  readonly entryPointM?: Vec2 | undefined;
+  /** Initial world-frame velocity at `entryPointM`, in m/s. */
+  readonly entryVelocityMps?: Vec2 | undefined;
+  /**
    * Whether accepted pieces first settle in a receiving basin before the lane.
    * A GOAL-plus-ramp assembly uses this; a bare chute can feed its lane directly.
    */
@@ -169,6 +178,8 @@ export interface ConveyorWorld {
   holdPiece(pieceId: string, positionM: Vec2): void;
   /** Release a piece into ordinary physics, moving at a given velocity. */
   releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
+  /** Apply a field mechanism's outflow velocity without changing its position. */
+  setPieceVelocity(pieceId: string, velocityM: Vec2): void;
   /** Put an invalid inbound piece just outside a one-way exit, at rest. */
   blockPiece(pieceId: string, positionM: Vec2): void;
   /** Apply a physical lane acceleration; the piece remains active and collidable. */
@@ -286,7 +297,7 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
-      this.refreshReleased(state, places, snapshot);
+      this.refreshReleased(spec, state, places, snapshot, world);
       this.blockInboundExit(spec, state, places, snapshot, world);
       const releaseHeldNow = this.releaseHeld(spec, snapshot);
       // A GOAL/basin entry may overlap the physical lane footprint. Admit a
@@ -341,6 +352,19 @@ export class PieceConveyors {
 
       if (spec.lane !== undefined) {
         world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
+        // A raised GOAL may not project cleanly onto its narrow 2D outlet.
+        // A season may therefore hand an already-authorised arrival to the
+        // *physical start* of its channel.  This is deliberately before the
+        // lane, not into a queue slot or exit: ordinary integration, contacts,
+        // the live gate and the return corridor still determine everything
+        // afterwards.
+        if (spec.lane.entryPointM !== undefined) {
+          world.releasePieceMoving(
+            piece.pieceId,
+            spec.lane.entryPointM,
+            spec.lane.entryVelocityMps ?? vec2(0, 0),
+          );
+        }
       }
 
       if (state.queue.length + state.basin.size < spec.capacity) {
@@ -370,9 +394,11 @@ export class PieceConveyors {
 
   /** Forget authorization once a released piece has completed the exit path. */
   private refreshReleased(
+    spec: PieceConveyorSpec,
     state: ConveyorState,
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
+    world: ConveyorWorld,
   ): void {
     for (const pieceId of state.released) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -391,6 +417,10 @@ export class PieceConveyors {
       state.queue.splice(index, 1);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
+      // A physical lane reaches the real GATE under its own motion.  The gate
+      // then supplies its declared outflow speed at that exact position; it
+      // does not reposition the piece into the return corridor.
+      world.setPieceVelocity(pieceId, spec.exitVelocityMps);
       if (state.overflow.has(pieceId)) state.overflow.delete(pieceId);
     }
     for (const pieceId of state.overflow) {
@@ -399,6 +429,7 @@ export class PieceConveyors {
       state.overflow.delete(pieceId);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
+      world.setPieceVelocity(pieceId, spec.exitVelocityMps);
     }
   }
 

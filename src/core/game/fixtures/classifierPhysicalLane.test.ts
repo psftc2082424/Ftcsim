@@ -55,13 +55,25 @@ describe('classifier storage integration', () => {
       })),
     });
 
-    for (let i = 0; i < 700; i++) sim.step();
+    let sawRollingDownClassifier = false;
+    for (let i = 0; i < 700; i++) {
+      sim.step();
+      const a1 = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'a1');
+      if (a1 === undefined) continue;
+      const yIn = metersToInches(meters(a1.pose.p.y));
+      const speedInPerSec = metersToInches(meters(Math.hypot(a1.vel.v.x, a1.vel.v.y)));
+      // This is below the GOAL arch and above the GATE, so observing a
+      // non-zero-speed ball here proves it is rolling the visible classifier
+      // run rather than appearing directly in storage or at the tunnel exit.
+      if (yIn > 8 && yIn < 48 && speedInPerSec > 1) sawRollingDownClassifier = true;
+    }
 
     // Keep the former diagnostic as a small, deterministic integration check:
     // a real launch enters the GOAL under its own flight, then transitions
     // into the declared classifier storage mechanism.
     expect(sim.score.red).toBeGreaterThan(0);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
+    expect(sawRollingDownClassifier).toBe(true);
   });
 
   it('does not admit an unaccepted loose ground ball into classifier storage', () => {

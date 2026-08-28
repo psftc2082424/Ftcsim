@@ -243,6 +243,27 @@ export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
   72,
 );
 
+/**
+ * Lane intake immediately below the GOAL arch.
+ *
+ * The STEP/dSim geometry is elevated while this simulator is top-down.  A
+ * valid shot is placed at this intake only after it crossed the height-gated
+ * GOAL opening; it then rolls the remaining 54 in down the actual physical
+ * lane, rather than appearing in a stored classifier slot.
+ */
+export const CLASSIFIER_LANE_ENTRY = inferred(
+  { xIn: 69, yIn: 54 },
+  'dSim arch is centred at y = 57 in. The y = 54 in intake is one ball-radius below that arch, clear of the GOAL side-leg projection while still at the physical classifier entrance.',
+  72,
+);
+
+/** Small initial downhill roll; the lane guide supplies the remaining slope effect. */
+export const CLASSIFIER_LANE_ENTRY_SPEED_MPS = inferred(
+  inchesToMeters(8),
+  'dSim-style observed gentle entry roll. This only starts an accepted ARTIFACT at the classifier inlet; the generic lane acceleration, contacts and live gate govern its remaining motion.',
+  72,
+);
+
 // ---------------------------------------------------------------- regions ---
 
 /**
@@ -390,12 +411,6 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     entryRegionId: alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal,
     queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
     capacity: RAMP_SLOT_COUNT.value,
-    // The nine RAMP indices are a real end-to-end ball channel.  The current
-    // top-down fixture represents that reliably as an indexed field mechanism
-    // after a valid GOAL entry, rather than asking a 2D funnel/contact solve to
-    // reconstruct an elevated 3D chute.  The pitch remains a declared piece
-    // dimension, never a season name inside the generic conveyor engine.
-    queuePitchM: inchesToMeters(ARTIFACT.specifiedDiameterIn.value),
     gateColliderTag: `${alliance}-classifier-gate`,
     // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
     // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
@@ -408,6 +423,32 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
     blocksInboundExit: true,
+    // A scored ball is only placed at the *top* of the physical classifier
+    // lane, below the elevated GOAL arch.  It remains an active ball from
+    // here through the closed/open GATE and the SECRET TUNNEL; no classifier
+    // position or exit is kinematically assigned.
+    lane: {
+      entryPointM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_LANE_ENTRY.value.xIn : -CLASSIFIER_LANE_ENTRY.value.xIn),
+        inchesToMeters(CLASSIFIER_LANE_ENTRY.value.yIn),
+      ),
+      entryVelocityMps: vec2(0, -CLASSIFIER_LANE_ENTRY_SPEED_MPS.value),
+      inboundRejectPointM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
+        inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
+      ),
+      travelDirection: vec2(0, -1),
+      driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
+      maxDriveSpeedMps: inchesToMeters(22),
+      lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
+      laneVelocityDampingPerSec: CLASSIFIER_LANE_DAMPING_PER_SEC.value,
+      surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,
+      surfaceHeightRateMps: inchesToMeters(30),
+      gateColliderTag: `${alliance}-classifier-gate`,
+      overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
+      overflowHeightRateMps: inchesToMeters(30),
+      entryVelocityRetention: 0.05,
+    },
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers
     // (`decodeTiles.ts`), so "out of the tunnel" is toward -Y for both
