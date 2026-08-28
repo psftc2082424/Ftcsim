@@ -128,11 +128,12 @@ export class SimRunner {
     private robotConfig: RobotConfig,
     private readonly inputHub: InputHub,
     private readonly game: GameDefinition,
-    private readonly startPose: Pose = { p: vec2(0, 0), theta: 0 },
+    private startPose: Pose = { p: vec2(0, 0), theta: 0 },
     /** Game pieces the field starts with. A bare drivetrain world has none. */
     private readonly stagedPieces: readonly GamePieceSpec[] = [],
     private readonly seed = 1,
     field: FieldTemplate = createStandardField(),
+    private alliance: 'red' | 'blue' = 'red',
   ) {
     this.field = field;
     this.simulation = this.createSimulation();
@@ -144,7 +145,7 @@ export class SimRunner {
         {
           config: this.robotConfig,
           controller: this.controller,
-          alliance: 'red',
+          alliance: this.alliance,
           startPose: this.startPose,
         },
       ],
@@ -187,6 +188,13 @@ export class SimRunner {
     this.lastTelemetryTick = -1;
     this.emitTelemetry();
     this.emitMatch();
+  }
+
+  /** Rebuild the solo practice robot on the selected alliance's legal start. */
+  setAlliance(alliance: 'red' | 'blue', startPose: Pose): void {
+    this.alliance = alliance;
+    this.startPose = startPose;
+    this.reset();
   }
 
   setRenderOptions(options: RenderOptions): void {

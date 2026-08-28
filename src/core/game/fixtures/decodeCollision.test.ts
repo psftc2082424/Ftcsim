@@ -63,6 +63,20 @@ describe('DECODE collision classification', () => {
     expect(field.colliderTags?.['blue-classifier-gate']).toEqual([2113]);
   });
 
+  it('mirrors the classifier rails and sole GOAL arch across alliances', () => {
+    const field = createDecodeField();
+    // Three red rails (2106–2108) and their blue mirror (2109–2111): the
+    // perimeter rail is continuous and the field-facing rail alone is split
+    // at the same elevated GOAL arch on both sides.
+    for (let offset = 0; offset < 3; offset++) {
+      const red = field.bodies.find((body) => body.id === 2106 + offset);
+      const blue = field.bodies.find((body) => body.id === 2109 + offset);
+      if (red === undefined || blue === undefined) throw new Error('classifier rail missing');
+      expect(red.pose.p.x).toBeCloseTo(-blue.pose.p.x, 9);
+      expect(red.pose.p.y).toBeCloseTo(blue.pose.p.y, 9);
+    }
+  });
+
   it('makes the physical classifier exactly one ARTIFACT wide, not a six-inch parking area', () => {
     // 4.9 in specified ball diameter plus only the 0.1 in dSim running
     // clearance: two ARTIFACTS cannot occupy a cross-section side-by-side.

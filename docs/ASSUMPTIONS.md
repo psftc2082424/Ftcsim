@@ -1817,12 +1817,44 @@ its first launch, but no `RobotOverlapsZone` award is manufactured from the
 initial field setup. This is generic match-state initialization, not a DECODE
 exception.
 
+### 10.22 Overflow clearance and timed gate drainage
+
+| | |
+|---|---|
+| **Values** | 16 in overflow ball centre; 4 s DECODE quiet GATE window |
+| **Confidence** | **INFERRED** top-down collision projection; the manual establishes OVERFLOW and gravity-closed gate behaviour but not these timing/height values |
+| **Location** | `conveyor.ts`, `decode.ts`, `decodeCollision.ts` |
+
+The former 13.5 in overflow centre remained vertically overlapping the
+top-down model's 12.5 in expanded GATE collision span once a 4.9 in ball radius
+was included. It therefore behaved as a tenth ball trapped behind the nine
+instead of an OVERFLOW. The 16 in centre clears that envelope and lets an
+accepted tenth body travel over the physical packed lane, through a still-closed
+gate, and then into the ordinary SECRET TUNNEL return at the actual exit. It is
+still an active colliding body throughout; no classifier or tunnel teleport was
+added.
+
+`PieceConveyorSpec.releaseOpenWindowSec` makes a live gate a finite physical
+push. A touch starts the window, and only a normal-lane ball actually crossing
+the gate renews it. A served empty batch closes immediately; an untouched gate
+closes after the window even if the robot remains in the release zone. DECODE
+uses four seconds so one valid ball can roll from its GOAL-side inlet to the
+gate, while a robot cycling isolated shots cannot leave the gate open forever.
+OVERFLOW deliberately does not renew this window because it passes above the
+gate rather than through it.
+
+The red/blue rail layout is now mirrored by field-relative direction, not by
+raw X sign: both classifiers have one field-facing GOAL arch and a continuous
+perimeter-side rail. This fixes the previous side-specific hole without adding
+a game-logic rectangle as a collider.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
 | 2026-08-27 | Narrowed the DECODE classifier from a 6 in placeholder to the shared 5.0 in single-file clear width (4.9 in ARTIFACT plus 0.1 in dSim-derived clearance), and added G416's requested per-launch 5-point MINOR FOUL as a generic `PieceLaunched` event/rule. |
+| 2026-08-27 | Raised the overflow surface to clear the semantic GATE collision span, made live gates quiet-window based and renewed only by real normal-lane releases, and corrected the mirrored classifier rail/arch construction. |
 | 2026-08-27 | Superseded the unreliable 2D physical GOAL-to-classifier lane experiment with an indexed elevated field mechanism after legitimate GOAL membership. The nine explicit 4.9 in ARTIFACT positions are end-to-end at the GATE end; tenth-and-later arrivals use the ordinary overflow release. Added the generic `queuePitchM` and `gateColliderTag` conveyor data, and raised return speed to 50 in/s so normal rolling loss carries released ARTIFACTS to the human-player loading side. |
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |

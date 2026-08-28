@@ -42,10 +42,10 @@ import './styles/app.css';
  * ZONE's base is the whole GOAL-side wall, so this puts an 18 in robot against
  * that wall inside red's half.
  */
-const LEGAL_START_POSE = {
-  p: vec2(inchesToMeters(-30), inchesToMeters(63)),
-  theta: 0,
-};
+const LEGAL_START_POSES = {
+  red: { p: vec2(inchesToMeters(-30), inchesToMeters(63)), theta: 0 },
+  blue: { p: vec2(inchesToMeters(30), inchesToMeters(63)), theta: 0 },
+} as const;
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -62,6 +62,7 @@ export function App() {
   const [match, setMatch] = useState<MatchStatus | null>(null);
   const [renderOptions, setRenderOptions] = useState<RenderOptions>(DEFAULT_RENDER_OPTIONS);
   const [gamepadConnected, setGamepadConnected] = useState(false);
+  const [driverAlliance, setDriverAlliance] = useState<'red' | 'blue'>('red');
 
   // Input sources and the runner are created once and live outside React's
   // render cycle; re-creating them per render would reset the simulation.
@@ -76,7 +77,7 @@ export function App() {
         COMPETITION_ROBOT_CONFIG,
         hub,
         DECODE_GAME,
-        LEGAL_START_POSE,
+        LEGAL_START_POSES.red,
         stageDecodePieces(),
         1,
         createDecodeField(),
@@ -135,6 +136,14 @@ export function App() {
     (config: RobotConfig) => {
       setRobotConfig(config);
       runner.reset(config);
+    },
+    [runner],
+  );
+
+  const selectAlliance = useCallback(
+    (alliance: 'red' | 'blue') => {
+      setDriverAlliance(alliance);
+      runner.setAlliance(alliance, LEGAL_START_POSES[alliance]);
     },
     [runner],
   );
@@ -200,6 +209,17 @@ export function App() {
           <div className="field-toolbar">
             <button type="button" onClick={() => runner.reset(robotConfig)}>Restart match</button>
             <label>
+              Team
+              <select
+                aria-label="Driver alliance"
+                value={driverAlliance}
+                onChange={(event) => selectAlliance(event.target.value as 'red' | 'blue')}
+              >
+                <option value="red">Red alliance</option>
+                <option value="blue">Blue alliance</option>
+              </select>
+            </label>
+            <label>
               <input
                 type="checkbox"
                 checked={renderOptions.showGrid}
@@ -241,7 +261,7 @@ export function App() {
             </label>
           </div>
 
-          <p className="muted small field-note">Solo driver practice · red alliance · 12 ft × 12 ft</p>
+          <p className="muted small field-note">Solo driver practice · {driverAlliance} alliance · 12 ft × 12 ft</p>
         </div>
 
         {view === 'play' ? (

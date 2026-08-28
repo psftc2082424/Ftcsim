@@ -351,14 +351,17 @@ function classifierRailBodies(alliance: 'red' | 'blue', firstId: EntityId): read
       span,
       pose: { p: vec2(x, inchesToMeters((startYIn + endYIn) / 2)), theta: 0 },
     });
-  const innerX = centerX - offsetM;
-  const outerX = centerX + offsetM;
+  // "Outer" means toward the perimeter for both mirrors. The prior +/- math
+  // split the inboard rail on red but the perimeter rail on blue, leaving one
+  // alliance's classifier arch on the wrong side of the channel.
+  const perimeterX = centerX + sign * offsetM;
+  const fieldFacingX = centerX - sign * offsetM;
   const archMinYIn = CLASSIFIER_ARCH_CENTRE_Y_IN - CLASSIFIER_ARCH_OPENING_LENGTH_IN / 2;
   const archMaxYIn = CLASSIFIER_ARCH_CENTRE_Y_IN + CLASSIFIER_ARCH_OPENING_LENGTH_IN / 2;
   return [
-    rail(firstId, outerX, CLASSIFIER_RAIL_START_Y_IN, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
-    rail(firstId + 1, innerX, CLASSIFIER_RAIL_START_Y_IN, archMinYIn),
-    rail(firstId + 2, innerX, archMaxYIn, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
+    rail(firstId, perimeterX, CLASSIFIER_RAIL_START_Y_IN, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
+    rail(firstId + 1, fieldFacingX, CLASSIFIER_RAIL_START_Y_IN, archMinYIn),
+    rail(firstId + 2, fieldFacingX, archMaxYIn, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
   ];
 }
 

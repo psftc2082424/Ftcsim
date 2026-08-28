@@ -134,14 +134,13 @@ export const RAMP_SLOT_COUNT = explicit(9, 86, 'Index 1 2 3 4 5 6 7 8 9');
  * The manual establishes the GATE as a robot-activated gravity return but does
  * not publish its throughput. dSim's visible classifier flow is used as an
  * observational reference: balls leave as a controlled train rather than as a
- * single high-speed burst. The generic conveyor latches one activation until
- * its queue is empty, so this is a per-ball cadence rather than a requirement
- * that the robot remain in the GATE ZONE.
+ * single high-speed burst. A touch opens a short draining window, renewed only
+ * by real lane releases, so it does not remain open while a robot cycles shots.
  */
 export const RAMP_DRAIN_INTERVAL_SEC = inferred(
   0.35,
   'Observed dSim-style classifier cadence. The manual states the drain is not ' +
-    'instantaneous but gives no throughput; a gate activation is latched until the queue empties.',
+    'instantaneous but gives no throughput; real lane flow renews a short gate-open window.',
   72,
 );
 
@@ -158,6 +157,13 @@ export const RAMP_DRAIN_INTERVAL_SEC = inferred(
 export const TUNNEL_EXIT_SPEED_MPS = inferred(
   inchesToMeters(50),
   'dSim-style visible return momentum, checked against the CAD-derived SECRET TUNNEL length and the documented rolling loss; the manual specifies no release rate.',
+  72,
+);
+
+/** Time a pushed GATE stays open without a normal classifier ball passing it. */
+export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
+  4,
+  'The physical top-down lane needs about three seconds for a lone ARTIFACT at its GOAL-side inlet to reach the GATE under the 22 in/s governed roll. Four seconds admits that legitimate drain while still gravity-closing a quiet open gate; each real normal-lane release renews it, while elevated OVERFLOW does not.',
   72,
 );
 
@@ -210,8 +216,8 @@ export const CLASSIFIER_SURFACE_HEIGHT_M = inferred(
 
 /** A tenth ball rides the upper physical overflow path above the packed column. */
 export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
-  inchesToMeters(13.5),
-  'dSim places overflow above the 10 in classifier rail at 13.5 in. The manual establishes overflow but not its exact ball-centre height.',
+  inchesToMeters(16),
+  'The normal rail is 10 in high. This 16 in centre height clears the top-down model\'s expanded 12.5 in GATE collision envelope by more than one ARTIFACT radius, so a tenth ball can physically roll over the nine-ball stack and pass a closed gate. The manual establishes overflow but not its exact ball-centre height.',
   72,
 );
 
@@ -461,6 +467,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     // alliances. Only X mirrors between them; this does not.
     exitVelocityMps: vec2(0, -TUNNEL_EXIT_SPEED_MPS.value),
     drainIntervalSec: RAMP_DRAIN_INTERVAL_SEC.value,
+    releaseOpenWindowSec: RAMP_GATE_OPEN_WINDOW_SEC.value,
   }),
 );
 

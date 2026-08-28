@@ -365,6 +365,22 @@ describe('guided lane physics', () => {
     expect(world2.colliderStates.get('chute-gate')).toBe(true);
   });
 
+  it('gravity-closes a touched gate after its quiet window when no normal lane ball flows', () => {
+    const timedLane: PieceConveyorSpec = { ...GUIDED_SPEC, releaseOpenWindowSec: 0.05 };
+    const world = new FakeWorld(new Map(), vec2(0, -20 * 0.0254));
+    const conveyors = new PieceConveyors([timedLane], places(timedLane), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
+    expect(world.colliderStates.get('chute-gate')).toBe(false);
+
+    // The robot is still touching, but that is one physical push rather than
+    // a perpetual command. With no ball passing the gate, gravity closes it.
+    conveyors.update(world.snapshot(10), 10, world);
+    expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+  });
+
   it('governs the down-lane drive so an unblocked piece cruises rather than accelerating forever', () => {
     const lane = GUIDED_SPEC.lane;
     if (lane === undefined) throw new Error('GUIDED_SPEC needs a lane');

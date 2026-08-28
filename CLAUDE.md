@@ -832,3 +832,29 @@ shoot; then Phase 4 (PDF ingestion).
   and then deciding whether the official G416 MAJOR escalation for a violating
   ball entering the open GOAL is required; only the user-requested 5-point
   per-shot MINOR portion is implemented.
+
+### Latest handoff — 2026-08-27 (overflow bypass, timed gate, team selector)
+
+- **Overflow now clears the classifier.** The elevated overflow surface is
+  16 in, high enough for a 4.9 in ARTIFACT to clear the top-down model's
+  expanded gate collider. A 10th accepted ball remains physical, rolls over
+  the packed nine, crosses the closed gate without opening it, and receives
+  the normal tunnel outflow only at the actual exit position. The DECODE
+  regression verifies it reaches the return/loading side.
+- Gates now use generic `releaseOpenWindowSec`: a gate touch starts a finite
+  quiet window, each **normal-lane** release renews it, overflow does not, and
+  an empty served batch closes immediately. DECODE uses four seconds because a
+  lone ball at the top of this physical lane needs roughly three seconds to
+  reach the gate. A robot parked in the zone therefore cannot hold an idle
+  gate open indefinitely or keep it open while cycling unrelated shots.
+- Fixed the mirrored rail construction: both red and blue split the
+  field-facing rail at their sole GOAL arch; the perimeter rail remains
+  continuous. This closes the asymmetric wrong-side opening caused by treating
+  `+X` and `-X` rails identically.
+- Play now has a Red/Blue team selector. It resets the solo robot onto that
+  alliance's legal start and sets the simulation robot alliance; drivetrain
+  code is unchanged.
+- Verification: `npm run verify` passed (TypeScript, ESLint, **978 tests / 48
+  files**). Do not lower the overflow height without preserving clearance over
+  the semantic gate span, and do not change the timed gate to a perpetual
+  "queue nonempty" latch.

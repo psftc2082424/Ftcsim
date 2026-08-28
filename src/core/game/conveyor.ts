@@ -73,9 +73,9 @@ export interface PieceConveyorSpec {
   /**
    * Zone a robot must occupy to latch the queue's way out open.
    *
-   * Omitted means the queue drains freely. A declared opener latches a release
-   * until the queue has emptied, which models a gate the robot triggers rather
-   * than a driver having to remain parked on its activation zone.
+   * Omitted means the queue drains freely. A declared opener starts a timed
+   * release window, renewed by actual normal-lane flow, so a robot does not
+   * have to remain parked and an idle gate does not stay open forever.
    */
   readonly releaseZoneId?: string | undefined;
   /** Alliance whose robots may open it. Omitted means any robot. */
@@ -103,6 +103,13 @@ export interface PieceConveyorSpec {
   readonly exitVelocityMps: Vec2;
   /** Seconds between successive pieces leaving a draining queue. */
   readonly drainIntervalSec: number;
+  /**
+   * Maximum quiet time after a gate touch before gravity closes it.
+   *
+   * Each genuine normal-lane release renews this window. Overflow is above
+   * the gate and deliberately does not hold the gate open.
+   */
+  readonly releaseOpenWindowSec?: number | undefined;
 }
 
 /** A generic ramp/channel that guides, but never parks, active game pieces. */
@@ -215,10 +222,12 @@ interface ConveyorState {
   readonly overflow: Set<string>;
   /** Accepted pieces retained by the receiving basin before they board the lane. */
   readonly basin: Set<string>;
-  /** A gate activation keeps the path open until this ordered queue is empty. */
+  /** A gate activation keeps the path open only while its drain window lives. */
   releaseLatched: boolean;
-  /** True after this gate activation has admitted at least one real piece. */
-  releaseHasServedBatch: boolean;
+  /** Latest tick by which normal lane flow must continue to keep it open. */
+  releaseDeadlineTick: number;
+  /** True after this activation has released a normal lane piece. */
+  releaseFlowed: boolean;
   /** Previous raw gate-contact state, for one activation per touch. */
   releaseHeldLastTick: boolean;
 }
@@ -247,7 +256,8 @@ export class PieceConveyors {
         overflow: new Set(),
         basin: new Set(),
         releaseLatched: false,
-        releaseHasServedBatch: false,
+        releaseDeadlineTick: Number.NEGATIVE_INFINITY,
+        releaseFlowed: false,
         releaseHeldLastTick: false,
       });
     }
@@ -297,7 +307,7 @@ export class PieceConveyors {
       const places = this.places.get(spec.id);
       if (state === undefined || places === undefined) continue;
 
-      this.refreshReleased(spec, state, places, snapshot, world);
+      this.refreshReleased(spec, state, places, snapshot, tick, world);
       this.blockInboundExit(spec, state, places, snapshot, world);
       const releaseHeldNow = this.releaseHeld(spec, snapshot);
       // A GOAL/basin entry may overlap the physical lane footprint. Admit a
@@ -309,12 +319,13 @@ export class PieceConveyors {
       this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       // A contact is one gate activation, not a continuously-held override.
       // It may happen before a ball arrives: a real robot can push a light
-      // gate open first, then feed a ball through it. `releaseHasServedBatch`
+      // gate open first, then feed a ball through it. The timed flow window
       // distinguishes that armed opening from one that has already drained,
       // so an unmoved robot cannot reopen the gate after it falls closed.
       if (releaseHeldNow && !state.releaseHeldLastTick) {
         state.releaseLatched = true;
-        state.releaseHasServedBatch = false;
+        state.releaseFlowed = false;
+        state.releaseDeadlineTick = tick + this.releaseWindowTicks(spec);
       }
       state.releaseHeldLastTick = releaseHeldNow;
       if (spec.lane === undefined) {
@@ -323,12 +334,17 @@ export class PieceConveyors {
       } else {
         this.guideLane(spec, state, places, snapshot, world);
       }
-      if (state.releaseLatched && (state.queue.length > 0 || state.basin.size > 0)) {
-        state.releaseHasServedBatch = true;
-      }
-      if (state.releaseHasServedBatch && state.queue.length === 0 && state.basin.size === 0) {
+      const hasQueuedPieces = state.queue.length > 0 || state.basin.size > 0;
+      // A completed drain gravity-closes immediately. A touch that never
+      // produces normal lane flow closes after a short quiet window instead of
+      // staying open while a robot cycles unrelated shots nearby.
+      if (state.releaseLatched && (
+        (state.releaseFlowed && !hasQueuedPieces) ||
+        tick >= state.releaseDeadlineTick
+      )) {
         state.releaseLatched = false;
-        state.releaseHasServedBatch = false;
+        state.releaseFlowed = false;
+        state.releaseDeadlineTick = Number.NEGATIVE_INFINITY;
       }
       const gateColliderTag = spec.gateColliderTag ?? spec.lane?.gateColliderTag;
       if (gateColliderTag !== undefined) world.setColliderTagActive(gateColliderTag, !state.releaseLatched);
@@ -398,6 +414,7 @@ export class PieceConveyors {
     state: ConveyorState,
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
+    tick: number,
     world: ConveyorWorld,
   ): void {
     for (const pieceId of state.released) {
@@ -417,6 +434,7 @@ export class PieceConveyors {
       state.queue.splice(index, 1);
       state.taken.delete(pieceId);
       state.released.add(pieceId);
+      this.noteNormalLaneFlow(spec, state, tick);
       // A physical lane reaches the real GATE under its own motion.  The gate
       // then supplies its declared outflow speed at that exact position; it
       // does not reposition the piece into the return corridor.
@@ -510,11 +528,7 @@ export class PieceConveyors {
     if (pieceId === undefined) return;
 
     state.lastDrainTick = tick;
-    // A single-piece batch is empty immediately after its release.  Record
-    // that this activation actually served a piece here (rather than after
-    // draining) so the gate can gravity-close even while the robot remains in
-    // its trigger zone.
-    state.releaseHasServedBatch = true;
+    this.noteNormalLaneFlow(spec, state, tick);
     this.release(spec, state, places, pieceId, world);
   }
 
@@ -663,6 +677,18 @@ export class PieceConveyors {
       if (robotOverlapsZone(release, footprint, robot.pose.p, robot.pose.theta)) return true;
     }
     return false;
+  }
+
+  /** dSim's observed two-second stop window is the generic default. */
+  private releaseWindowTicks(spec: PieceConveyorSpec): number {
+    const seconds = spec.releaseOpenWindowSec ?? 2;
+    return Math.max(1, Math.round(seconds / this.dtSec));
+  }
+
+  /** Only a real normal-lane release renews the gate's draining window. */
+  private noteNormalLaneFlow(spec: PieceConveyorSpec, state: ConveyorState, tick: number): void {
+    state.releaseFlowed = true;
+    state.releaseDeadlineTick = tick + this.releaseWindowTicks(spec);
   }
 }
 

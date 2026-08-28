@@ -1178,6 +1178,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     if (destination === undefined) throw new Error('red GOAL missing');
 
     let sawTenthOverflow = false;
+    let sawTenthReturn = false;
     for (let tick = 0; tick < 4800; tick++) {
       const launchIndex = Math.floor(tick / 300);
       if (tick % 300 === 0 && launchIndex < pieceIds.length) {
@@ -1190,10 +1191,15 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       }
       sim.step();
       if (sim.conveyors.overflowed('red-classifier').includes('overflow-10')) sawTenthOverflow = true;
+      const tenth = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'overflow-10');
+      if (tenth !== undefined && tenth.pose.p.y < inchesToMeters(-48)) sawTenthReturn = true;
     }
 
     expect(sim.conveyors.queued('red-classifier')).toHaveLength(RAMP_SLOT_COUNT.value);
     expect(sawTenthOverflow).toBe(true);
+    // OVERFLOW rides over the packed lane and clears the closed GATE; it is
+    // not another ball trapped behind the ninth classifier position.
+    expect(sawTenthReturn).toBe(true);
     expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(9);
     expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('overflow'))).toHaveLength(1);
   });
