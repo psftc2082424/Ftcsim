@@ -167,10 +167,17 @@ export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
   72,
 );
 
-/** dSim-observed downslope guide for the physical classifier lane. */
+/** Faster declared downslope guide for the physical classifier lane. */
 export const CLASSIFIER_LANE_ACCELERATION_MPS2 = inferred(
-  inchesToMeters(80),
-  'dSim rail acceleration (80 in/s²) used as an observable guide for the physical lane; the manual gives no slope acceleration.',
+  inchesToMeters(120),
+  'Requested gameplay calibration: 120 in/s² carries accepted ARTIFACTs down the visible classifier more promptly; the manual gives no slope acceleration.',
+  72,
+);
+
+/** Governed cruise speed for the physical classifier lane. */
+export const CLASSIFIER_LANE_MAX_SPEED_MPS = inferred(
+  inchesToMeters(36),
+  'Requested gameplay calibration: 36 in/s visibly shortens classifier travel without allowing an unbounded lane acceleration or bypassing the live GATE.',
   72,
 );
 
@@ -417,7 +424,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       blocksInboundLane: true,
       travelDirection: vec2(0, -1),
       driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
-      maxDriveSpeedMps: inchesToMeters(22),
+      maxDriveSpeedMps: CLASSIFIER_LANE_MAX_SPEED_MPS.value,
       lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
       laneVelocityDampingPerSec: CLASSIFIER_LANE_DAMPING_PER_SEC.value,
       surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,

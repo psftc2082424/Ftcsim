@@ -1039,3 +1039,15 @@ shoot; then Phase 4 (PDF ingestion).
   full verification suite before handoff/commit.
 - Verification: `npm run verify` passed: TypeScript, ESLint, and **984 tests
   across 48 files**.
+
+### Latest handoff — 2026-08-28 (faster classifier travel)
+
+- **DECODE classifier travel is faster without altering drivetrain or gate
+  semantics.** The declared downslope guide is now `120 in/s²` and its governed
+  cruise speed is `36 in/s` (was `80 in/s²` / `22 in/s`). These fixture values
+  remain inferred gameplay calibration because the manual supplies no ramp
+  acceleration; normal ball packing, overflow, one-way access, and the live
+  GATE remain unchanged.
+- Verification: `npm run verify` passed: TypeScript, ESLint, and **987 tests
+  across 48 files**. The generic conveyor regression also proves a normal lane
+  body cannot semantically cross a closed live GATE, while overflow still can.

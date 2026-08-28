@@ -484,19 +484,25 @@ export class PieceConveyors {
     // Guided-lane pieces remain physically active while they travel. Once one
     // reaches the declared exit zone it no longer consumes classifier capacity,
     // but remains authorised to continue through the one-way return.
-    for (let index = state.queue.length - 1; index >= 0; index--) {
-      const pieceId = state.queue[index] as string;
-      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
-      state.queue.splice(index, 1);
-      state.taken.delete(pieceId);
-      state.released.add(pieceId);
-      this.noteNormalLaneFlow(spec, state, tick);
-      // A physical lane reaches the real GATE under its own motion.  The gate
-      // then supplies its declared outflow speed at that exact position; it
-      // does not reposition the piece into the return corridor.
-      world.setPieceVelocity(pieceId, spec.exitVelocityMps);
-      if (state.overflow.has(pieceId)) state.overflow.delete(pieceId);
+    // A normal lane body may only cross a live GATE while that GATE is latched
+    // open. The physical collider normally supplies this constraint; this
+    // semantic check closes the fixed-step boundary when a faster guided body
+    // reaches the exit volume in one integration step.
+    if (state.releaseLatched) {
+      for (let index = state.queue.length - 1; index >= 0; index--) {
+        const pieceId = state.queue[index] as string;
+        const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+        if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+        state.queue.splice(index, 1);
+        state.taken.delete(pieceId);
+        state.released.add(pieceId);
+        this.noteNormalLaneFlow(spec, state, tick);
+        // A physical lane reaches the real GATE under its own motion. The gate
+        // then supplies its declared outflow speed at that exact position; it
+        // does not reposition the piece into the return corridor.
+        world.setPieceVelocity(pieceId, spec.exitVelocityMps);
+        if (state.overflow.has(pieceId)) state.overflow.delete(pieceId);
+      }
     }
     for (const pieceId of state.overflow) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
@@ -792,7 +798,11 @@ export class PieceConveyors {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) continue;
       const distance = Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y);
-      if (distance > piece.radiusM * overlapRadii) continue;
+      // On ordinary closed ticks, also recover a body that crossed the gate
+      // volume in one step. A closing transition uses the wider two-radius
+      // envelope; the routine continuous check stays narrow around the arm.
+      const crossedClosedGate = overlapRadii <= 1 && regionContains(places.exit, piece.pose.p, piece.heightM);
+      if (!crossedClosedGate && distance > piece.radiusM * overlapRadii) continue;
       world.pushPieceOutOfGate(
         pieceId,
         vec2(

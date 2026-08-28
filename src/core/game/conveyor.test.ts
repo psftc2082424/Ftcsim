@@ -435,6 +435,20 @@ describe('guided lane physics', () => {
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
+  it('does not release a normal lane ball through a closed live gate', () => {
+    const positions = new Map([['a', inEntry(0)]]);
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    positions.set('a', LANE_EXIT.centerM);
+    conveyors.update(world.snapshot(1), 1, world);
+
+    expect(conveyors.queued('chute')).toEqual(['a']);
+    expect(world.released.has('a')).toBe(false);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+  });
+
   it('re-opens a held gate only when its leading physical lane ball reaches the arm', () => {
     const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
     const positions = new Map([['a', inEntry(0)]]);
@@ -492,9 +506,10 @@ describe('guided lane physics', () => {
       ['a', inEntry(0)],
       ['b', inEntry(1)],
     ]);
-    const world = new FakeWorld(positions);
+    const world = new FakeWorld(positions, vec2(0, -20 * 0.0254));
     const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
     conveyors.update(world.snapshot(0), 0, world);
+    world.moveRobot(null);
     expect(conveyors.queued('chute')).toEqual(['a', 'b']);
 
     // 'a' physically reaches the exit; 'b' does not move. Nothing here

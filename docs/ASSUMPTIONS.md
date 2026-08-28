@@ -1761,8 +1761,8 @@ storage never awards score directly.
 
 | | |
 |---|---|
-| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; governed `22 in/s` lane speed; `62 in/s` gate outflow |
-| **Confidence** | **INFERRED** top-down projection from dSim/CAD-observed GOAL arch; ARTIFACT diameter and RAMP capacity remain **EXPLICIT** |
+| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; `120 in/s²` guide; governed `36 in/s` lane speed; `62 in/s` gate outflow |
+| **Confidence** | **INFERRED** top-down projection from dSim/CAD-observed GOAL arch plus requested gameplay calibration; ARTIFACT diameter and RAMP capacity remain **EXPLICIT** |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
 
 The classifier is again an active `GuidedLaneSpec` for DECODE, but only after
@@ -1981,6 +1981,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Increased the requested DECODE GATE quiet window to 1 s and added an elevated normal-lane separation correction before the live GATE collider closes, so no ARTIFACT can remain trapped in the arm. |
 | 2026-08-28 | Kept accepted deterministic shots collision-free through the shared GOAL funnel, then restore ordinary physical contacts exactly when each ARTIFACT boards the classifier lane. This prevents top-basin bunching without weakening classifier packing. |
 | 2026-08-28 | Increased loose ARTIFACT rolling loss to 30 in/s² and retain 65% of a ball's velocity after robot contact, while raising GATE outflow to 62 in/s to preserve SECRET TUNNEL return distance. A closed live GATE now also clears any lane ball that later intrudes into its arm. |
+| 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
