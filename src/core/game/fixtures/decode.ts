@@ -162,8 +162,8 @@ export const TUNNEL_EXIT_SPEED_MPS = inferred(
 
 /** Time a pushed GATE stays open without a normal classifier ball passing it. */
 export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
-  6,
-  'The physical GOAL basin plus top-down lane need about five seconds for a lone accepted ARTIFACT to reach the GATE under the 22 in/s governed roll. Six seconds admits that legitimate drain while still gravity-closing a quiet open gate; each real normal-lane release renews it, while elevated OVERFLOW does not.',
+  0.4,
+  'Requested gameplay timing: a GATE that is pushed open but has no classifier ball pass through must gravity-close after 0.4 s. Each real normal-lane release renews the same short window, while elevated OVERFLOW does not.',
   72,
 );
 
@@ -232,13 +232,6 @@ export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
 export const CLASSIFIER_BASIN_THROAT = inferred(
   { xIn: FIELD.sideIn.value / 2 - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value / 2, yIn: 57 },
   'dSim\'s rail hand-off is centred in its single-file classifier; the physical classifier arch is centred in this simulator\'s 4.9 in ARTIFACT plus 0.1 in clearance channel.',
-  72,
-);
-
-/** Field-facing point immediately outside dSim's clipped GOAL-to-ramp throat. */
-export const CLASSIFIER_INBOUND_REJECT_POINT = inferred(
-  { xIn: 63, yIn: 57 },
-  'dSim clips the GOAL face at the single-file classifier channel and projects ordinary ground balls out of that channel on the field side.',
   72,
 );
 
@@ -421,10 +414,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
       receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
       receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
-      inboundRejectPointM: vec2(
-        inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
-        inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
-      ),
+      blocksInboundLane: true,
       travelDirection: vec2(0, -1),
       driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
       maxDriveSpeedMps: inchesToMeters(22),

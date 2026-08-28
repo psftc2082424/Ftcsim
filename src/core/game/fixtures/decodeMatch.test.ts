@@ -57,7 +57,7 @@ import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
-import { ARTIFACT, ZONES } from './decodeDimensions.js';
+import { ARTIFACT } from './decodeDimensions.js';
 
 const at = (xIn: number, yIn: number) => vec2(inchesToMeters(xIn), inchesToMeters(yIn));
 
@@ -1002,7 +1002,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     ],
   };
 
-  it('carries a scored artifact from the GOAL through the queue and down the SECRET TUNNEL', () => {
+  it('holds a scored artifact safely upstream when a GATE is opened too early', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
     // Just ahead of the robot's bumper (and inside the intake's 8–14 in
@@ -1036,7 +1036,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     });
 
     // The physical lane is deliberately damped and no longer teleports this
-    // ball into the tunnel. Give it a real controlled traverse.
+    // ball into the tunnel. The gate is only touched at match start, well
+    // before the ball reaches it, so its requested 0.4 s quiet window closes.
     for (let i = 0; i < 1200; i++) sim.step();
 
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
@@ -1045,27 +1046,14 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     const artifact = sim.world.snapshot().pieces.find((p) => p.pieceId === 'a1');
     if (artifact === undefined) throw new Error('artifact missing');
 
-    // The live GATE collider was opened by the robot in its release zone. The
-    // piece stays a normal body and must physically travel out of the lane.
-    expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(startY) - inchesToMeters(6));
-
-    // The increased gate push must carry a returned ARTIFACT through the
-    // tunnel into the audience-side human-player loading area, rather than
-    // dying at the gate mouth.  Its exact final spot remains collision- and
-    // rolling-loss-dependent, so assert the published loading-zone side of
-    // the field instead of a fabricated rest coordinate.
-    expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(-48));
-
-    // §9.8.3: an alliance's own CLASSIFIER exits down the *opposing*
-    // alliance's SECRET TUNNEL.
-    const tunnel = centreOf(DECODE_ZONES.blueSecretTunnel);
-    const tunnelHalfWidthIn = ZONES.secretTunnelWidthIn.value / 2 + 2;
-    expect(Math.abs(metersToInches(meters(artifact.pose.p.x)) - tunnel[0])).toBeLessThan(tunnelHalfWidthIn);
+    // The ball is a physical disc resting *before* the closed gate, not inside
+    // its collider. A driver must make a fresh gate push once the leading ball
+    // is ready; the generic conveyor regression covers that release path.
+    expect(artifact.pose.p.y).toBeGreaterThan(inchesToMeters(3));
+    expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(5));
     expect(Number.isFinite(artifact.pose.p.x)).toBe(true);
     expect(Number.isFinite(artifact.pose.p.y)).toBe(true);
-    // The robot remains on the GATE zone throughout this scenario. Once its
-    // only physical ball has cleared, the latched gate must still fall closed.
-    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+    expect(sim.conveyors.queued('red-classifier')).toEqual(['a1']);
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
   });

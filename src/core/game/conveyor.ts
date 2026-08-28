@@ -140,8 +140,14 @@ export interface GuidedLaneSpec {
   readonly receivingBasinVelocityDampingPerSec?: number | undefined;
   /** Extra clearance required before the next physical ball boards the lane. */
   readonly receivingBasinEntryClearanceM?: number | undefined;
-  /** Public-side correction point for a loose piece that intrudes into a protected lane. */
-  readonly inboundRejectPointM?: Vec2 | undefined;
+  /**
+   * Reject a loose body from the physical footprint of this elevated lane.
+   *
+   * The generic guard returns an unauthorised body immediately beyond the
+   * closest channel edge. It is not a fixed season-specific parking point, so
+   * a ball pushed against a classifier cannot accumulate at its intake.
+   */
+  readonly blocksInboundLane?: boolean | undefined;
   /** Unit-ish world-frame direction from the entry toward the release gate. */
   readonly travelDirection: Vec2;
   /** Down-lane acceleration, m/s². */
@@ -349,11 +355,12 @@ export class PieceConveyors {
       this.takeArrivals(spec, state, places, snapshot, world);
       this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       // A contact is one gate activation, not a continuously-held override.
-      // It may happen before a ball arrives: a real robot can push a light
-      // gate open first, then feed a ball through it. The timed flow window
-      // distinguishes that armed opening from one that has already drained,
-      // so an unmoved robot cannot reopen the gate after it falls closed.
-      if (releaseHeldNow && !state.releaseHeldLastTick) {
+      // If it closes before a distant ball arrives, a ball physically pressing
+      // against the closed arm may re-open that same held GATE. This prevents
+      // an arm from trapping its leading ball, yet an idle held gate remains
+      // closed after its short quiet window.
+      const normalBallAtGate = this.normalLaneBallAtGate(state, places, snapshot);
+      if (releaseHeldNow && (!state.releaseHeldLastTick || (!state.releaseLatched && normalBallAtGate))) {
         state.releaseLatched = true;
         state.releaseFlowed = false;
         state.releaseDeadlineTick = tick + this.releaseWindowTicks(spec);
@@ -518,12 +525,15 @@ export class PieceConveyors {
     snapshot: WorldSnapshot,
     world: ConveyorWorld,
   ): void {
-    const rejectPoint = spec.lane?.inboundRejectPointM;
-    if (rejectPoint === undefined) return;
+    if (spec.lane?.blocksInboundLane !== true) return;
     for (const piece of snapshot.pieces) {
-      if (piece.heldByRobotId !== null || state.taken.has(piece.pieceId)) continue;
+      // The top-down lane footprint can overlap the incoming path of a
+      // legitimate high shot. Its `transferring` state ends at the normal GOAL
+      // membership boundary; only after that point can it be admitted or
+      // rejected as an ordinary physical ball.
+      if (piece.heldByRobotId !== null || piece.transferring === true || state.taken.has(piece.pieceId)) continue;
       if (!regionContains(places.queue, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId, rejectPoint);
+      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.queue, piece.pose.p, piece.radiusM));
     }
   }
 
@@ -707,6 +717,28 @@ export class PieceConveyors {
       if (robotOverlapsZone(release, footprint, robot.pose.p, robot.pose.theta)) return true;
     }
     return false;
+  }
+
+  /**
+   * Whether the leading ordinary lane body has reached the physical GATE arm.
+   *
+   * This uses the body's own radius rather than a DECODE coordinate: once its
+   * centre is within two radii of the exit-side lane end, reopening the arm
+   * gives the still-physical body enough clearance to continue its normal
+   * downslope motion. Overflow deliberately remains excluded because it rides
+   * over the gate rather than pressing on it.
+   */
+  private normalLaneBallAtGate(
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+  ): boolean {
+    const gateM = nearEndOf(places.exit, places.queue.centerM);
+    return state.queue.some((pieceId) => {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || piece.heldByRobotId !== null) return false;
+      return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <= piece.radiusM * 2;
+    });
   }
 
   /** dSim's observed two-second stop window is the generic default. */

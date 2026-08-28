@@ -381,6 +381,29 @@ describe('guided lane physics', () => {
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
+  it('re-opens a held gate only when its leading physical lane ball reaches the arm', () => {
+    const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
+    const positions = new Map([['a', inEntry(0)]]);
+    const gate = vec2(0, -20 * 0.0254);
+    const world = new FakeWorld(positions, gate);
+    const conveyors = new PieceConveyors([timedLane], lanePlaces(timedLane), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    conveyors.update(world.snapshot(10), 10, world);
+    expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
+
+    // A normal lane disc that is physically pressing the closed arm makes the
+    // same held gate reopen. The latch remains a short flow window, rather
+    // than an indefinitely open gate merely because a robot stayed nearby.
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    // Four inches upstream of the exit is outside the return zone but within
+    // the two-radius gate-contact threshold for this 4.9 in test disc.
+    positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(4)));
+    conveyors.update(world.snapshot(11), 11, world);
+    expect(conveyors.isOpen('chute', world.snapshot(12))).toBe(true);
+    expect(world.colliderStates.get('chute-gate')).toBe(false);
+  });
+
   it('governs the down-lane drive so an unblocked piece cruises rather than accelerating forever', () => {
     const lane = GUIDED_SPEC.lane;
     if (lane === undefined) throw new Error('GUIDED_SPEC needs a lane');

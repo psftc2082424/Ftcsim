@@ -956,3 +956,28 @@ shoot; then Phase 4 (PDF ingestion).
   canonical assembly route for any future goal/tunnel change—do not add
   renderer-only field lines, direct classifier placement, or alter the
   drivetrain.
+
+### Latest handoff — 2026-08-28 (short GATE window and classifier boundary)
+
+- **DECODE GATE timing is now the requested 0.4 seconds.** A push with no
+  normal classifier ball through it gravity-closes after that quiet window.
+  If the driver is still holding the arm when the leading physical lane ball
+  reaches it, the arm briefly reopens; a parked driver cannot leave an empty
+  GATE visibly open, but the arm cannot pin the leading ball.
+- **Loose balls cannot be pushed into the classifier.** The generic guided-lane
+  `blocksInboundLane` boundary returns an unauthorised ball beyond the nearest
+  lane edge instead of sending it to the old fixed GOAL-side reject coordinate.
+  This eliminates the artificial visible pile-up point at the top of the GOAL.
+  Legitimate deterministic shots expose a transient snapshot flag until the
+  normal high GOAL membership event; after admission they remain ordinary
+  physical, colliding ARTIFACTs.
+- `classifierPhysicalLane.test.ts` now asserts the receiving basin empties;
+  `conveyor.test.ts` covers short quiet closure and leading-ball re-open; the
+  DECODE integration test asserts an early touch leaves a ball safely upstream
+  of a closed GATE rather than embedded in it. No drivetrain or robot collision
+  behavior changed.
+- Verification: `npm run verify` passed: TypeScript, ESLint, and **983 tests
+  across 48 files**. **Next priority:** manually drive a fresh GATE contact
+  against a ready classifier ball in Play mode. Keep classifier protection as
+  the generic nearest-boundary rule; do not restore the old
+  `inboundRejectPointM` or add direct placement/teleport behaviour.

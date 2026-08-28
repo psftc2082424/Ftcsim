@@ -83,6 +83,10 @@ describe('classifier storage integration', () => {
     expect(sawCapturedBasin).toBe(true);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
     expect(sawRollingDownClassifier).toBe(true);
+    // A receiving basin is a short physical funnel, never a second storage
+    // area at the top of the GOAL. Every accepted launch must have reached the
+    // single-file classifier by the end of this controlled run.
+    expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
   });
 
   it('does not admit an unaccepted loose ground ball into an open classifier', () => {
@@ -117,6 +121,9 @@ describe('classifier storage integration', () => {
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
     expect(loose.heldByRobotId).toBeNull();
+    // The guard clears the ball beyond the channel wall instead of assigning a
+    // fixed point beside the GOAL where future balls could pile up.
+    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(66);
     expect(sim.score.red).toBe(0);
   });
 

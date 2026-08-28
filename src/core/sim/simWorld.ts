@@ -510,6 +510,7 @@ export class SimWorld {
         { heightM: piece.heightM, velocityMps: piece.verticalVelocityMps },
         piece.radiusM,
       ),
+      transferring: piece.transferring,
       heldByRobotId: piece.carriedBy,
     }));
 

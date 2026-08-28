@@ -1821,7 +1821,7 @@ exception.
 
 | | |
 |---|---|
-| **Values** | 16 in overflow ball centre; 6 s DECODE quiet GATE window |
+| **Values** | 16 in overflow ball centre; 0.4 s DECODE quiet GATE window |
 | **Confidence** | **INFERRED** top-down collision projection; the manual establishes OVERFLOW and gravity-closed gate behaviour but not these timing/height values |
 | **Location** | `conveyor.ts`, `decode.ts`, `decodeCollision.ts` |
 
@@ -1838,9 +1838,9 @@ added.
 push. A touch starts the window, and only a normal-lane ball actually crossing
 the gate renews it. A served empty batch closes immediately; an untouched gate
 closes after the window even if the robot remains in the release zone. DECODE
-uses six seconds so a valid ball can physically traverse the retained GOAL
-basin and classifier before the quiet timer expires, while a robot cycling
-isolated shots still cannot leave the gate open forever.
+uses the requested 0.4 s window. If the driver continues holding the GATE and
+the leading normal lane ball reaches the closed arm, that real contact reopens
+the arm for another 0.4 s flow attempt; an idle held gate remains closed.
 OVERFLOW deliberately does not renew this window because it passes above the
 gate rather than through it.
 
@@ -1879,7 +1879,7 @@ real tape/material data may do so.
 | | |
 |---|---|
 | **Source** | DECODE full-field STEP CAD goal-panel/Goal-Archway assemblies; Event FIELD Setup Guide §9; dSim `decode/colliders.ts` observable high-entry model |
-| **Values** | 6.5 in low GOAL-front/Archway guard; 4 in basin-to-lane handoff neighbourhood; 6 s GATE quiet window |
+| **Values** | 6.5 in low GOAL-front/Archway guard; 4 in basin-to-lane handoff neighbourhood; 0.4 s GATE quiet window |
 | **Location** | `decodeAssemblies.ts`, `decode.ts`, `conveyor.ts`, `matchSimulation.ts` |
 | **Decision** | A GOAL has a complete low physical face for ground objects and a separate elevated funnel path only after a valid high GOAL entry. |
 
@@ -1943,10 +1943,33 @@ tiles, white field tape, translucent alliance BASE/return tape, colored gate
 markings, and filled GOAL/classifier assemblies. Region fills, collision boxes,
 and labels remain debug-only, so these markings are not evidence of a collider.
 
+### 10.26 Classifier public-boundary rejection and short GATE timing
+
+| | |
+|---|---|
+| **Source** | User-observed simulator behaviour; DECODE Manual §9.8.3 establishes a gravity-closed robot GATE but not a time constant |
+| **Location** | `conveyor.ts`, `decode.ts`, `snapshot.ts` |
+| **Decision** | A lane's public footprint rejects unauthorised floor balls at its nearest edge; DECODE's quiet GATE window is 0.4 s and can restart only for a real leading lane ball at a held arm. |
+
+The old classifier guard used one fixed coordinate beside the GOAL. That point
+could itself become a visible accumulation site. The generic
+`blocksInboundLane` boundary now returns a loose, unauthorised piece beyond the
+nearest edge of the declared lane instead. A ballistic transfer is explicitly
+marked in the world snapshot until it reaches the ordinary high GOAL membership
+event, so its projected top-down path is not mistakenly rejected; after that
+event it is an accepted, normal physical ball.
+
+The requested 0.4 s GATE window replaces the previous six-second estimate. It
+closes an idle gate promptly. A normal lane ball within two of its own radii of
+the gate-side lane end may reopen a held gate, which prevents a closed arm from
+pinning the first ball. This is generic lane geometry based on the piece radius,
+not a DECODE coordinate or a drivetrain change.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-28 | Replaced the fixed classifier-intruder reject coordinate with a nearest-edge generic lane boundary, marked in-flight deterministic transfers in snapshots so they retain legitimate GOAL access, and set the DECODE GATE quiet window to 0.4 s with leading-ball re-open protection. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |

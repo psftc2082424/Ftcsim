@@ -100,6 +100,12 @@ export interface PieceSnapshot {
   /** Off the floor — in flight, or bouncing. */
   readonly airborne: boolean;
   /**
+   * A deterministic shot is travelling to its declared field destination.
+   * Field mechanisms use this only to avoid rejecting its projected 2D path
+   * before the normal high-entry membership event can authorise it.
+   */
+  readonly transferring?: boolean | undefined;
+  /**
    * Robot carrying this piece, or `null` when it is loose on the field.
    *
    * Authoritative: a carried piece is held by a mechanism rather than merely
