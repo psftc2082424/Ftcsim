@@ -551,6 +551,7 @@ export class SimWorld {
     piece.transferring = false;
     piece.supportedByField = false;
     this.settlePiece(piece, positionM);
+    this.cachedSnapshot = null;
   }
 
   /**

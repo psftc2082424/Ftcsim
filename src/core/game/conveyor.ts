@@ -83,12 +83,12 @@ export interface PieceConveyorSpec {
   /** Zone a released piece travels through under its own, real motion. */
   readonly exitZoneId: string;
   /**
-   * Reject loose pieces that try to enter this exit from its public end.
+   * Reject loose pieces that try to enter this exit from any public edge.
    *
    * A season uses this for a one-way chute or tunnel: pieces this conveyor
-   * released travel out normally, but an unrelated loose piece cannot roll the
-   * reverse path into the mechanism. Omitted leaves an ordinary bidirectional
-   * floor zone.
+   * released travel out normally, but an unrelated loose piece cannot enter
+   * from its end or a long field-facing edge. Omitted leaves an ordinary
+   * bidirectional floor zone.
    */
   readonly blocksInboundExit?: boolean | undefined;
   /**
@@ -485,9 +485,9 @@ export class PieceConveyors {
   /**
    * Enforce a data-declared one-way exit without creating a season-specific
    * collision hack. The ordinary release path is authorised by piece id; an
-   * unrelated loose piece crossing the public mouth against the exit velocity
-   * is returned just outside it. This is a gameplay constraint, not a force
-   * model, and is the same for any season's chute, return lane, or tunnel.
+   * unrelated loose piece cannot occupy the passage from any public edge.
+   * This is a gameplay constraint, not a force model, and is the same for any
+   * season's chute, return lane, or tunnel.
    */
   private blockInboundExit(
     spec: PieceConveyorSpec,
@@ -497,25 +497,10 @@ export class PieceConveyors {
     world: ConveyorWorld,
   ): void {
     if (spec.blocksInboundExit !== true) return;
-    const speed = Math.hypot(spec.exitVelocityMps.x, spec.exitVelocityMps.y);
-    if (speed < 1e-9) return;
-
-    const direction = vec2(spec.exitVelocityMps.x / speed, spec.exitVelocityMps.y / speed);
-    const publicMouth = farEndOf(places.exit, places.queue.centerM);
     for (const piece of snapshot.pieces) {
       if (piece.heldByRobotId !== null || state.released.has(piece.pieceId)) continue;
       if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
-      const alongExit = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
-      // Only stop motion into the tunnel. A loose piece already rolling out
-      // with the allowed direction remains an ordinary physical piece.
-      if (alongExit >= 0) continue;
-      world.blockPiece(
-        piece.pieceId,
-        vec2(
-          publicMouth.x + direction.x * piece.radiusM,
-          publicMouth.y + direction.y * piece.radiusM,
-        ),
-      );
+      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.exit, piece.pose.p, piece.radiusM));
     }
   }
 
@@ -807,6 +792,38 @@ export function farEndOf(place: Shaped, referenceM: Vec2): Vec2 {
   const b = slotPointAtEdge(place, 1);
   const distanceTo = (p: Vec2): number => Math.hypot(p.x - referenceM.x, p.y - referenceM.y);
   return distanceTo(a) >= distanceTo(b) ? a : b;
+}
+
+/**
+ * Put an unauthorised body immediately outside the closest public edge of a
+ * declared one-way exit. Unlike a velocity-only test, this also blocks a ball
+ * pushed through a tunnel's long field-facing side while its gate is open.
+ */
+function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {
+  const clearanceM = Math.max(0, radiusM) + 1e-6;
+  if (place.shape.kind === 'circle') {
+    const dx = positionM.x - place.centerM.x;
+    const dy = positionM.y - place.centerM.y;
+    const distance = Math.hypot(dx, dy);
+    const direction = distance > 1e-9 ? vec2(dx / distance, dy / distance) : vec2(1, 0);
+    return vec2(
+      place.centerM.x + direction.x * (place.shape.radius + clearanceM),
+      place.centerM.y + direction.y * (place.shape.radius + clearanceM),
+    );
+  }
+
+  const vertices = place.shape.vertices;
+  const minX = Math.min(...vertices.map((vertex) => vertex.x));
+  const maxX = Math.max(...vertices.map((vertex) => vertex.x));
+  const minY = Math.min(...vertices.map((vertex) => vertex.y));
+  const maxY = Math.max(...vertices.map((vertex) => vertex.y));
+  const nearest = [
+    { distance: Math.abs(positionM.x - minX), point: vec2(minX - clearanceM, positionM.y) },
+    { distance: Math.abs(maxX - positionM.x), point: vec2(maxX + clearanceM, positionM.y) },
+    { distance: Math.abs(positionM.y - minY), point: vec2(positionM.x, minY - clearanceM) },
+    { distance: Math.abs(maxY - positionM.y), point: vec2(positionM.x, maxY + clearanceM) },
+  ].reduce((best, candidate) => candidate.distance < best.distance ? candidate : best);
+  return nearest.point;
 }
 
 function slotPointAtEdge(place: Shaped, sign: -1 | 1): Vec2 {

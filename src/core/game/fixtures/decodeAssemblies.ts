@@ -89,20 +89,13 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
   const fullTop = GOAL.heightIn.value;
   const lipTop = GOAL.topLipHeightIn.value;
 
-  // The rendered GOAL face is complete. The high collision face stops at the
-  // raised Archway throat, while a separate full-length low guard keeps every
-  // floor object out. An accepted ARTIFACT rides above that guard and follows
-  // the real funnel into the classifier instead of colliding with a fake flat
-  // wall at the throat.
+  // The rendered GOAL face is complete. Its full-length low guard keeps every
+  // floor object out, while an accepted elevated ARTIFACT follows the open
+  // Archway funnel. There is intentionally no short upper panel at the throat:
+  // the CAD-equivalent raised guide/rails already contain the ball there, and
+  // the former 2D fragment snagged otherwise valid GOAL-to-classifier flow.
   const faceStart = { x: side * (half - goalWidth), y: half };
   const fullFaceEnd = { x: side * half, y: half - goalDepth };
-  const faceFraction = (half - archMaxY) / goalDepth;
-  const faceEnd = {
-    x: faceStart.x + faceFraction * (fullFaceEnd.x - faceStart.x),
-    y: archMaxY,
-  };
-  const faceDx = faceEnd.x - faceStart.x;
-  const faceDy = faceEnd.y - faceStart.y;
   const fullFaceDx = fullFaceEnd.x - faceStart.x;
   const fullFaceDy = fullFaceEnd.y - faceStart.y;
 
@@ -177,20 +170,6 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
         collider: collider(bodyIds[8]!, 0, GOAL_ARCH_GROUND_GUARD_TOP_IN),
         semanticIds: goalSemantic,
       },
-      {
-        id: `${goalPrefix}-front-collision-face`,
-        geometry: obb(
-          Math.hypot(faceDx, faceDy),
-          wall,
-          (faceStart.x + faceEnd.x) / 2,
-          (faceStart.y + faceEnd.y) / 2,
-          Math.atan2(faceDy, faceDx),
-        ),
-        material: 'metal',
-        elevation: { bottom: inchesToMeters(GOAL_ARCH_GROUND_GUARD_TOP_IN), top: inchesToMeters(lipTop) },
-        collider: collider(bodyIds[2]!, GOAL_ARCH_GROUND_GUARD_TOP_IN, lipTop),
-        semanticIds: goalSemantic,
-      },
       // The ramp surface connects the GOAL basin, classifier, and tunnel
       // visually, while rails alone are collision bodies.
       {
@@ -252,7 +231,7 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
       {
         id: `${goalPrefix}-secret-tunnel`,
         geometry: obb(ZONES.secretTunnelWidthIn.value, ZONES.secretTunnelLengthIn.value, side * (half - ZONES.secretTunnelWidthIn.value / 2), tunnelCentreY),
-        material: 'tape',
+        material: 'alliance-tape',
         elevation: { bottom: 0, top: 0 },
         semanticIds: [`${alliance}-secret-tunnel`],
       },

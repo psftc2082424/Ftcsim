@@ -119,4 +119,42 @@ describe('classifier storage integration', () => {
     expect(loose.heldByRobotId).toBeNull();
     expect(sim.score.red).toBe(0);
   });
+
+  it('keeps an open GATE one-way at the field-facing SECRET TUNNEL edge', () => {
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const tunnel = DECODE_FIELD_ZONES.find((zone) => zone.id === DECODE_ZONES.blueSecretTunnel);
+    if (tunnel?.shape.kind !== 'poly') throw new Error('blue SECRET TUNNEL missing');
+    const minX = Math.min(...tunnel.shape.vertices.map((vertex) => vertex.x));
+    const maxX = Math.max(...tunnel.shape.vertices.map((vertex) => vertex.x));
+    const fieldFacingX = Math.abs(minX) < Math.abs(maxX) ? minX : maxX;
+    const fieldDirection = Math.sign(fieldFacingX);
+
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        alliance: 'red',
+        controller: constantController(NEUTRAL_INPUT),
+        startPose: { p: vec2(inchesToMeters(gate[0]), inchesToMeters(gate[1])), theta: 0 },
+      }],
+      pieces: [{
+        pieceId: 'intruder',
+        pieceType: 'P',
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
+        massLb: 0.3,
+        // Start just inside the long edge a robot can reach from the field.
+        startPositionM: vec2(fieldFacingX + fieldDirection * inchesToMeters(0.5), tunnel.centerM.y),
+      }],
+    });
+
+    sim.step();
+
+    const intruder = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'intruder');
+    if (intruder === undefined) throw new Error('intruder missing');
+    expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
+    // It is returned to the field side rather than allowed to use the open
+    // GATE/tunnel as a reverse entrance.
+    expect(fieldDirection * intruder.pose.p.x).toBeLessThan(fieldDirection * fieldFacingX);
+    expect(sim.score.red).toBe(0);
+  });
 });

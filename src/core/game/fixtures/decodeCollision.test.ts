@@ -51,10 +51,10 @@ describe('DECODE collision classification', () => {
   it('models a hollow GOAL, physical classifier rails, and live gate colliders', () => {
     const field = createDecodeField();
 
-    // Four perimeter walls, an elevation-split full GOAL face, a continuous
+    // Four perimeter walls, a complete low GOAL face, a continuous
     // outer rail, two inner-rail segments, a low elevated-arch guard per
     // alliance, and two live gates. The taped tunnel has no wall bodies.
-    expect(field.bodies).toHaveLength(22);
+    expect(field.bodies).toHaveLength(20);
     expect(classified('red-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('blue-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('red-ramp-assembly').hasCollisionBody).toBe(true);
@@ -84,7 +84,7 @@ describe('DECODE collision classification', () => {
       .flatMap((assembly) => assembly.parts)
       .filter((part) => part.collider !== undefined && part.geometry.kind === 'obb');
 
-    expect(colliderParts).toHaveLength(18);
+    expect(colliderParts).toHaveLength(16);
     for (const part of colliderParts) {
       const body = field.bodies.find((candidate) => candidate.id === part.collider?.id);
       expect(body).toBeDefined();

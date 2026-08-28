@@ -1865,9 +1865,10 @@ raised ramp surface, rails, and a live GATE in one assembly.  This avoids
 deriving an obstacle from a scoring region or inferring visual material from
 collider thickness.
 
-The SECRET TUNNEL remains a passable taped zone per the manual; its neutral
-return surface is part of the same presentation assembly but deliberately has
-no collider.  Normal Play renders only these physical/tape structures. Rule
+The SECRET TUNNEL remains a passable taped zone per the manual; its
+alliance-taped return surface is part of the same presentation assembly but
+deliberately has no collider. Normal Play renders the physical structures plus
+real white/alliance field tape. Rule
 regions, collision envelopes, labels, and authoring outlines are behind the
 off-by-default **Debug field geometry** toggle.  The renderer never assigns an
 alliance colour simply because an object sits on one side of the field; only
@@ -1884,10 +1885,13 @@ real tape/material data may do so.
 
 The STEP CAD shows that the GOAL, Archway, classifier, and return are one
 raised assembly; they cannot be represented as an ordinary open floor polygon.
-The canonical projection therefore draws the complete front panel, uses a
-full-length low guard from the TILE to 6.5 in, and ends the upper collision face
-at the raised Archway. A robot and a loose floor ARTIFACT overlap the low guard
-and cannot cross the apparent top-down gap. A legitimate shot clears the
+The canonical projection therefore draws the complete front panel and uses a
+full-length low guard from the TILE to 6.5 in. There is no short upper 2D
+collision panel at the elevated Archway throat: that fragment was not a CAD
+wall and snagged otherwise valid accepted balls. The raised basin guide and
+classifier rails provide the actual contained path. A robot and a loose floor
+ARTIFACT overlap the low guard and cannot cross the apparent top-down gap. A
+legitimate shot clears the
 published 38.75 in lip, produces the ordinary high GOAL membership event, and
 is then captured by the receiving basin. Its transfer flag is cleared there:
 from that moment it is a normal colliding ball, guided only by the declared
@@ -1910,10 +1914,40 @@ re-arms the same returned ARTIFACT for a new legitimate scoring cycle. This
 preserves events → rules → scoring and avoids a once-per-piece rule that would
 incorrectly prevent a recirculated ball from being shot again.
 
+### 10.25 One-way SECRET TUNNEL admission and normal field presentation
+
+| | |
+|---|---|
+| **Source** | DECODE Competition Manual §9.3; Event FIELD Setup Guide §9; dSim's directional return behaviour |
+| **Location** | `conveyor.ts`, `decodeAssemblies.ts`, `fieldRenderer.ts` |
+| **Decision** | A declared one-way exit authorises only pieces released by its conveyor; normal Play renders real tape/material markings without diagnostic envelopes. |
+
+The GATE controls the release of an already contained classifier ARTIFACT; it
+does not create a bidirectional hole into the return. `blocksInboundExit`
+therefore rejects any non-released loose piece found in the SECRET TUNNEL from
+the nearest public boundary, regardless of its velocity or whether the GATE is
+open. This closes both the end and the long field-facing edge while leaving an
+authorised, still-physical conveyor release untouched. It is a reusable
+gameplay-access rule for any declared one-way chute, not a DECODE-specific
+force or collision exception.
+
+The former short upper GOAL-throat collider has been removed from the shared
+assembly because it created a nonphysical snag inside the accepted elevated
+path. The complete low guard still closes the GOAL to robots and ground balls;
+the GOAL basin and classifier rails remain the visible, physical guide for a
+valid elevated entry. No classifier slots, placement, teleport, or drivetrain
+change was introduced.
+
+Normal Play separately paints the actual DECODE presentation layer: dark
+tiles, white field tape, translucent alliance BASE/return tape, colored gate
+markings, and filled GOAL/classifier assemblies. Region fills, collision boxes,
+and labels remain debug-only, so these markings are not evidence of a collider.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
 | 2026-08-27 | Narrowed the DECODE classifier from a 6 in placeholder to the shared 5.0 in single-file clear width (4.9 in ARTIFACT plus 0.1 in dSim-derived clearance), and added G416's requested per-launch 5-point MINOR FOUL as a generic `PieceLaunched` event/rule. |

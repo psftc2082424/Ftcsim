@@ -101,6 +101,13 @@ export function renderFrame(
 
   drawField(ctx, camera, field, options.showGrid, overlay?.openConveyorIds);
 
+  // Match markings are physical tape/material presentation, not authoring
+  // geometry. DECODE keeps them visible in Play while diagnostic bounds remain
+  // behind the explicit Debug field geometry control.
+  if (overlay !== undefined && field.id === 'ftc-decode-2025-26') {
+    drawOverlay(ctx, camera, overlay, false, true, true);
+  }
+
   // Under the entities: game geometry is markings on the floor, and a robot
   // standing on a zone should be drawn over it.
   if (overlay !== undefined && options.showGameGeometry !== false) {
@@ -129,17 +136,27 @@ function drawOverlay(
   overlay: FieldOverlay,
   showLabels: boolean,
   decodePresentation: boolean,
+  presentationOnly = false,
 ): void {
   const openConveyorIds = overlay.openConveyorIds ?? EMPTY_OPEN_SET;
   for (const shaped of [...overlay.regions, ...overlay.zones]) {
     const kind = presentationKind(shaped.id);
+    if (presentationOnly && kind === 'zone') continue;
     // The raised RAMP is rendered from its physical fixture body. The GOAL is
     // different: its rule region is the exact triangular open basin, so using
     // it for the filled plan view is both more legible and faithful to the
     // physical outline. Generic structure rectangles remain hidden.
     if (decodePresentation && kind === 'structure' && shaped.id.endsWith('-ramp')) continue;
     const allianceColor = shaped.id.startsWith('red-') ? COLORS.redEdge : shaped.id.startsWith('blue-') ? COLORS.blueEdge : COLORS.regionEdge;
-    ctx.fillStyle = kind === 'goal' ? (shaped.id.startsWith('red-') ? '#4f1414' : '#14235a') : COLORS.regionFill;
+    const isAllianceBase = shaped.id.endsWith('-base');
+    const isLaunchZone = shaped.id.endsWith('-launch-zone');
+    ctx.fillStyle = kind === 'goal'
+      ? (shaped.id.startsWith('red-') ? '#4f1414' : '#14235a')
+      : isAllianceBase
+        ? (shaped.id.startsWith('red-') ? 'rgba(226, 52, 72, 0.16)' : 'rgba(23, 114, 208, 0.16)')
+        : isLaunchZone
+          ? 'rgba(178, 196, 208, 0.12)'
+          : COLORS.regionFill;
     ctx.strokeStyle = allianceColor;
     ctx.lineWidth = kind === 'tape' ? 3 : kind === 'structure' || kind === 'goal' ? 2.5 : 1.5;
 
@@ -153,7 +170,7 @@ function drawOverlay(
         0,
         Math.PI * 2,
       );
-      if (kind !== 'tape') ctx.fill();
+      if (kind !== 'tape' || (presentationOnly && (isAllianceBase || isLaunchZone))) ctx.fill();
       ctx.stroke();
     } else {
       const vertices = shaped.shape.vertices;
@@ -171,7 +188,7 @@ function drawOverlay(
       }
 
       if (decodePresentation && shaped.id.includes('gate-zone')) {
-        drawGate(ctx, camera, shaped, allianceColor, isConveyorOpenFor(shaped.id, openConveyorIds));
+        drawGate(ctx, camera, shaped, allianceColor, isConveyorOpenFor(shaped.id, openConveyorIds), !presentationOnly);
         continue;
       }
 
@@ -193,7 +210,7 @@ function drawOverlay(
         else ctx.lineTo(sx, sy);
       });
       ctx.closePath();
-      if (kind !== 'tape') ctx.fill();
+      if (kind !== 'tape' || (presentationOnly && (isAllianceBase || isLaunchZone))) ctx.fill();
       ctx.stroke();
 
       if (kind === 'goal' || kind === 'structure') {
@@ -250,6 +267,7 @@ function drawGate(
   shaped: FieldRegion | FieldZone,
   allianceColor: string,
   isOpen: boolean,
+  drawArm: boolean,
 ): void {
   if (shaped.shape.kind !== 'poly') return;
   const vertices = shaped.shape.vertices;
@@ -278,6 +296,11 @@ function drawGate(
     ctx.moveTo(worldToScreenX(camera, minX), worldToScreenY(camera, y));
     ctx.lineTo(worldToScreenX(camera, maxX), worldToScreenY(camera, y));
     ctx.stroke();
+  }
+
+  if (!drawArm) {
+    ctx.restore();
+    return;
   }
 
   // Hinged at the classifier edge: a long paddle covers the channel and a
@@ -534,17 +557,27 @@ function assemblyStyle(part: FieldAssemblyPart, gateOpen: boolean): {
   if (part.collider?.tag !== undefined) {
     return gateOpen
       ? { fill: '#dce3e8', stroke: '#8c9aa5', lineWidth: 1, alpha: 0.3 }
-      : { fill: '#c6cdd2', stroke: '#f6f8fa', lineWidth: 1.75, alpha: 1 };
+      : { fill: '#c6cdd2', stroke: '#f6f8fa', lineWidth: 4.5, alpha: 1 };
+  }
+  if (part.id.endsWith('-basin')) {
+    return part.id.startsWith('red-')
+      ? { fill: '#4f1414', stroke: COLORS.redEdge, lineWidth: 1.35, alpha: 0.96 }
+      : { fill: '#14235a', stroke: COLORS.blueEdge, lineWidth: 1.35, alpha: 0.96 };
   }
   switch (part.material) {
     case 'metal': return { fill: '#b9c3cb', stroke: '#eef2f4', lineWidth: 1.35, alpha: 1 };
     case 'panel': return { fill: '#7b8791', stroke: '#cbd3d9', lineWidth: 1.1, alpha: 0.92 };
     case 'ramp': return { fill: '#65747f', stroke: '#aebbc4', lineWidth: 1, alpha: 0.9 };
-    // The secret-tunnel tape is not a wall, but it needs a legible neutral
+    // The secret-tunnel tape is not a wall, but it needs a legible alliance
     // return surface so the GOAL → classifier → tunnel assembly reads as one
     // connected structure in normal Play.
     case 'tape': return { fill: '#3b4852', stroke: '#d5dde1', lineWidth: 1.1, alpha: 0.94 };
-    case 'alliance-tape': return { fill: '#3b4852', stroke: '#d5dde1', lineWidth: 1.1, alpha: 0.94 };
+    case 'alliance-tape': {
+      const red = part.id.startsWith('red-');
+      return red
+        ? { fill: 'rgba(226, 52, 72, 0.20)', stroke: COLORS.redEdge, lineWidth: 1.3, alpha: 1 }
+        : { fill: 'rgba(23, 114, 208, 0.20)', stroke: COLORS.blueEdge, lineWidth: 1.3, alpha: 1 };
+    }
     case 'floor': return { fill: '#263442', stroke: '#415363', lineWidth: 1, alpha: 1 };
   }
 }

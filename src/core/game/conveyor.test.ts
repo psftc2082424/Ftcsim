@@ -603,7 +603,7 @@ describe('letting pieces out', () => {
 });
 
 describe('one-way exits', () => {
-  it('rejects a loose piece trying to enter a declared one-way exit backwards', () => {
+  it('rejects a loose piece from every public edge of a declared one-way exit', () => {
     const oneWay: PieceConveyorSpec = { ...SPEC, blocksInboundExit: true };
     const publicMouth = farEndOf(EXIT, QUEUE.centerM);
     const positions = new Map([['intruder', publicMouth]]);
@@ -613,12 +613,17 @@ describe('one-way exits', () => {
     const snapshot = world.snapshot(0);
     const piece = snapshot.pieces[0];
     if (piece === undefined) throw new Error('piece missing');
-    // Make it head toward the queue, opposite this test chute's +Y exit.
-    const inbound = { ...snapshot, pieces: [{ ...piece, vel: { v: vec2(0, -1), omega: 0 } }] };
-    conveyors.update(inbound, 0, world);
+    conveyors.update(snapshot, 0, world);
 
     expect(world.blocked.get('intruder')).toBeDefined();
-    expect(world.blocked.get('intruder')?.y ?? Infinity).toBeGreaterThan(publicMouth.y);
+    expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y);
+
+    // A ball pushed through the long field-facing wall is blocked too. This
+    // is the path a velocity-only check missed when a live gate was open.
+    const sideIntruder = new FakeWorld(new Map([['side', vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y)]]));
+    conveyors.update(sideIntruder.snapshot(1), 1, sideIntruder);
+    expect(sideIntruder.blocked.get('side')).toBeDefined();
+    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity).toBeGreaterThan(EXIT.centerM.x);
   });
 
   it('does not block a piece the conveyor itself released', () => {

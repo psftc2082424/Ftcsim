@@ -925,3 +925,34 @@ shoot; then Phase 4 (PDF ingestion).
   browser-playtest a real driver cycle through GOAL capture, nine-ball packing,
   timed GATE drain, and return; if geometry differs from the physical field,
   change the canonical STEP-CAD assembly data—not renderer-only lines.
+
+### Latest handoff — 2026-08-28 (sealed return entrance and restored DECODE presentation)
+
+- **SECRET TUNNEL access is now truly one-way, including with the GATE open.**
+  `PieceConveyors` authorises only ARTIFACTs released by a declared conveyor in
+  its return zone. Any other loose ball crossing the public end *or either long
+  edge* is returned just outside the nearest boundary. This is generic
+  `blocksInboundExit` behaviour; it does not alter ball collision response,
+  drivetrain, or an authorised physical release.
+- **The GOAL-to-classifier snag was removed at the canonical source.** The
+  short upper `front-collision-face` was an erroneous 2D throat fragment. The
+  full low GOAL/Archway guard remains, so robots and floor balls remain blocked;
+  valid elevated, accepted balls continue through the basin and physical rails
+  without the artificial obstruction. Static assembly collision bodies are now
+  **20**, with **16** collider-backed canonical parts.
+- **Normal Play again has field presentation rather than authoring overlays:**
+  dark tiles, white tape, translucent red/blue BASE and tunnel tape, filled
+  goal basins, and colored GATE markings. Debug regions/collision envelopes are
+  still exclusively behind **Debug field geometry** (default off). The
+  renderer consumes canonical assembly material metadata, not collision-box
+  styling.
+- `SimWorld.releasePiece` now invalidates its snapshot cache, so same-tick
+  conveyor access corrections are observable consistently by both gameplay and
+  tests.
+- Verification: `npm run verify` passed: TypeScript, ESLint, and **982 tests
+  across 48 files**. Focused one-way tunnel, canonical-collider, classifier,
+  and renderer regressions also pass. Browser inspection at local Play confirmed
+  the clean marking view with debug disabled. **Next priority:** use the same
+  canonical assembly route for any future goal/tunnel change—do not add
+  renderer-only field lines, direct classifier placement, or alter the
+  drivetrain.
