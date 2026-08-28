@@ -32,6 +32,13 @@ const CLASSIFIER_ARCH_CENTRE_Y_IN = 57;
 const CLASSIFIER_ARCH_OPENING_LENGTH_IN = 14;
 const CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN = 10;
 const CLASSIFIER_GATE_BLOCKING_TOP_IN = CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN + 2.5;
+/**
+ * Ground-level Goal Archway blocker. Its top is deliberately below the
+ * 10-in classifier-ball surface minus an ARTIFACT radius, so a contained
+ * elevated ball can roll through the real arch while a robot or floor ball
+ * cannot use the same top-down footprint as an ordinary entrance.
+ */
+const GOAL_ARCH_GROUND_GUARD_TOP_IN = 6.5;
 
 /** Red's physical target is at +X, blue's at -X (the CAD's mirrored corners). */
 function goalSide(alliance: DecodeAssemblyAlliance): number {
@@ -82,14 +89,22 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
   const fullTop = GOAL.heightIn.value;
   const lipTop = GOAL.topLipHeightIn.value;
 
-  // The field-facing GOAL panel ends at the classifier throat.  The diagonal
-  // length and angle come from its CAD-projected endpoints, not a region box.
+  // The rendered GOAL face is complete. The high collision face stops at the
+  // raised Archway throat, while a separate full-length low guard keeps every
+  // floor object out. An accepted ARTIFACT rides above that guard and follows
+  // the real funnel into the classifier instead of colliding with a fake flat
+  // wall at the throat.
   const faceStart = { x: side * (half - goalWidth), y: half };
-  const innerX = side * (half - channel - wall / 2);
-  const fraction = Math.abs(innerX - side * (half - goalWidth)) / goalWidth;
-  const faceEnd = { x: innerX, y: half + fraction * ((half - goalDepth) - half) };
+  const fullFaceEnd = { x: side * half, y: half - goalDepth };
+  const faceFraction = (half - archMaxY) / goalDepth;
+  const faceEnd = {
+    x: faceStart.x + faceFraction * (fullFaceEnd.x - faceStart.x),
+    y: archMaxY,
+  };
   const faceDx = faceEnd.x - faceStart.x;
   const faceDy = faceEnd.y - faceStart.y;
+  const fullFaceDx = fullFaceEnd.x - faceStart.x;
+  const fullFaceDy = fullFaceEnd.y - faceStart.y;
 
   const tunnelCentreY = -2 - ZONES.secretTunnelLengthIn.value / 2;
   const goalPrefix = `${alliance}-goal-classifier`;
@@ -132,7 +147,38 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
         semanticIds: goalSemantic,
       },
       {
-        id: `${goalPrefix}-front-panel`,
+        id: `${goalPrefix}-front-skin`,
+        geometry: obb(
+          Math.hypot(fullFaceDx, fullFaceDy),
+          wall,
+          (faceStart.x + fullFaceEnd.x) / 2,
+          (faceStart.y + fullFaceEnd.y) / 2,
+          Math.atan2(fullFaceDy, fullFaceDx),
+        ),
+        material: 'metal',
+        elevation: { bottom: 0, top: inchesToMeters(lipTop) },
+        semanticIds: goalSemantic,
+      },
+      // The CAD's front lip is solid for a robot or a floor-level ARTIFACT
+      // over its entire diagonal length.  Keeping that low physical face
+      // separate from the open high funnel gives the 2.5D simulation the same
+      // access rule without a normal top-down hole.
+      {
+        id: `${goalPrefix}-front-ground-guard`,
+        geometry: obb(
+          Math.hypot(fullFaceDx, fullFaceDy),
+          wall,
+          (faceStart.x + fullFaceEnd.x) / 2,
+          (faceStart.y + fullFaceEnd.y) / 2,
+          Math.atan2(fullFaceDy, fullFaceDx),
+        ),
+        material: 'metal',
+        elevation: { bottom: 0, top: inchesToMeters(GOAL_ARCH_GROUND_GUARD_TOP_IN) },
+        collider: collider(bodyIds[8]!, 0, GOAL_ARCH_GROUND_GUARD_TOP_IN),
+        semanticIds: goalSemantic,
+      },
+      {
+        id: `${goalPrefix}-front-collision-face`,
         geometry: obb(
           Math.hypot(faceDx, faceDy),
           wall,
@@ -141,8 +187,8 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
           Math.atan2(faceDy, faceDx),
         ),
         material: 'metal',
-        elevation: { bottom: 0, top: inchesToMeters(lipTop) },
-        collider: collider(bodyIds[2]!, 0, lipTop),
+        elevation: { bottom: inchesToMeters(GOAL_ARCH_GROUND_GUARD_TOP_IN), top: inchesToMeters(lipTop) },
+        collider: collider(bodyIds[2]!, GOAL_ARCH_GROUND_GUARD_TOP_IN, lipTop),
         semanticIds: goalSemantic,
       },
       // The ramp surface connects the GOAL basin, classifier, and tunnel
@@ -178,6 +224,18 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
         collider: collider(bodyIds[5]!, 0, fullTop),
         semanticIds: goalSemantic,
       },
+      // The Goal Archway is elevated in the real fixture. Project its lower
+      // blocking lip into 2D so the rail opening cannot be a ground-level
+      // shortcut, while an already-contained classifier ball at 10 in passes
+      // over it in the existing vertical-span collision test.
+      {
+        id: `${goalPrefix}-archway-ground-guard`,
+        geometry: obb(wall, archMaxY - archMinY, fieldRailX, (archMinY + archMaxY) / 2),
+        material: 'metal',
+        elevation: { bottom: 0, top: inchesToMeters(GOAL_ARCH_GROUND_GUARD_TOP_IN) },
+        collider: collider(bodyIds[6]!, 0, GOAL_ARCH_GROUND_GUARD_TOP_IN),
+        semanticIds: goalSemantic,
+      },
       {
         id: `${goalPrefix}-gate`,
         geometry: obb(channel + wall, 1, channelCentreX, 0.5),
@@ -186,7 +244,7 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
           bottom: 0,
           top: inchesToMeters(Math.max(CLASSIFIER.gateClosedMaxHeightIn.value, CLASSIFIER_GATE_BLOCKING_TOP_IN)),
         },
-        collider: collider(bodyIds[6]!, 0, Math.max(CLASSIFIER.gateClosedMaxHeightIn.value, CLASSIFIER_GATE_BLOCKING_TOP_IN), `${alliance}-classifier-gate`),
+        collider: collider(bodyIds[7]!, 0, Math.max(CLASSIFIER.gateClosedMaxHeightIn.value, CLASSIFIER_GATE_BLOCKING_TOP_IN), `${alliance}-classifier-gate`),
         semanticIds: [`${alliance}-gate-zone`],
       },
       // The SECRET TUNNEL is tape on the field, not a solid corridor.  It is
@@ -211,7 +269,8 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
 
 /**
  * Build both mirrored STEP-CAD assembly projections.  IDs deliberately match
- * the historic collision fixture (2100–2113) so save/replay determinism and
+ * the historic collision fixture (2100–2113) and append the two archway
+ * guards (2114–2115) and two full-front low guards (2116–2117), so save/replay determinism and
  * existing field-mechanism tags remain stable through this presentation pass.
  */
 export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BASE): readonly FieldAssembly[] {
@@ -226,7 +285,9 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 6,
       firstBodyId + 7,
       firstBodyId + 8,
+      firstBodyId + 14,
       firstBodyId + 12,
+      firstBodyId + 16,
     ]),
     goalClassifierAssembly('blue', [
       firstBodyId + 3,
@@ -235,7 +296,9 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 9,
       firstBodyId + 10,
       firstBodyId + 11,
+      firstBodyId + 15,
       firstBodyId + 13,
+      firstBodyId + 17,
     ]),
   ];
 }

@@ -162,8 +162,8 @@ export const TUNNEL_EXIT_SPEED_MPS = inferred(
 
 /** Time a pushed GATE stays open without a normal classifier ball passing it. */
 export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
-  4,
-  'The physical top-down lane needs about three seconds for a lone ARTIFACT at its GOAL-side inlet to reach the GATE under the 22 in/s governed roll. Four seconds admits that legitimate drain while still gravity-closing a quiet open gate; each real normal-lane release renews it, while elevated OVERFLOW does not.',
+  6,
+  'The physical GOAL basin plus top-down lane need about five seconds for a lone accepted ARTIFACT to reach the GATE under the 22 in/s governed roll. Six seconds admits that legitimate drain while still gravity-closing a quiet open gate; each real normal-lane release renews it, while elevated OVERFLOW does not.',
   72,
 );
 
@@ -244,35 +244,8 @@ export const CLASSIFIER_INBOUND_REJECT_POINT = inferred(
 
 /** Shared GOAL/ramp guide surface reaches the physical basin hand-off neighbourhood. */
 export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
-  inchesToMeters(2.5),
-  "A 5 in ARTIFACT must reach the physical GOAL/classifier arch before changing from basin to rail guidance; one radius gives contact-safe numerical clearance without boarding above the opening.",
-  72,
-);
-
-/**
- * Lane intake immediately below the GOAL arch.
- *
- * The STEP/dSim geometry is elevated while this simulator is top-down.  A
- * valid shot is placed at this intake only after it crossed the height-gated
- * GOAL opening; it then rolls the remaining 54 in down the actual physical
- * lane, rather than appearing in a stored classifier slot.
- */
-export const CLASSIFIER_LANE_ENTRY = inferred(
-  {
-    // The physical channel is one 4.9 in ARTIFACT plus 0.1 in running
-    // clearance wide, so this is its actual centreline rather than the old
-    // overly-wide placeholder centre.
-    xIn: FIELD.sideIn.value / 2 - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value / 2,
-    yIn: 54,
-  },
-  'dSim arch is centred at y = 57 in. The y = 54 in intake is one ball-radius below that arch, clear of the GOAL side-leg projection while still at the physical single-file classifier entrance.',
-  72,
-);
-
-/** Small initial downhill roll; the lane guide supplies the remaining slope effect. */
-export const CLASSIFIER_LANE_ENTRY_SPEED_MPS = inferred(
-  inchesToMeters(8),
-  'dSim-style observed gentle entry roll. This only starts an accepted ARTIFACT at the classifier inlet; the generic lane acceleration, contacts and live gate govern its remaining motion.',
+  inchesToMeters(4),
+  "The CAD-projected GOAL face and a 4.9 in ARTIFACT leave its centre roughly 3 in from the geometric arch centre when it is already inside the one-ball-wide channel. A 4 in threshold changes only its guide surface from basin to rail there; the body remains active and rolls the full lane.",
   72,
 );
 
@@ -435,16 +408,19 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
     blocksInboundExit: true,
-    // A scored ball is only placed at the *top* of the physical classifier
-    // lane, below the elevated GOAL arch.  It remains an active ball from
-    // here through the closed/open GATE and the SECRET TUNNEL; no classifier
-    // position or exit is kinematically assigned.
+    // A scored ball is first retained in the physical GOAL basin. It then
+    // rolls to the elevated arch and boards the classifier under the shared
+    // lane guide; nothing places it at a classifier position or tunnel exit.
     lane: {
-      entryPointM: vec2(
-        inchesToMeters(alliance === 'red' ? CLASSIFIER_LANE_ENTRY.value.xIn : -CLASSIFIER_LANE_ENTRY.value.xIn),
-        inchesToMeters(CLASSIFIER_LANE_ENTRY.value.yIn),
+      receivingBasin: true,
+      receivingBasinTargetM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_BASIN_THROAT.value.xIn : -CLASSIFIER_BASIN_THROAT.value.xIn),
+        inchesToMeters(CLASSIFIER_BASIN_THROAT.value.yIn),
       ),
-      entryVelocityMps: vec2(0, -CLASSIFIER_LANE_ENTRY_SPEED_MPS.value),
+      receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
+      receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
+      receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
+      receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
       inboundRejectPointM: vec2(
         inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
         inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),

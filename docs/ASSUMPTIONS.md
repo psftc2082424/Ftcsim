@@ -1821,7 +1821,7 @@ exception.
 
 | | |
 |---|---|
-| **Values** | 16 in overflow ball centre; 4 s DECODE quiet GATE window |
+| **Values** | 16 in overflow ball centre; 6 s DECODE quiet GATE window |
 | **Confidence** | **INFERRED** top-down collision projection; the manual establishes OVERFLOW and gravity-closed gate behaviour but not these timing/height values |
 | **Location** | `conveyor.ts`, `decode.ts`, `decodeCollision.ts` |
 
@@ -1838,8 +1838,9 @@ added.
 push. A touch starts the window, and only a normal-lane ball actually crossing
 the gate renews it. A served empty batch closes immediately; an untouched gate
 closes after the window even if the robot remains in the release zone. DECODE
-uses four seconds so one valid ball can roll from its GOAL-side inlet to the
-gate, while a robot cycling isolated shots cannot leave the gate open forever.
+uses six seconds so a valid ball can physically traverse the retained GOAL
+basin and classifier before the quiet timer expires, while a robot cycling
+isolated shots still cannot leave the gate open forever.
 OVERFLOW deliberately does not renew this window because it passes above the
 gate rather than through it.
 
@@ -1871,6 +1872,43 @@ regions, collision envelopes, labels, and authoring outlines are behind the
 off-by-default **Debug field geometry** toggle.  The renderer never assigns an
 alliance colour simply because an object sits on one side of the field; only
 real tape/material data may do so.
+
+### 10.24 Conditional elevated GOAL capture and archway access
+
+| | |
+|---|---|
+| **Source** | DECODE full-field STEP CAD goal-panel/Goal-Archway assemblies; Event FIELD Setup Guide §9; dSim `decode/colliders.ts` observable high-entry model |
+| **Values** | 6.5 in low GOAL-front/Archway guard; 4 in basin-to-lane handoff neighbourhood; 6 s GATE quiet window |
+| **Location** | `decodeAssemblies.ts`, `decode.ts`, `conveyor.ts`, `matchSimulation.ts` |
+| **Decision** | A GOAL has a complete low physical face for ground objects and a separate elevated funnel path only after a valid high GOAL entry. |
+
+The STEP CAD shows that the GOAL, Archway, classifier, and return are one
+raised assembly; they cannot be represented as an ordinary open floor polygon.
+The canonical projection therefore draws the complete front panel, uses a
+full-length low guard from the TILE to 6.5 in, and ends the upper collision face
+at the raised Archway. A robot and a loose floor ARTIFACT overlap the low guard
+and cannot cross the apparent top-down gap. A legitimate shot clears the
+published 38.75 in lip, produces the ordinary high GOAL membership event, and
+is then captured by the receiving basin. Its transfer flag is cleared there:
+from that moment it is a normal colliding ball, guided only by the declared
+basin/lane surfaces, rails, live GATE, restitution, and rolling loss. No ball
+is placed in a classifier slot, at a gate, or at a tunnel exit.
+
+The 6.5 in guard is inferred from the declared 10 in classifier ball-centre
+surface and the 2.45 in ARTIFACT radius: it remains below the contained ball's
+bottom while blocking all floor objects. The 4 in handoff is not a position
+assignment; it only changes which environmental guide acts after a ball has
+reached the physical throat. A full throat may hold an arriving basin ball at
+the target without normalising a zero vector; that guard prevents a NaN-driven
+stall.
+
+One accepted body can briefly overlap the high GOAL membership volume again
+while settling. This is not a second shot. `PieceConveyors` records the
+completed entry, and `MatchSimulation` leaves the duplicate event in the audit
+log but withholds it from rules/scoring. A later real `PieceLaunched` event
+re-arms the same returned ARTIFACT for a new legitimate scoring cycle. This
+preserves events → rules → scoring and avoids a once-per-piece rule that would
+incorrectly prevent a recirculated ball from being shot again.
 
 ## 11. Revision log
 

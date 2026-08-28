@@ -283,6 +283,37 @@ export class PieceConveyors {
     return [...(this.states.get(conveyorId)?.basin ?? [])];
   }
 
+  /**
+   * Has this piece already completed this conveyor's declared entry?
+   *
+   * A retained physical body can brush the elevated entry volume again while
+   * it settles in the receiving basin. That is not a second field arrival:
+   * its first transition has already been observed, scored, and admitted.
+   */
+  hasAcceptedEntry(pieceId: string, regionId: string): boolean {
+    return this.specs.some((spec) =>
+      spec.entryRegionId === regionId && this.states.get(spec.id)?.taken.has(pieceId) === true,
+    );
+  }
+
+  /**
+   * A new declared launch starts a fresh visit to a field mechanism.
+   *
+   * This does not move a body or grant an entry. It merely clears stale
+   * bookkeeping after an ARTIFACT has returned to the field and is later
+   * collected and legitimately shot again.
+   */
+  rearmPiece(pieceId: string): void {
+    for (const state of this.states.values()) {
+      state.taken.delete(pieceId);
+      state.basin.delete(pieceId);
+      state.overflow.delete(pieceId);
+      state.released.delete(pieceId);
+      const index = state.queue.indexOf(pieceId);
+      if (index >= 0) state.queue.splice(index, 1);
+    }
+  }
+
   /** Is this conveyor's way out currently open, including a latched release? */
   isOpen(conveyorId: string, snapshot: WorldSnapshot): boolean {
     const spec = this.specs.find((candidate) => candidate.id === conveyorId);
@@ -618,6 +649,20 @@ export class PieceConveyors {
       if (distance <= handoffDistance && laneEntryClear) {
         state.basin.delete(pieceId);
         state.queue.push(pieceId);
+        continue;
+      }
+      // A full single-file throat can legitimately make a basin ball wait at
+      // its target until the preceding ball has rolled away. Do not normalize
+      // a zero-length target vector in that state: NaN velocity would turn a
+      // physical queue into a permanent invisible stall.
+      if (distance <= 1e-9) {
+        world.guidePiece(
+          pieceId,
+          vec2(0, 0),
+          lane.receivingBasinHeightM,
+          lane.surfaceHeightRateMps,
+          lane.receivingBasinVelocityDampingPerSec,
+        );
         continue;
       }
       const alongSpeed = piece.vel.v.x * (dx / distance) + piece.vel.v.y * (dy / distance);

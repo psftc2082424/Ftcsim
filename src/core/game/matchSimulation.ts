@@ -260,6 +260,17 @@ export class MatchSimulation {
   private ingestAll(events: readonly SimEvent[]): void {
     for (const event of events) {
       this.eventLog.push(event);
+      if (event.kind === 'PieceLaunched') this.conveyors.rearmPiece(event.pieceId);
+      // A legitimate elevated entry is scored through its first ordinary
+      // membership transition. Once the conveyor has captured that physical
+      // body, a later overlap with the same high GOAL volume is settling
+      // noise, not another shot. A later real `PieceLaunched` re-arms it.
+      if (
+        event.kind === 'PieceEnteredRegion' &&
+        this.conveyors.hasAcceptedEntry(event.pieceId, event.regionId)
+      ) {
+        continue;
+      }
       this.runner.ingest(event);
     }
   }

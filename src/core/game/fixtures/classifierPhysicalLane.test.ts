@@ -56,9 +56,11 @@ describe('classifier storage integration', () => {
       })),
     });
 
+    let sawCapturedBasin = false;
     let sawRollingDownClassifier = false;
     for (let i = 0; i < 700; i++) {
       sim.step();
+      if (sim.conveyors.inBasin('red-classifier').includes('a1')) sawCapturedBasin = true;
       const a1 = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'a1');
       if (a1 === undefined) continue;
       const yIn = metersToInches(meters(a1.pose.p.y));
@@ -72,7 +74,13 @@ describe('classifier storage integration', () => {
     // Keep the former diagnostic as a small, deterministic integration check:
     // a real launch enters the GOAL under its own flight, then transitions
     // into the declared classifier storage mechanism.
-    expect(sim.score.red).toBeGreaterThan(0);
+    // The first normal membership transition for each held-button launch
+    // scores. While either physical ball settles through the high GOAL basin
+    // it can touch that volume again, but that cannot create another
+    // CLASSIFIED award.
+    const launches = sim.events.filter((event) => event.kind === 'PieceLaunched');
+    expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(launches.length);
+    expect(sawCapturedBasin).toBe(true);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
     expect(sawRollingDownClassifier).toBe(true);
   });

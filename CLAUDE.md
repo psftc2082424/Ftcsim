@@ -885,3 +885,43 @@ shoot; then Phase 4 (PDF ingestion).
   shot → classifier → timed GATE → return cycle, then address any *actual*
   CAD-placement discrepancy in `decodeAssemblies.ts` rather than editing
   renderer-only lines.
+
+### Latest handoff — 2026-08-28 (conditional elevated GOAL capture)
+
+- **GOAL access is now elevation-aware and closed to normal field objects.**
+  `decodeAssemblies.ts` projects a complete visual front panel plus a complete
+  low physical front guard and Goal-Archway guard (`0–6.5 in`). Robots and
+  loose floor ARTIFACTS therefore cannot use the apparent 2D arch gap. The
+  upper collision face ends at the raised arch, allowing only a legitimately
+  high GOAL entry to follow the connected elevated funnel into the classifier.
+  The normal Play renderer remains clean—diagnostic geometry is still only
+  available behind **Debug field geometry**.
+- **No classifier placement or collision bypass was restored.** A valid shot
+  produces the regular high `PieceEnteredRegion` GOAL event, enters the generic
+  receiving basin, and then remains an active, colliding ARTIFACT under normal
+  basin/lane guidance, rails, GATE, restitution, and rolling loss. The direct
+  lane `entryPointM` hand-off has been removed. A zero-distance basin guard
+  prevents a full throat from producing a NaN velocity stall.
+- **Score lifecycle is explicit.** Once a conveyor admits a GOAL entry, any
+  transient re-overlap of that same high GOAL volume while the physical ball
+  settles is retained in the audit log but is not sent to scoring a second
+  time. A later real `PieceLaunched` re-arms the returned ARTIFACT, so a
+  legitimate recirculated shot can score again. This keeps the normal
+  events → rules → scoring path and avoids a blanket once-per-piece rule.
+- **GATE timing:** the quiet window is six seconds, long enough for a normal
+  ball to traverse the physically visible basin and lane; it still closes after
+  an empty drain and cannot be held open by cycling unrelated shots.
+- **Regression coverage:** `decodeCollision.test.ts` proves the canonical
+  collider counts and a loose floor ARTIFACT is physically stopped at the Goal
+  Archway; `classifierPhysicalLane.test.ts` proves each real launch produces
+  exactly one CLASSIFIED score while basin capture and visible lane travel both
+  occur; `decodeMatch.test.ts` proves nine physical balls pack end-to-end and
+  the tenth overflows. `npm run verify` is green: TypeScript, ESLint, and
+  **981 tests across 48 files**. Browser inspection at `127.0.0.1` confirmed
+  clean normal Play rendering with debug geometry OFF.
+- **Do not restore:** direct classifier slots, `entryPointM` lane placement,
+  per-ball collision exemptions, flywheel/RNG projectile systems, or any
+  drivetrain changes. **Next priority:** only after a fresh user request,
+  browser-playtest a real driver cycle through GOAL capture, nine-ball packing,
+  timed GATE drain, and return; if geometry differs from the physical field,
+  change the canonical STEP-CAD assembly data—not renderer-only lines.

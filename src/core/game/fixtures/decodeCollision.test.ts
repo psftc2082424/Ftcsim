@@ -51,10 +51,10 @@ describe('DECODE collision classification', () => {
   it('models a hollow GOAL, physical classifier rails, and live gate colliders', () => {
     const field = createDecodeField();
 
-    // Four perimeter walls, three GOAL boundaries per alliance, a continuous
-    // outer rail plus two inner-rail segments around the sole GOAL arch per
+    // Four perimeter walls, an elevation-split full GOAL face, a continuous
+    // outer rail, two inner-rail segments, a low elevated-arch guard per
     // alliance, and two live gates. The taped tunnel has no wall bodies.
-    expect(field.bodies).toHaveLength(18);
+    expect(field.bodies).toHaveLength(22);
     expect(classified('red-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('blue-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('red-ramp-assembly').hasCollisionBody).toBe(true);
@@ -84,7 +84,7 @@ describe('DECODE collision classification', () => {
       .flatMap((assembly) => assembly.parts)
       .filter((part) => part.collider !== undefined && part.geometry.kind === 'obb');
 
-    expect(colliderParts).toHaveLength(14);
+    expect(colliderParts).toHaveLength(18);
     for (const part of colliderParts) {
       const body = field.bodies.find((candidate) => candidate.id === part.collider?.id);
       expect(body).toBeDefined();
@@ -168,11 +168,45 @@ describe('DECODE collision classification', () => {
     expect(Math.hypot(artifact.pose.p.x - interior.x, artifact.pose.p.y - interior.y)).toBeLessThan(inchesToMeters(2));
   });
 
+  it('blocks a loose ground ARTIFACT at the GOAL/classifier arch while preserving the raised path', () => {
+    const field = createDecodeField();
+    const world = new SimWorld({
+      field,
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        controller: constantController(NEUTRAL_INPUT),
+        startPose: { p: vec2(inchesToMeters(-50), inchesToMeters(-50)), theta: 0 },
+      }],
+      pieces: [{
+        pieceId: 'loose',
+        pieceType: 'P',
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
+        massLb: 0.165,
+        // The field-facing side of the red Goal Archway. A 2D-only gap here
+        // used to let a robot shove floor balls into the raised classifier.
+        startPositionM: vec2(inchesToMeters(63), inchesToMeters(57)),
+      }],
+    });
+
+    world.setPieceVelocity('loose', vec2(inchesToMeters(80), 0));
+    world.stepMany(100);
+
+    const loose = world.snapshot().pieces[0];
+    if (loose === undefined) throw new Error('loose artifact missing');
+    // The low Archway guard is a real fixture collider: the ball cannot cross
+    // the 66 in field rail into the elevated single-file channel.
+    expect(loose.pose.p.x).toBeLessThan(inchesToMeters(66));
+    expect(loose.heightM).toBeCloseTo(loose.radiusM, 12);
+  });
+
   it('keeps the SECRET TUNNEL as passable tape, not a collider corridor', () => {
     const field = createDecodeField();
     expect(classified('red-secret-tunnel').classification).toBe('PASSABLE');
     expect(classified('red-secret-tunnel').hasCollisionBody).toBe(false);
-    expect(field.bodies.filter((body) => body.id >= 2114)).toEqual([]);
+    // 2114/2115 are low Goal Archway guards and 2116/2117 are the full
+    // front-face low guards, not tunnel walls. The tunnel itself remains a
+    // passable tape surface with no collision bodies.
+    expect(field.bodies.filter((body) => body.id >= 2118)).toEqual([]);
   });
 
   it('declares the physical gate collider rather than turning its zone into a wall', () => {
