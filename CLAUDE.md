@@ -1003,3 +1003,22 @@ shoot; then Phase 4 (PDF ingestion).
 - **Next priority:** inspect any remaining actual GOAL/classifier congestion
   through the canonical assembly and conveyor boundary; do not restore parked
   slots, direct tunnel placement, or drivetrain changes.
+
+### Latest handoff — 2026-08-28 (shared collision-free GOAL funnel)
+
+- **Accepted shots no longer collide inside the GOAL basin.** The existing
+  `SimPiece.transferring` state now lasts from launch through the shared,
+  guided GOAL funnel. This makes every accepted shot take the same unobstructed
+  route to the classifier throat rather than allowing earlier shots to knock
+  later ones into the upper GOAL walls.
+- **Classifier packing is still normal ball physics.** `PieceConveyors` calls
+  `completePieceTransfer` only when the ball boards the declared classifier
+  lane (or the full-lane overflow path). From that boundary onward it collides
+  with ARTIFACTs, rails, the live GATE, and ordinary field geometry exactly as
+  before. No fixed slot, direct classifier/tunnel placement, or drivetrain
+  change was added.
+- Focused conveyor/classifier integration tests prove the protected funnel is
+  observed and the same ball is physical by the time it is queued. Run the
+  full verification suite before handoff/commit.
+- Verification: `npm run verify` passed: TypeScript, ESLint, and **984 tests
+  across 48 files**.

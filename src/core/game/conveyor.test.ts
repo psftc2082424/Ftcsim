@@ -97,6 +97,7 @@ class FakeWorld implements ConveyorWorld {
   >();
   readonly colliderStates = new Map<string, boolean>();
   readonly pushedOut = new Map<string, Vec2>();
+  readonly completedTransfers = new Set<string>();
 
   constructor(
     private readonly positions: Map<string, Vec2>,
@@ -142,6 +143,10 @@ class FakeWorld implements ConveyorWorld {
   }
 
   dampPieceVelocity(_pieceId: string, _retention: number): void {}
+
+  completePieceTransfer(pieceId: string): void {
+    this.completedTransfers.add(pieceId);
+  }
 
   moveRobot(to: Vec2 | null): void {
     this.robotAt = to;

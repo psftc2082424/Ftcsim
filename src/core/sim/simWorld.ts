@@ -211,7 +211,7 @@ interface SimPiece {
    * the robot that holds it.
    */
   carriedBy: EntityId | null;
-  /** A deterministic shot ignores unrelated contacts until its declared GOAL captures it. */
+  /** A deterministic shot ignores unrelated contacts through its declared GOAL funnel. */
   transferring: boolean;
   /** Declared GOAL point a deterministic transfer may not overshoot. */
   transferTargetM: Vec2 | null;
@@ -675,8 +675,13 @@ export class SimWorld {
       v: vec2(piece.body.vel.v.x * clamped, piece.body.vel.v.y * clamped),
       omega: piece.body.vel.omega * clamped,
     };
-    // A field basin is the declared end of a deterministic shot transfer.
-    // From this tick onward the piece rejoins ordinary ball/body contacts.
+    this.cachedSnapshot = null;
+  }
+
+  /** End the protected GOAL funnel at the physical classifier-lane entrance. */
+  completePieceTransfer(pieceId: string): void {
+    const piece = this.pieceNamed(pieceId);
+    if (piece.parked || piece.carriedBy !== null) return;
     piece.transferring = false;
     piece.transferTargetM = null;
     piece.transferTargetHeightM = null;

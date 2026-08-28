@@ -210,8 +210,10 @@ export interface ConveyorWorld {
    * current field-surface height rather than resetting it to floor level.
    */
   pushPieceOutOfGate(pieceId: string, positionM: Vec2): void;
-  /** Inelastic field-basin capture; keeps a piece active at its current pose. */
+  /** Slow an accepted piece in a receiving basin without ending its funnel transfer. */
   dampPieceVelocity(pieceId: string, retention: number): void;
+  /** Restore ordinary contacts once an accepted piece has boarded the physical lane. */
+  completePieceTransfer(pieceId: string): void;
 }
 
 export interface ConveyorPlaces {
@@ -432,7 +434,10 @@ export class PieceConveyors {
         // The basin shell retains it; a bounded guide subsequently feeds the
         // lane without parking, teleporting, or suspending contact physics.
         if (spec.lane?.receivingBasin === true) state.basin.add(piece.pieceId);
-        else state.queue.push(piece.pieceId);
+        else {
+          state.queue.push(piece.pieceId);
+          world.completePieceTransfer(piece.pieceId);
+        }
         continue;
       }
 
@@ -442,6 +447,7 @@ export class PieceConveyors {
         // declared elevated overflow surface and becomes authorised once it
         // reaches the return zone.
         state.overflow.add(piece.pieceId);
+        world.completePieceTransfer(piece.pieceId);
         continue;
       }
 
@@ -650,6 +656,12 @@ export class PieceConveyors {
       if (distance <= handoffDistance && laneEntryClear) {
         state.basin.delete(pieceId);
         state.queue.push(pieceId);
+        // The deterministic GOAL funnel is deliberately collision-free so
+        // consecutive shots cannot knock each other into the basin walls.
+        // It ends at the physical classifier throat: from this point the
+        // ARTIFACT rejoins ordinary ball-to-ball and field contacts to pack
+        // against the real lane, gate, and preceding balls.
+        world.completePieceTransfer(pieceId);
         continue;
       }
       // A full single-file throat can legitimately make a basin ball wait at

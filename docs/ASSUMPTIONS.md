@@ -1893,10 +1893,13 @@ classifier rails provide the actual contained path. A robot and a loose floor
 ARTIFACT overlap the low guard and cannot cross the apparent top-down gap. A
 legitimate shot clears the
 published 38.75 in lip, produces the ordinary high GOAL membership event, and
-is then captured by the receiving basin. Its transfer flag is cleared there:
-from that moment it is a normal colliding ball, guided only by the declared
-basin/lane surfaces, rails, live GATE, restitution, and rolling loss. No ball
-is placed in a classifier slot, at a gate, or at a tunnel exit.
+is then captured by the receiving basin. Its transfer flag remains set through
+that shared funnel, so consecutive accepted shots cannot collide in the
+top-down GOAL basin and push one another sideways. The flag clears only when
+the ARTIFACT boards the physical classifier lane; from that moment it is a
+normal colliding ball, guided by the declared lane surfaces, rails, live GATE,
+restitution, and rolling loss. No ball is placed in a classifier slot, at a
+gate, or at a tunnel exit.
 
 The 6.5 in guard is inferred from the declared 10 in classifier ball-centre
 surface and the 2.45 in ARTIFACT radius: it remains below the contained ball's
@@ -1955,9 +1958,11 @@ The old classifier guard used one fixed coordinate beside the GOAL. That point
 could itself become a visible accumulation site. The generic
 `blocksInboundLane` boundary now returns a loose, unauthorised piece beyond the
 nearest edge of the declared lane instead. A ballistic transfer is explicitly
-marked in the world snapshot until it reaches the ordinary high GOAL membership
-event, so its projected top-down path is not mistakenly rejected; after that
-event it is an accepted, normal physical ball.
+marked in the world snapshot until it has travelled through the ordinary high
+GOAL membership event and its shared funnel has reached the physical classifier
+lane. Its projected top-down path is not mistakenly rejected, and it cannot
+displace another accepted shot inside the GOAL basin. Once it boards the lane
+it is an accepted, normal physical ball.
 
 The requested 1 s GATE window replaces the previous six-second estimate. It
 closes an idle gate promptly. A normal lane ball within two of its own radii of
@@ -1974,6 +1979,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 |---|---|
 | 2026-08-28 | Replaced the fixed classifier-intruder reject coordinate with a nearest-edge generic lane boundary, marked in-flight deterministic transfers in snapshots so they retain legitimate GOAL access, set the DECODE GATE quiet window to 0.4 s with leading-ball re-open protection. |
 | 2026-08-28 | Increased the requested DECODE GATE quiet window to 1 s and added an elevated normal-lane separation correction before the live GATE collider closes, so no ARTIFACT can remain trapped in the arm. |
+| 2026-08-28 | Kept accepted deterministic shots collision-free through the shared GOAL funnel, then restore ordinary physical contacts exactly when each ARTIFACT boards the classifier lane. This prevents top-basin bunching without weakening classifier packing. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |

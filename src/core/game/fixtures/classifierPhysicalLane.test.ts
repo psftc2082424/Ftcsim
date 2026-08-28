@@ -58,11 +58,27 @@ describe('classifier storage integration', () => {
 
     let sawCapturedBasin = false;
     let sawRollingDownClassifier = false;
+    let sawProtectedFunnel = false;
+    let sawPhysicalClassifier = false;
     for (let i = 0; i < 700; i++) {
       sim.step();
-      if (sim.conveyors.inBasin('red-classifier').includes('a1')) sawCapturedBasin = true;
+      const inBasin = sim.conveyors.inBasin('red-classifier').includes('a1');
+      if (inBasin) sawCapturedBasin = true;
       const a1 = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'a1');
       if (a1 === undefined) continue;
+      if (inBasin) {
+        // Every valid shot follows the shared funnel without ball-to-ball
+        // contact. This prevents a preceding accepted shot from knocking a
+        // later one sideways into the GOAL basin.
+        expect(a1.transferring).toBe(true);
+        sawProtectedFunnel = true;
+      }
+      if (sim.conveyors.queued('red-classifier').includes('a1')) {
+        // The classifier itself remains physical: collision isolation ends at
+        // the throat, before the ball packs against the lane/gate.
+        expect(a1.transferring).toBe(false);
+        sawPhysicalClassifier = true;
+      }
       const yIn = metersToInches(meters(a1.pose.p.y));
       const speedInPerSec = metersToInches(meters(Math.hypot(a1.vel.v.x, a1.vel.v.y)));
       // This is below the GOAL arch and above the GATE, so observing a
@@ -81,6 +97,8 @@ describe('classifier storage integration', () => {
     const launches = sim.events.filter((event) => event.kind === 'PieceLaunched');
     expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(launches.length);
     expect(sawCapturedBasin).toBe(true);
+    expect(sawProtectedFunnel).toBe(true);
+    expect(sawPhysicalClassifier).toBe(true);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
     expect(sawRollingDownClassifier).toBe(true);
     // A receiving basin is a short physical funnel, never a second storage

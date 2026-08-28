@@ -102,7 +102,8 @@ export interface PieceSnapshot {
   /**
    * A deterministic shot is travelling to its declared field destination.
    * Field mechanisms use this only to avoid rejecting its projected 2D path
-   * before the normal high-entry membership event can authorise it.
+   * before the normal high-entry membership event authorises it and while its
+   * accepted GOAL funnel is still reaching the physical classifier lane.
    */
   readonly transferring?: boolean | undefined;
   /**
