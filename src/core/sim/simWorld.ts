@@ -111,12 +111,22 @@ export const CONTACT_PASSES = 4;
 export const ARTIFACT_CONTACT_RESTITUTION = 0.2;
 
 /**
- * Floor-level ARTIFACT rolling loss, matching dSim's 20 in/s² ball-roll value.
+ * Floor-level ARTIFACT rolling loss. Increased from dSim's baseline so loose
+ * balls settle after driver contact instead of coasting across the field.
  *
  * It is a game-piece-only floor effect: drivetrain coasting/braking and robot
  * collision behaviour do not read it.
  */
-export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(20);
+export const ARTIFACT_ROLLING_DECELERATION_MPS2 = inchesToMeters(30);
+
+/**
+ * Fraction of an ARTIFACT's velocity retained after a robot pushes it.
+ *
+ * This is game-piece ground grip, applied after the ordinary contact solver;
+ * it dissipates the excess energy of a robot compressing a loose pile without
+ * modifying a robot's collision response, motor model, or drivetrain.
+ */
+export const ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION = 0.65;
 
 /** Telemetry is sampled every 20th tick, i.e. 10 Hz. ASSUMPTIONS.md §4.3. */
 export const TELEMETRY_TICK_INTERVAL = TICK_RATE_HZ / 10;
@@ -1044,6 +1054,7 @@ export class SimWorld {
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked || piece.transferring) carried.add(piece.body.id);
     }
+    const robotPushedPieces = new Set<EntityId>();
 
     this.broadphase.clear();
     for (const body of this.bodies.values()) {
@@ -1077,11 +1088,28 @@ export class SimWorld {
         if (contact === null) continue;
 
         resolveContact(a, b, contact, artifactContactRestitution(a, b));
+        if (a.kind === 'piece' && b.kind === 'robot') robotPushedPieces.add(a.id);
+        if (b.kind === 'piece' && a.kind === 'robot') robotPushedPieces.add(b.id);
         resolvedAny = true;
       }
 
       // Nothing was touching, so further passes would find nothing either.
       if (!resolvedAny) break;
+    }
+
+    // A robot is far heavier than an ARTIFACT. The normal solver still gives
+    // the robot its exact reaction, while the ball's field-facing material
+    // dissipates the part of that shove that would otherwise send a compressed
+    // pile skating unrealistically far.
+    for (const piece of this.pieces) {
+      if (!robotPushedPieces.has(piece.body.id)) continue;
+      piece.body.vel = {
+        v: vec2(
+          piece.body.vel.v.x * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
+          piece.body.vel.v.y * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
+        ),
+        omega: piece.body.vel.omega * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
+      };
     }
   }
 

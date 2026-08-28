@@ -392,6 +392,13 @@ export class PieceConveyors {
         state.releaseFlowed = false;
         state.releaseDeadlineTick = Number.NEGATIVE_INFINITY;
       }
+      // The close transition above clears a generous envelope. This narrow
+      // follow-up protects against a later discrete-step overlap with an arm
+      // that was already closed, without moving a ball merely resting in its
+      // correct packed position ahead of the GATE.
+      if (!state.releaseLatched) {
+        this.pushNormalLaneBallsOutOfClosingGate(spec, state, places, snapshot, world, 1);
+      }
       const gateColliderTag = spec.gateColliderTag ?? spec.lane?.gateColliderTag;
       if (gateColliderTag !== undefined) world.setColliderTagActive(gateColliderTag, !state.releaseLatched);
     }
@@ -773,6 +780,7 @@ export class PieceConveyors {
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
     world: ConveyorWorld,
+    overlapRadii = 2,
   ): void {
     const lane = spec.lane;
     if (lane === undefined) return;
@@ -784,7 +792,7 @@ export class PieceConveyors {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) continue;
       const distance = Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y);
-      if (distance > piece.radiusM * 2) continue;
+      if (distance > piece.radiusM * overlapRadii) continue;
       world.pushPieceOutOfGate(
         pieceId,
         vec2(

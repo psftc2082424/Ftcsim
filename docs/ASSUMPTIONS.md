@@ -477,18 +477,18 @@ now so the number is not mistaken for a measurement later.
 
 | | |
 |---|---|
-| **Value** | contact restitution `0.20`; floor-roll deceleration `20 in/s²` (`0.508 m/s²`) |
-| **Confidence** | **INFERRED** from dSim's published game-ball configuration; not an FTC manual dimension |
+| **Value** | contact restitution `0.20`; floor-roll deceleration `30 in/s²` (`0.762 m/s²`); robot-push velocity retention `0.65` |
+| **Confidence** | **INFERRED** from dSim's published game-ball configuration, then calibrated from observed simulator pile behaviour; not an FTC manual dimension |
 | **Location** | `src/core/sim/simWorld.ts` |
 
 ARTIFACTS need to form a useful queue in the GOAL classifier and SECRET TUNNEL:
 an entirely elastic ball keeps artificial gaps alive, while a fully inelastic
 one looks like clay. The piece material therefore retains 20% of approach speed
-along a ball↔ball or ball↔static-field contact and loses `20 in/s²` of loose,
-floor-level rolling speed. This is limited in `SimWorld` to `piece↔piece` and
-`piece↔static` contacts; a robot↔wall or robot↔piece contact calls the unchanged
-default resolver. Drivetrain coasting, BRAKE behavior and robot collision
-response do not read either constant.
+along a ball↔ball or ball↔static-field contact and loses `30 in/s²` of loose,
+floor-level rolling speed. When a robot compresses a pile, the normal contact
+solver first runs unchanged, then only the contacted ARTIFACT retains 65% of its
+velocity as field-facing ground grip. This stops a light ball from skating away
+at robot speed while preserving the robot's drivetrain and collision response.
 
 It is an observable gameplay calibration, not a generic friction model. The
 only reason it exists is to let loose ARTIFACTS settle and pack after impacts;
@@ -1691,7 +1691,7 @@ height, while a top-down raised-ball model needs the envelope to overlap a
 or ball-physics parameter.
 
 Receiving-basin and rail surfaces also apply modest linear damping (`4 s⁻¹`
-and `2 s⁻¹`, respectively) in addition to the documented `20 in/s²` rolling
+and `2 s⁻¹`, respectively) in addition to the documented `30 in/s²` rolling
 loss. Without it, an elevated ball avoids the floor-only rolling-loss path and
 keeps enough lateral energy to bunch or orbit instead of forming a single-file
 physical column. The basin admits the next ball only when its shared lane
@@ -1717,7 +1717,7 @@ and physical basin still perform the capture and scoring transition.
 
 | | |
 |---|---|
-| **Values** | nine 4.9 in ARTIFACT centres in the RAMP; `0.35 s` release cadence; `50 in/s` gate exit speed |
+| **Values** | nine 4.9 in ARTIFACT centres in the RAMP; `0.35 s` release cadence; `62 in/s` gate exit speed |
 | **Confidence** | capacity and ARTIFACT diameter are **EXPLICIT**; storage representation, cadence and exit speed are **INFERRED** gameplay abstractions |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
 
@@ -1747,8 +1747,8 @@ after the final ball even if the robot remains in the GATE ZONE. An opened GATE
 does not change drivetrain or robot collision physics.
 
 Released and overflow ARTIFACTS immediately become ordinary loose bodies with a
-`50 in/s` downward return push. With the documented `20 in/s²` rolling loss,
-that has a 62.5 in stopping distance from the GATE and reaches the audience-side
+`62 in/s` downward return push. With the documented `30 in/s²` rolling loss,
+that has a roughly 64 in stopping distance from the GATE and reaches the audience-side
 human-player LOADING ZONE through the SECRET TUNNEL. They still use normal
 ball-to-ball and ball-to-field collision, restitution, and damping after release.
 
@@ -1761,7 +1761,7 @@ storage never awards score directly.
 
 | | |
 |---|---|
-| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; governed `22 in/s` lane speed; `50 in/s` gate outflow |
+| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; governed `22 in/s` lane speed; `62 in/s` gate outflow |
 | **Confidence** | **INFERRED** top-down projection from dSim/CAD-observed GOAL arch; ARTIFACT diameter and RAMP capacity remain **EXPLICIT** |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
 
@@ -1776,7 +1776,7 @@ From that intake onward, the ARTIFACT is an active, collidable body. The lane's
 bounded downhill guide and the existing ball contacts carry it to the live
 GATE; a closed gate retains it and other arriving ARTIFACTS pack normally. At
 the moment a ball physically crosses into the return zone, the GATE applies its
-declared `50 in/s` outflow velocity **without changing its position**. The ball
+declared `62 in/s` outflow velocity **without changing its position**. The ball
 then rolls through the SECRET TUNNEL under normal rolling loss, restitution and
 field collision. No direct classifier exit placement is permitted.
 
@@ -1980,6 +1980,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Replaced the fixed classifier-intruder reject coordinate with a nearest-edge generic lane boundary, marked in-flight deterministic transfers in snapshots so they retain legitimate GOAL access, set the DECODE GATE quiet window to 0.4 s with leading-ball re-open protection. |
 | 2026-08-28 | Increased the requested DECODE GATE quiet window to 1 s and added an elevated normal-lane separation correction before the live GATE collider closes, so no ARTIFACT can remain trapped in the arm. |
 | 2026-08-28 | Kept accepted deterministic shots collision-free through the shared GOAL funnel, then restore ordinary physical contacts exactly when each ARTIFACT boards the classifier lane. This prevents top-basin bunching without weakening classifier packing. |
+| 2026-08-28 | Increased loose ARTIFACT rolling loss to 30 in/s² and retain 65% of a ball's velocity after robot contact, while raising GATE outflow to 62 in/s to preserve SECRET TUNNEL return distance. A closed live GATE now also clears any lane ball that later intrudes into its arm. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |

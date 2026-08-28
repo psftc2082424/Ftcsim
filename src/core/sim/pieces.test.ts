@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { PIECE_ENTITY_ID_BASE, SimWorld, type GamePieceSpec } from './simWorld.js';
+import {
+  ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION,
+  ARTIFACT_ROLLING_DECELERATION_MPS2,
+  PIECE_ENTITY_ID_BASE,
+  SimWorld,
+  type GamePieceSpec,
+} from './simWorld.js';
 import { DEFAULT_ROBOT_CONFIG } from '../robot/robotConfig.js';
 import { constantController, createInputTrace, ScriptedController } from '../control/scripted.js';
 import { createControlInput, NEUTRAL_INPUT } from '../control/controlInput.js';
@@ -142,6 +148,27 @@ describe('pieces interact through the existing collision resolver', () => {
     expect(piece.pose.p.x).toBeGreaterThan(startX + 0.05);
   });
 
+  it('dissipates a robot shove through ball-only ground grip', () => {
+    const w = new SimWorld({
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        controller: constantController(createControlInput(1, 0, 0)),
+        startPose: { p: vec2(-1.25, 0), theta: 0 },
+      }],
+      pieces: [artifact({ startPositionM: vec2(-0.95, 0) })],
+    });
+
+    w.stepMany(120);
+
+    const [piece] = w.snapshot().pieces;
+    const [robot] = w.snapshot().robots;
+    if (piece === undefined || robot === undefined) return;
+    const pieceSpeed = Math.hypot(piece.vel.v.x, piece.vel.v.y);
+    const robotSpeed = Math.hypot(robot.vel.v.x, robot.vel.v.y);
+    expect(piece.pose.p.x).toBeGreaterThan(-0.95);
+    expect(pieceSpeed).toBeCloseTo(robotSpeed * ARTIFACT_ROBOT_PUSH_VELOCITY_RETENTION, 8);
+  });
+
   it('uses ball-only rolling loss while preserving ordinary robot motion', () => {
     const w = world([artifact({ startPositionM: vec2(0.7, 0.7) })]);
     w.releasePieceMoving('a1', vec2(0.7, 0.7), vec2(1, 0));
@@ -153,7 +180,7 @@ describe('pieces interact through the existing collision resolver', () => {
     const speed = Math.hypot(piece.vel.v.x, piece.vel.v.y);
     expect(speed).toBeGreaterThan(0);
     expect(speed).toBeLessThan(1);
-    expect(speed).toBeCloseTo(1 - inchesToMeters(20) * 100 * w.dt, 8);
+    expect(speed).toBeCloseTo(1 - ARTIFACT_ROLLING_DECELERATION_MPS2 * 100 * w.dt, 8);
   });
 
   it('keeps ball-to-ball collisions physical and modestly inelastic', () => {

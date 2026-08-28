@@ -1000,6 +1000,23 @@ shoot; then Phase 4 (PDF ingestion).
   capture, classifier capacity, or one-way tunnel behaviour changed.
 - Verification: `npm run verify` passed: TypeScript, ESLint, and **984 tests
   across 48 files**.
+
+### Latest handoff — 2026-08-28 (ARTIFACT ground grip and continuous GATE clearance)
+
+- **Loose ARTIFACTs settle more quickly after robot contact.** Ball-only floor
+  rolling loss is now `30 in/s²`; after the unchanged normal solver handles a
+  robot↔ball contact, that ball retains 65% of its velocity. This reduces pile
+  explosions without changing a robot's collision response, motor model, or
+  drivetrain. GATE outflow is now `62 in/s`, preserving the prior tunnel coast
+  distance under the stronger rolling loss.
+- **A classifier ball cannot remain embedded in a closed GATE.** In addition
+  to clearing the closure transition, `PieceConveyors` checks the already-closed
+  arm every tick. Only a ball whose centre has intruded within one radius is
+  moved back to the existing two-radius upstream clearance; a correctly packed
+  ball resting before the arm is untouched.
+- Focused piece/contact and conveyor tests pass, along with TypeScript and
+  ESLint. Verification: `npm run verify` passed: TypeScript, ESLint, and
+  **986 tests across 48 files**.
 - **Next priority:** inspect any remaining actual GOAL/classifier congestion
   through the canonical assembly and conveyor boundary; do not restore parked
   slots, direct tunnel placement, or drivetrain changes.

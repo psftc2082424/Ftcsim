@@ -417,6 +417,24 @@ describe('guided lane physics', () => {
     expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
   });
 
+  it('clears a normal lane ball that later overlaps an already-closed gate', () => {
+    const positions = new Map([['a', inEntry(0)]]);
+    const world = new FakeWorld(positions);
+    const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    // Just upstream of the exit zone but inside one ball radius of the arm.
+    // It is not a legitimate release, so the closed-GATE guard owns it.
+    positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(2)));
+    conveyors.update(world.snapshot(1), 1, world);
+
+    const cleared = world.pushedOut.get('a');
+    expect(cleared).toBeDefined();
+    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 2);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
+  });
+
   it('re-opens a held gate only when its leading physical lane ball reaches the arm', () => {
     const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
     const positions = new Map([['a', inEntry(0)]]);
