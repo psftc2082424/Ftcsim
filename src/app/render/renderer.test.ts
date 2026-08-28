@@ -118,6 +118,10 @@ function createRecordingContext(width: number, height: number) {
 describe('field renderer', () => {
   const field = createStandardField();
 
+  it('defaults authoring geometry off for a clean driving view', () => {
+    expect(DEFAULT_RENDER_OPTIONS.showGameGeometry).toBe(false);
+  });
+
   const snapshotAfter = (ticks: number) =>
     runHeadless({
       robots: [
@@ -281,7 +285,7 @@ describe('game overlay and pieces', () => {
     expect(arcs[0]?.args[1]).toBeCloseTo(worldToScreenY(camera, piece.pose.p.y), 6);
   });
 
-  it('draws nothing extra without an overlay', () => {
+  it('keeps rule-region diagnostics hidden in normal Play', () => {
     const snapshot = withPieces(1);
     const without = createRecordingContext(800, 800);
     renderFrame(without.ctx, snapshot, field, 0);
@@ -289,13 +293,13 @@ describe('game overlay and pieces', () => {
     const with_ = createRecordingContext(800, 800);
     renderFrame(with_.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
 
-    expect(with_.calls.length).toBeGreaterThan(without.calls.length);
+    expect(with_.calls).toEqual(without.calls);
   });
 
   it('honours the option that turns game geometry off', () => {
     const snapshot = withPieces(1);
     const on = createRecordingContext(800, 800);
-    renderFrame(on.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+    renderFrame(on.ctx, snapshot, field, 0, { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: true }, overlay);
 
     const off = createRecordingContext(800, 800);
     renderFrame(
@@ -314,7 +318,7 @@ describe('game overlay and pieces', () => {
     const snapshot = withPieces(1);
     const { calls } = (() => {
       const rec = createRecordingContext(800, 800);
-      renderFrame(rec.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+      renderFrame(rec.ctx, snapshot, field, 0, { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: true }, overlay);
       return rec;
     })();
 
@@ -331,7 +335,7 @@ describe('game overlay and pieces', () => {
     const snapshot = withPieces(1);
 
     const plain = createRecordingContext(800, 800);
-    renderFrame(plain.ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+    renderFrame(plain.ctx, snapshot, field, 0, { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: true }, overlay);
     expect(plain.texts).toEqual([]);
 
     const labelled = createRecordingContext(800, 800);
@@ -340,7 +344,7 @@ describe('game overlay and pieces', () => {
       snapshot,
       field,
       0,
-      { ...DEFAULT_RENDER_OPTIONS, showGeometryLabels: true },
+      { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: true, showGeometryLabels: true },
       overlay,
     );
     expect(labelled.texts).toContain('red-ramp');
@@ -355,7 +359,7 @@ describe('game overlay and pieces', () => {
   it('draws a triangular zone with its real vertex count', () => {
     const snapshot = withPieces(1);
     const { ctx, calls } = createRecordingContext(800, 800);
-    renderFrame(ctx, snapshot, field, 0, DEFAULT_RENDER_OPTIONS, overlay);
+    renderFrame(ctx, snapshot, field, 0, { ...DEFAULT_RENDER_OPTIONS, showGameGeometry: true }, overlay);
 
     const camera = fitCamera(800, 800, field.widthM, field.lengthM);
     const apex = DECODE_LAUNCH_ZONE_OUTLINES.goalSide.find((v) => v.x === 0);
@@ -505,8 +509,7 @@ describe('DECODE presentation: balls, the GATE, and a piece in flight', () => {
       ]),
     });
 
-    const gateStrokes = (calls: readonly DrawCall[]) =>
-      calls.filter((c) => c.op === 'stroke' && (c.lineWidth === 5 || c.lineWidth === 2));
+    const gateStrokes = (calls: readonly DrawCall[]) => calls.filter((c) => c.op === 'stroke');
 
     const closedStrokes = gateStrokes(closed.calls);
     const openStrokes = gateStrokes(open.calls);

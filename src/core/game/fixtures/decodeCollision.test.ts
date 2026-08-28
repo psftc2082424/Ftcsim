@@ -12,6 +12,7 @@ import {
   DECODE_FIELD_COLLISION_CLASSIFICATION,
   DECODE_GAME_LOGIC_REGION_IDS,
 } from './decodeCollision.js';
+import { createDecodeAssemblies } from './decodeAssemblies.js';
 import { ARTIFACT, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, GOAL } from './decodeDimensions.js';
 
 const classified = (id: string) => {
@@ -74,6 +75,26 @@ describe('DECODE collision classification', () => {
       if (red === undefined || blue === undefined) throw new Error('classifier rail missing');
       expect(red.pose.p.x).toBeCloseTo(-blue.pose.p.x, 9);
       expect(red.pose.p.y).toBeCloseTo(blue.pose.p.y, 9);
+    }
+  });
+
+  it('derives every DECODE fixture collider from the matching canonical assembly part', () => {
+    const field = createDecodeField();
+    const colliderParts = createDecodeAssemblies(2100)
+      .flatMap((assembly) => assembly.parts)
+      .filter((part) => part.collider !== undefined && part.geometry.kind === 'obb');
+
+    expect(colliderParts).toHaveLength(14);
+    for (const part of colliderParts) {
+      const body = field.bodies.find((candidate) => candidate.id === part.collider?.id);
+      expect(body).toBeDefined();
+      if (body === undefined || part.geometry.kind !== 'obb') continue;
+      expect(body.pose).toEqual(part.geometry.pose);
+      expect(body.span).toEqual(part.collider?.span);
+      expect(body.shape.kind).toBe('obb');
+      if (body.shape.kind !== 'obb') continue;
+      expect(body.shape.halfExtents.x * 2).toBeCloseTo(part.geometry.widthM, 12);
+      expect(body.shape.halfExtents.y * 2).toBeCloseTo(part.geometry.lengthM, 12);
     }
   });
 

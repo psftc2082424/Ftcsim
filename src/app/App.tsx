@@ -242,12 +242,12 @@ export function App() {
             <label>
               <input
                 type="checkbox"
-                checked={renderOptions.showGameGeometry !== false}
+                checked={renderOptions.showGameGeometry === true}
                 onChange={(event) =>
                   setRenderOptions({ ...renderOptions, showGameGeometry: event.target.checked })
                 }
               />
-              Field zones
+              Debug field geometry
             </label>
             <label>
               <input

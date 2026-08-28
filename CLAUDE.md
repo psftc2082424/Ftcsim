@@ -858,3 +858,30 @@ shoot; then Phase 4 (PDF ingestion).
   files**). Do not lower the overflow height without preserving clearance over
   the semantic gate span, and do not change the timed gate to a perpetual
   "queue nonempty" latch.
+
+### Latest handoff — 2026-08-27 (canonical DECODE field assemblies)
+
+- The renderer no longer guesses presentation from collision-body thickness or
+  paints DECODE scoring regions as physical objects. `src/core/game/fixtures/
+  decodeAssemblies.ts` is the canonical, mirrored GOAL/classifier/GATE/SECRET
+  TUNNEL fixture projection. Each part has visual material, elevation,
+  semantic ids, and—only for real panels/rails/GATE—an optional collider.
+  `decodeCollision.ts` now turns those exact OBB parts into static bodies;
+  `fieldRenderer.ts` renders those exact parts. Keep new DECODE structures in
+  this assembly layer rather than adding ad-hoc renderer lines or region-box
+  colliders.
+- The full-field STEP was directly inspected: its named Goal Panels, Internal
+  Ramp, Goal Archway, Ramp Support, Gate Arm/Stop, and Lower Ramp Blocker
+  components support the connected raised-assembly model. The setup guide and
+  manual still make the SECRET TUNNEL a **passable tape zone**, so it is a
+  visible neutral return surface with no collision body.
+- Normal Play now shows clean neutral physical assemblies. All rule regions,
+  collision/authoring outlines, and labels are behind the **Debug field
+  geometry** control, default OFF. This intentionally removes the old
+  red/blue bounding-box look; drivetrain and gameplay code were not changed.
+- Regression coverage checks that all 14 DECODE fixture colliders derive from
+  their canonical assembly geometry and that diagnostics are off by default.
+  **Next priority:** browser-playtest the new clean view through a complete
+  shot → classifier → timed GATE → return cycle, then address any *actual*
+  CAD-placement discrepancy in `decodeAssemblies.ts` rather than editing
+  renderer-only lines.

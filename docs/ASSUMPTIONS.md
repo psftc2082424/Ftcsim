@@ -1848,10 +1848,35 @@ raw X sign: both classifiers have one field-facing GOAL arch and a continuous
 perimeter-side rail. This fixes the previous side-specific hole without adding
 a game-logic rectangle as a collider.
 
+### 10.23 Canonical CAD-projected field assemblies
+
+| | |
+|---|---|
+| **Source** | DECODE full-field STEP CAD `am-5700_Full.step`; Event FIELD Setup Guide §9; Competition Manual §9.3 / §9.7 |
+| **Location** | `fieldTemplate.ts`, `decodeAssemblies.ts`, `decodeCollision.ts`, `fieldRenderer.ts` |
+| **Decision** | One reusable mirrored GOAL/classifier/GATE/SECRET TUNNEL assembly owns visual geometry, collision geometry, semantic ids, and elevation metadata. |
+
+The STEP assembly was inspected directly. Its named components include the Red
+and Blue Goal Rear/Front/Backboard Panels, Goal Internal Ramp, Goal Archway,
+Ramp Support, Gate Arm, Gate Stop, and Lower Ramp Blocker.  The projected 2D
+model represents those as a hollow receiving basin, CAD-panel boundaries, a
+raised ramp surface, rails, and a live GATE in one assembly.  This avoids
+deriving an obstacle from a scoring region or inferring visual material from
+collider thickness.
+
+The SECRET TUNNEL remains a passable taped zone per the manual; its neutral
+return surface is part of the same presentation assembly but deliberately has
+no collider.  Normal Play renders only these physical/tape structures. Rule
+regions, collision envelopes, labels, and authoring outlines are behind the
+off-by-default **Debug field geometry** toggle.  The renderer never assigns an
+alliance colour simply because an object sits on one side of the field; only
+real tape/material data may do so.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
 | 2026-08-27 | Narrowed the DECODE classifier from a 6 in placeholder to the shared 5.0 in single-file clear width (4.9 in ARTIFACT plus 0.1 in dSim-derived clearance), and added G416's requested per-launch 5-point MINOR FOUL as a generic `PieceLaunched` event/rule. |
 | 2026-08-27 | Raised the overflow surface to clear the semantic GATE collision span, made live gates quiet-window based and renewed only by real normal-lane releases, and corrected the mirrored classifier rail/arch construction. |

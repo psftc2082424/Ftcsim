@@ -16,7 +16,8 @@
 import { inchesToMeters } from '../units/convert.js';
 import { createObb } from '../physics/shapes.js';
 import { vec2 } from '../math/vec2.js';
-import { createStaticBody, type RigidBody, type EntityId, type VerticalSpan } from '../physics/body.js';
+import { createStaticBody, type RigidBody, type EntityId, type VerticalSpan, type Pose } from '../physics/body.js';
+import type { Vec2 } from '../math/vec2.js';
 
 /** The FTC field interior is 12 ft on a side. */
 export const FIELD_SIZE_IN = 144;
@@ -63,6 +64,52 @@ export interface FieldTemplate {
    * open gate without a season fixture reaching into its body map.
    */
   readonly colliderTags?: Readonly<Record<string, readonly EntityId[]>> | undefined;
+  /**
+   * Canonical season-fixture assemblies.  An assembly is presentation data
+   * first, with an optional static collider on the exact same part.  This
+   * prevents a renderer from reverse-engineering visual structures from body
+   * thicknesses or rule-region rectangles.
+   */
+  readonly assemblies?: readonly FieldAssembly[] | undefined;
+}
+
+/** Neutral physical materials used by the 2D field renderer. */
+export type FieldMaterial = 'metal' | 'panel' | 'ramp' | 'tape' | 'alliance-tape' | 'floor';
+
+/** A top-down primitive sufficient for the seasonal fixture presentations. */
+export type FieldAssemblyGeometry =
+  | { readonly kind: 'obb'; readonly widthM: number; readonly lengthM: number; readonly pose: Pose }
+  | { readonly kind: 'polygon'; readonly vertices: readonly Vec2[] };
+
+/**
+ * Collision metadata for an OBB assembly part.
+ *
+ * `tag` is optional because only live mechanisms such as a gate need a named
+ * handle.  Static parts are converted into ordinary static rigid bodies by the
+ * season fixture; the renderer consumes the same `geometry` regardless.
+ */
+export interface FieldAssemblyCollider {
+  readonly id: EntityId;
+  readonly span: VerticalSpan;
+  readonly tag?: string | undefined;
+}
+
+export interface FieldAssemblyPart {
+  readonly id: string;
+  readonly geometry: FieldAssemblyGeometry;
+  readonly material: FieldMaterial;
+  readonly elevation: VerticalSpan;
+  readonly collider?: FieldAssemblyCollider | undefined;
+  /** Rule ids this physical part bounds or presents; never a collider source. */
+  readonly semanticIds?: readonly string[] | undefined;
+  /** Authoring-only outlines and labels are hidden in normal play. */
+  readonly debugOnly?: boolean | undefined;
+}
+
+/** A reusable physical field object: e.g. one mirrored GOAL/ramp/tunnel set. */
+export interface FieldAssembly {
+  readonly id: string;
+  readonly parts: readonly FieldAssemblyPart[];
 }
 
 export interface FieldBounds {

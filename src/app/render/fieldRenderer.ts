@@ -12,9 +12,9 @@
 
 import { lerpAngle } from '../../core/math/angle.js';
 import { inchesToMeters } from '../../core/units/convert.js';
-import { worldVertices } from '../../core/physics/shapes.js';
+import { createObb, worldVertices } from '../../core/physics/shapes.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
-import type { FieldTemplate } from '../../core/field/fieldTemplate.js';
+import type { FieldAssemblyPart, FieldTemplate } from '../../core/field/fieldTemplate.js';
 import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera } from './camera.js';
 
@@ -78,7 +78,9 @@ export interface RenderOptions {
 export const DEFAULT_RENDER_OPTIONS: RenderOptions = {
   showVelocity: true,
   showGrid: true,
-  showGameGeometry: true,
+  // Rule regions, collision envelopes, and authoring labels are diagnostic
+  // data. Normal Play shows the physical assemblies only.
+  showGameGeometry: false,
   showGeometryLabels: false,
 };
 
@@ -97,7 +99,7 @@ export function renderFrame(
   ctx.fillStyle = COLORS.backdrop;
   ctx.fillRect(0, 0, width, height);
 
-  drawField(ctx, camera, field, options.showGrid);
+  drawField(ctx, camera, field, options.showGrid, overlay?.openConveyorIds);
 
   // Under the entities: game geometry is markings on the floor, and a robot
   // standing on a zone should be drawn over it.
@@ -442,6 +444,7 @@ function drawField(
   camera: Camera,
   field: FieldTemplate,
   showGrid: boolean,
+  openConveyorIds: ReadonlySet<string> | undefined,
 ): void {
   const halfW = field.widthM / 2;
   const halfL = field.lengthM / 2;
@@ -481,51 +484,97 @@ function drawField(
     ctx.stroke();
   }
 
-  // Every fixture is rendered from its collision shape. This keeps physical
-  // field geometry and what a driver sees in lockstep.
-  ctx.lineWidth = 2;
+  // Season fixtures publish a canonical assembly that owns both its rendered
+  // parts and (where appropriate) static colliders.  Only the generic
+  // perimeter is left to the legacy body fallback.
+  drawAssemblies(ctx, camera, field, openConveyorIds ?? EMPTY_OPEN_SET);
+
+  const assemblyColliderIds = new Set(
+    (field.assemblies ?? []).flatMap((assembly) =>
+      assembly.parts.flatMap((part) => part.collider === undefined ? [] : [part.collider.id]),
+    ),
+  );
+  ctx.lineWidth = 1.5;
   for (const body of field.bodies) {
-    if (body.shape.kind === 'circle') continue;
-    const vertices = worldVertices(body.shape, body.pose.p, body.pose.theta);
-    const minHalfExtentM =
-      body.shape.kind === 'obb' ? Math.min(body.shape.halfExtents.x, body.shape.halfExtents.y) : null;
-    // A SECRET TUNNEL rail is a thin OBB — `tunnelRailBodies`' rails are ~1 in
-    // thick, far slimmer than the 6 in classifier channel or the 12 in
-    // perimeter — so it reads apart from an ordinary wall rather than as more
-    // of one. Drawn as a neutral colour: the tunnel is shared floor, not
-    // territory either alliance owns outright.
-    const tunnelRail =
-      field.id === 'ftc-decode-2025-26' && minHalfExtentM !== null && minHalfExtentM < inchesToMeters(0.75);
-    // The GOAL's own two backstop legs (`goalWallBodies`) are thicker than a
-    // tunnel rail (~2 in) but far thinner than the 6 in classifier channel or
-    // the 12 in perimeter, so the same thickness-banding trick that finds a
-    // tunnel rail finds these too.
-    const goal =
-      field.id === 'ftc-decode-2025-26' &&
-      !tunnelRail &&
-      minHalfExtentM !== null &&
-      minHalfExtentM < inchesToMeters(2.5);
-    // A field body carries no alliance tag, only geometry, so colour is
-    // guessed from which side of the field it sits on. DECODE's GOALS are
-    // cross-court: red is +X and blue is -X.
-    const redGoal = goal && body.pose.p.x > 0;
-    ctx.fillStyle = goal ? (redGoal ? '#a92036' : '#176bc4') : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
-    ctx.strokeStyle = goal ? '#f3f7fb' : tunnelRail ? COLORS.tunnelRail : COLORS.wall;
-    ctx.beginPath();
-    vertices.forEach((vertex, index) => {
-      const x = worldToScreenX(camera, vertex.x);
-      const y = worldToScreenY(camera, vertex.y);
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    if (body.shape.kind === 'circle' || assemblyColliderIds.has(body.id)) continue;
+    drawVertices(ctx, camera, worldVertices(body.shape, body.pose.p, body.pose.theta), COLORS.wall, COLORS.wall, 1.5);
   }
 
   ctx.strokeStyle = COLORS.fieldEdge;
   ctx.lineWidth = 2;
   ctx.strokeRect(left, top, sizeX, sizeY);
+}
+
+function drawAssemblies(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  field: FieldTemplate,
+  openConveyorIds: ReadonlySet<string>,
+): void {
+  for (const assembly of field.assemblies ?? []) {
+    for (const part of assembly.parts) {
+      if (part.debugOnly === true) continue;
+      const gateTag = part.collider?.tag;
+      const isOpen = gateTag !== undefined && openConveyorIds.has(gateTag.replace('-gate', ''));
+      const style = assemblyStyle(part, isOpen);
+      const vertices = part.geometry.kind === 'obb'
+        ? worldVertices(createObb(part.geometry.widthM, part.geometry.lengthM), part.geometry.pose.p, part.geometry.pose.theta)
+        : part.geometry.vertices;
+      drawVertices(ctx, camera, vertices, style.fill, style.stroke, style.lineWidth, style.alpha);
+    }
+  }
+}
+
+function assemblyStyle(part: FieldAssemblyPart, gateOpen: boolean): {
+  readonly fill: string;
+  readonly stroke: string;
+  readonly lineWidth: number;
+  readonly alpha: number;
+} {
+  if (part.collider?.tag !== undefined) {
+    return gateOpen
+      ? { fill: '#dce3e8', stroke: '#8c9aa5', lineWidth: 1, alpha: 0.3 }
+      : { fill: '#c6cdd2', stroke: '#f6f8fa', lineWidth: 1.75, alpha: 1 };
+  }
+  switch (part.material) {
+    case 'metal': return { fill: '#b9c3cb', stroke: '#eef2f4', lineWidth: 1.35, alpha: 1 };
+    case 'panel': return { fill: '#7b8791', stroke: '#cbd3d9', lineWidth: 1.1, alpha: 0.92 };
+    case 'ramp': return { fill: '#65747f', stroke: '#aebbc4', lineWidth: 1, alpha: 0.9 };
+    // The secret-tunnel tape is not a wall, but it needs a legible neutral
+    // return surface so the GOAL → classifier → tunnel assembly reads as one
+    // connected structure in normal Play.
+    case 'tape': return { fill: '#3b4852', stroke: '#d5dde1', lineWidth: 1.1, alpha: 0.94 };
+    case 'alliance-tape': return { fill: '#3b4852', stroke: '#d5dde1', lineWidth: 1.1, alpha: 0.94 };
+    case 'floor': return { fill: '#263442', stroke: '#415363', lineWidth: 1, alpha: 1 };
+  }
+}
+
+function drawVertices(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  vertices: readonly { readonly x: number; readonly y: number }[],
+  fill: string,
+  stroke: string,
+  lineWidth: number,
+  alpha = 1,
+): void {
+  if (vertices.length === 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = fill;
+  ctx.strokeStyle = stroke;
+  ctx.lineWidth = lineWidth;
+  ctx.beginPath();
+  vertices.forEach((vertex, index) => {
+    const x = worldToScreenX(camera, vertex.x);
+    const y = worldToScreenY(camera, vertex.y);
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawRobot(
