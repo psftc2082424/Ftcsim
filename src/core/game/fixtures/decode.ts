@@ -148,14 +148,16 @@ export const RAMP_DRAIN_INTERVAL_SEC = inferred(
 /**
  * Exit speed for a released ARTIFACT, m/s.
  *
- * dSim starts a gate-released ball near 22 in/s and lets ball-only rolling loss
- * settle it through the return. The manual supplies the tunnel geometry but no
- * release speed, so this is explicitly inferred rather than pretending the
- * previous full-length-ramp calculation was a sourced fact.
+ * The returned ARTIFACT has to coast from the GATE through the SECRET TUNNEL
+ * to the human-player LOADING ZONE.  With the documented 20 in/s² rolling
+ * loss and the CAD-derived return length, 50 in/s has a 62.5 in stopping
+ * distance, which carries it to that zone without a hidden conveyor force.
+ * The manual supplies the tunnel geometry but no release speed, so this is
+ * explicitly inferred rather than pretending this is a sourced fact.
  */
 export const TUNNEL_EXIT_SPEED_MPS = inferred(
-  inchesToMeters(22),
-  'dSim-style observed gate-release speed; the manual specifies no release rate.',
+  inchesToMeters(50),
+  'dSim-style visible return momentum, checked against the CAD-derived SECRET TUNNEL length and the documented rolling loss; the manual specifies no release rate.',
   72,
 );
 
@@ -388,6 +390,13 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     entryRegionId: alliance === 'red' ? DECODE_REGIONS.redGoal : DECODE_REGIONS.blueGoal,
     queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
     capacity: RAMP_SLOT_COUNT.value,
+    // The nine RAMP indices are a real end-to-end ball channel.  The current
+    // top-down fixture represents that reliably as an indexed field mechanism
+    // after a valid GOAL entry, rather than asking a 2D funnel/contact solve to
+    // reconstruct an elevated 3D chute.  The pitch remains a declared piece
+    // dimension, never a season name inside the generic conveyor engine.
+    queuePitchM: inchesToMeters(ARTIFACT.specifiedDiameterIn.value),
+    gateColliderTag: `${alliance}-classifier-gate`,
     // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
     // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
     // (§9.8.3) and the GATE ZONE is the 2.75 in strip "adjacent to each GATE"
@@ -399,39 +408,6 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
     blocksInboundExit: true,
-    lane: {
-      receivingBasin: true,
-      receivingBasinTargetM: vec2(
-        inchesToMeters(alliance === 'red' ? CLASSIFIER_BASIN_THROAT.value.xIn : -CLASSIFIER_BASIN_THROAT.value.xIn),
-        inchesToMeters(CLASSIFIER_BASIN_THROAT.value.yIn),
-      ),
-      receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
-      receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
-      receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
-      receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
-      receivingBasinEntryClearanceM: 0,
-      inboundRejectPointM: vec2(
-        inchesToMeters(alliance === 'red' ? CLASSIFIER_INBOUND_REJECT_POINT.value.xIn : -CLASSIFIER_INBOUND_REJECT_POINT.value.xIn),
-        inchesToMeters(CLASSIFIER_INBOUND_REJECT_POINT.value.yIn),
-      ),
-      travelDirection: vec2(0, -1),
-      driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
-      // The same speed a released ARTIFACT already leaves the GATE at
-      // (`exitVelocityMps` below): one coherent "how fast do these balls
-      // move" number rather than the lane quietly running faster or slower
-      // than the piece it eventually hands off to the SECRET TUNNEL.
-      maxDriveSpeedMps: TUNNEL_EXIT_SPEED_MPS.value,
-      lateralCenteringAccelerationMps2: CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2.value,
-      laneVelocityDampingPerSec: CLASSIFIER_LANE_DAMPING_PER_SEC.value,
-      surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,
-      surfaceHeightRateMps: inchesToMeters(30),
-      gateColliderTag: `${alliance}-classifier-gate`,
-      overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
-      overflowHeightRateMps: inchesToMeters(30),
-      // A scored shot strikes the GOAL's internal funnel rather than retaining
-      // enough across-basin momentum to cross the open plan-view footprint.
-      entryVelocityRetention: 0.05,
-    },
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers
     // (`decodeTiles.ts`), so "out of the tunnel" is toward -Y for both

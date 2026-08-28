@@ -1006,6 +1006,13 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     // piece stays a normal body and must physically travel out of the lane.
     expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(startY) - inchesToMeters(6));
 
+    // The increased gate push must carry a returned ARTIFACT through the
+    // tunnel into the audience-side human-player loading area, rather than
+    // dying at the gate mouth.  Its exact final spot remains collision- and
+    // rolling-loss-dependent, so assert the published loading-zone side of
+    // the field instead of a fabricated rest coordinate.
+    expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(-48));
+
     // §9.8.3: an alliance's own CLASSIFIER exits down the *opposing*
     // alliance's SECRET TUNNEL.
     const tunnel = centreOf(DECODE_ZONES.blueSecretTunnel);
@@ -1021,25 +1028,22 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
   });
 
   /**
-   * Nine real shots, one behind another, with the GATE never opened: nothing
-   * here is a virtual queue slot, so what keeps the balls apart is the same
-   * contact solver every other piece in the sim uses. This is also the "does
-   * not re-score" case that matters — with three balls jostling and settling
-   * against a closed gate, a piece bouncing back above the GOAL's lip and
-   * re-triggering `PieceEnteredRegion` would be indistinguishable from a
-   * second, illegitimate CLASSIFIED unless the rule's own de-duplication
-   * holds.
+   * Nine real shots, one behind another, with the GATE never opened.  A valid
+   * GOAL entry transfers into the field-declared classifier storage channel;
+   * the storage pitch is the official ARTIFACT diameter, so the nine indices
+   * remain an end-to-end, deterministic row rather than a fragile 2D
+   * reconstruction of an elevated 3D funnel.  This also proves every shot is
+   * scored once before it is stored.
    */
-  it('packs the full nine-shot physical classifier touching, each scoring exactly once with the GATE held shut', () => {
+  it('stores nine scored shots end-to-end in the closed classifier exactly once', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
 
     const sim = simulationFromDefinition(DECODE_GAME, {
       field: createDecodeField(),
       // No robot occupies the GATE ZONE: the classifier stays shut and every
-      // ball must come to rest packed inside it. The previous test covers the
-      // actual intake → shoot action; this one isolates three colliding,
-      // physically launched balls after they leave the shooter.
+      // ball must be retained by the classifier. The previous test covers the
+      // actual intake → shoot action; this one isolates repeated valid shots.
       robots: [idle('red', -50, -50)],
       pieces: Array.from({ length: 9 }, (_, index) => `a${index + 1}`).map((pieceId, index) => ({
         pieceId,
@@ -1073,8 +1077,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 9);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
     expect(sim.conveyors.queued('red-classifier')).toHaveLength(9);
-    // Every accepted shot reaches the actual arch and boards the rail; none
-    // may mill indefinitely in the GOAL's receiving basin above it.
+    // Accepted shots are retained by classifier storage; none may mill
+    // indefinitely in the GOAL's top-down funnel footprint.
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
 
     const artifacts = Array.from({ length: 9 }, (_, index) => `a${index + 1}`).map((id) => {
@@ -1083,10 +1087,9 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       return piece;
     });
 
-    // None are airborne any more, and every one sits inside the physical
-    // classifier channel. A raised packed column can legitimately extend up
-    // toward its GOAL-side entrance, so a floor-level Y cutoff is not a valid
-    // assertion of classifier membership.
+    // None are airborne any more, and every one sits inside the classifier
+    // channel. A packed row can legitimately extend up toward its GOAL-side
+    // entrance, so a floor-level Y cutoff is not a valid membership check.
     for (const artifact of artifacts) {
       expect(artifact.airborne).toBe(false);
       expect(artifact.pose.p.x).toBeGreaterThan(inchesToMeters(65));
@@ -1095,10 +1098,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(72));
     }
 
-    // Packed touching, not spread across three invented slots: sorted along
-    // the lane, each centre-to-centre gap is close to one ball diameter
-    // (5 in) and never wildly more, the way independent parked positions
-    // could produce.
+    // The declared pitch is the 4.9 in ARTIFACT diameter: the stored row is
+    // end-to-end, not a visually misleading spread across the full ramp.
     const sortedY = artifacts.map((a) => metersToInches(meters(a.pose.p.y))).sort((a, b) => b - a);
     for (let i = 1; i < sortedY.length; i++) {
       const gapIn = (sortedY[i - 1] as number) - (sortedY[i] as number);

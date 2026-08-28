@@ -1636,13 +1636,16 @@ does not already give:
 
 ---
 
-### 10.18 Guided lanes and one-way GOAL-to-classifier entry
+### 10.18 Superseded: guided-lane GOAL-to-classifier experiment
 
 | | |
 |---|---|
 | **Values** | lane guide `80 in/s²`, governed at `22 in/s`; GOAL basin centre `14 in`, classifier rail centre `10 in`, overflow centre `13.5 in` |
 | **Confidence** | **INFERRED** from dSim-observed DECODE behaviour; the manual establishes capacity/overflow, not these dynamic values |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
+
+> Superseded on 2026-08-27 by §10.19. This records the previous physical-lane
+> experiment only; it is not current simulator behaviour.
 
 The CLASSIFIER is a generic `GuidedLaneSpec`, not an ordered holder. A declared
 lane supplies only bounded environmental acceleration and centring toward its
@@ -1710,10 +1713,52 @@ skipping a perfect-accuracy destination; it is not a score shortcut or a
 replacement for GOAL/classifier physics. The membership detector, rules engine,
 and physical basin still perform the capture and scoring transition.
 
+### 10.19 Indexed elevated classifier representation
+
+| | |
+|---|---|
+| **Values** | nine 4.9 in ARTIFACT centres in the RAMP; `0.35 s` release cadence; `50 in/s` gate exit speed |
+| **Confidence** | capacity and ARTIFACT diameter are **EXPLICIT**; storage representation, cadence and exit speed are **INFERRED** gameplay abstractions |
+| **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
+
+The real GOAL/RAMP is an elevated three-dimensional gravity mechanism. Its
+funnel and ball-to-ball contact behaviour did not remain reliable when projected
+onto a top-down 2D solver: balls could lodge in its upper footprint instead of
+reaching the classifier. DECODE therefore uses a declared **indexed field
+mechanism** after the normal, height-gated GOAL membership transition. This is a
+functional approximation of the observable result, not a replacement for the
+normal collision system used by loose field ARTIFACTS.
+
+Only a legitimately accepted GOAL entry is taken into the classifier. A loose
+ground ball remains rejected by the elevated GOAL/classifier access boundary;
+it cannot be robot-pushed into the stored row. The first nine accepted pieces
+are held end-to-end at the official 4.9 in ARTIFACT pitch, with index 1 at the
+GATE end as Figure 10-4 requires. Tenth and later accepted pieces bypass that
+full row using the ordinary conveyor overflow release path, preserving OVERFLOW
+without a tenth slot.
+
+The GATE remains a semantic tagged collider. A qualified robot touch latches it
+open, and the generic conveyor releases one indexed ARTIFACT per declared
+cadence. The latch marks the batch served at the actual release, so it closes
+after the final ball even if the robot remains in the GATE ZONE. An opened GATE
+does not change drivetrain or robot collision physics.
+
+Released and overflow ARTIFACTS immediately become ordinary loose bodies with a
+`50 in/s` downward return push. With the documented `20 in/s²` rolling loss,
+that has a 62.5 in stopping distance from the GATE and reaches the audience-side
+human-player LOADING ZONE through the SECRET TUNNEL. They still use normal
+ball-to-ball and ball-to-field collision, restitution, and damping after release.
+
+The deterministic shooter still clamps the final transfer step at its declared
+GOAL target so a perfect-accuracy shot cannot skip the membership detector. The
+membership detector and rules engine remain the only scoring path; classifier
+storage never awards score directly.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-08-27 | Superseded the unreliable 2D physical GOAL-to-classifier lane experiment with an indexed elevated field mechanism after legitimate GOAL membership. The nine explicit 4.9 in ARTIFACT positions are end-to-end at the GATE end; tenth-and-later arrivals use the ordinary overflow release. Added the generic `queuePitchM` and `gateColliderTag` conveyor data, and raised return speed to 50 in/s so normal rolling loss carries released ARTIFACTS to the human-player loading side. |
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |
 | 2026-08-27 | Updated §10.18: raised GOAL/rail surfaces now dissipate rolling energy, basin admission is one physical ball at a time, and a GATE touch arms a future batch rather than being lost when the channel is initially empty. |

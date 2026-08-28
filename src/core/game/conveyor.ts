@@ -51,6 +51,23 @@ export interface PieceConveyorSpec {
   readonly queueRegionId: string;
   /** How many the queue holds before arrivals bypass it. */
   readonly capacity: number;
+  /**
+   * Optional fixed centre-to-centre pitch for an ordered holder, in metres.
+   *
+   * This is useful when a field mechanism physically indexes identical game
+   * pieces (for example, balls resting end-to-end in a chute).  It is still
+   * data on the field mechanism: the generic engine never knows a ball size.
+   * Omit it to retain the existing evenly-distributed generic queue behaviour.
+   */
+  readonly queuePitchM?: number | undefined;
+  /**
+   * Semantic collider retracted while the release is latched open.
+   *
+   * A parked/indexed conveyor can have a live physical gate just as a guided
+   * lane can.  Keeping this on the generic spec prevents a season from having
+   * to opt into a simulated lane solely to animate its gate correctly.
+   */
+  readonly gateColliderTag?: string | undefined;
   /** Optional physical lane replacing the legacy parked-slot representation. */
   readonly lane?: GuidedLaneSpec | undefined;
   /**
@@ -291,7 +308,7 @@ export class PieceConveyors {
       state.releaseHeldLastTick = releaseHeldNow;
       if (spec.lane === undefined) {
         this.drain(spec, state, places, tick, world);
-        this.holdQueue(state, places, world);
+        this.holdQueue(spec, state, places, world);
       } else {
         this.guideLane(spec, state, places, snapshot, world);
       }
@@ -302,9 +319,8 @@ export class PieceConveyors {
         state.releaseLatched = false;
         state.releaseHasServedBatch = false;
       }
-      if (spec.lane !== undefined) {
-        world.setColliderTagActive(spec.lane.gateColliderTag, !state.releaseLatched);
-      }
+      const gateColliderTag = spec.gateColliderTag ?? spec.lane?.gateColliderTag;
+      if (gateColliderTag !== undefined) world.setColliderTagActive(gateColliderTag, !state.releaseLatched);
     }
   }
 
@@ -463,6 +479,11 @@ export class PieceConveyors {
     if (pieceId === undefined) return;
 
     state.lastDrainTick = tick;
+    // A single-piece batch is empty immediately after its release.  Record
+    // that this activation actually served a piece here (rather than after
+    // draining) so the gate can gravity-close even while the robot remains in
+    // its trigger zone.
+    state.releaseHasServedBatch = true;
     this.release(spec, state, places, pieceId, world);
   }
 
@@ -488,10 +509,15 @@ export class PieceConveyors {
     state.taken.delete(pieceId);
   }
 
-  /** Keep queued pieces parked at their slots, which shift as the queue drains. */
-  private holdQueue(state: ConveyorState, places: ConveyorPlaces, world: ConveyorWorld): void {
+  /** Keep queued pieces parked at their declared positions, which shift as the queue drains. */
+  private holdQueue(
+    spec: PieceConveyorSpec,
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    world: ConveyorWorld,
+  ): void {
     state.queue.forEach((pieceId, index) => {
-      world.holdPiece(pieceId, slotPoint(places.queue, state.queue.length, index));
+      world.holdPiece(pieceId, queuePoint(places.queue, state.queue.length, index, spec.queuePitchM));
     });
   }
 
@@ -630,6 +656,33 @@ export function slotPoint(place: Shaped, count: number, index: number): Vec2 {
   return extent.alongX
     ? vec2(place.centerM.x + fraction * extent.length, place.centerM.y)
     : vec2(place.centerM.x, place.centerM.y + fraction * extent.length);
+}
+
+/**
+ * Position an ordered holder either at its ordinary equal-cell slot or at a
+ * declared physical pitch.  A fixed pitch makes like-sized pieces touch
+ * end-to-end from the way-out end without encoding season geometry in the
+ * engine; the field fixture owns both the pitch and the queue's extent.
+ */
+export function queuePoint(
+  place: Shaped,
+  count: number,
+  index: number,
+  pitchM: number | undefined,
+): Vec2 {
+  if (pitchM === undefined || pitchM <= 0) return slotPoint(place, count, index);
+
+  const extent = extentOf(place);
+  const clampedIndex = Math.min(Math.max(index, 0), Math.max(0, count - 1));
+  // The first centre is half a pitch inboard of the low (way-out) end.
+  // Clamp defensively so a malformed fixture cannot park beyond its region.
+  const offset = Math.min(
+    extent.length / 2 - pitchM / 2,
+    -extent.length / 2 + pitchM * (clampedIndex + 0.5),
+  );
+  return extent.alongX
+    ? vec2(place.centerM.x + offset, place.centerM.y)
+    : vec2(place.centerM.x, place.centerM.y + offset);
 }
 
 /**

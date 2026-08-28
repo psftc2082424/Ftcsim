@@ -31,8 +31,8 @@ const TUNNEL_SHOOTER: RobotConfig = {
   ],
 };
 
-describe('physical classifier lane smoke test', () => {
-  it('keeps a scored shot physical while it enters the GOAL and classifier', () => {
+describe('classifier storage integration', () => {
+  it('takes a scored shot through the GOAL into classifier storage', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
     const startY = goal[1] - standoffIn + 11;
@@ -58,13 +58,13 @@ describe('physical classifier lane smoke test', () => {
     for (let i = 0; i < 700; i++) sim.step();
 
     // Keep the former diagnostic as a small, deterministic integration check:
-    // a real launch enters the GOAL under its own flight, then remains a
-    // normal body as it is guided through the classifier.
+    // a real launch enters the GOAL under its own flight, then transitions
+    // into the declared classifier storage mechanism.
     expect(sim.score.red).toBeGreaterThan(0);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
   });
 
-  it('rejects an unaccepted loose ball from the protected classifier lane', () => {
+  it('does not admit an unaccepted loose ground ball into classifier storage', () => {
     const sim = simulationFromDefinition(DECODE_GAME, {
       field: createDecodeField(),
       robots: [{
@@ -73,9 +73,9 @@ describe('physical classifier lane smoke test', () => {
         controller: constantController(NEUTRAL_INPUT),
         startPose: { p: vec2(inchesToMeters(-40), inchesToMeters(-40)), theta: 0 },
       }],
-      // This is physically inside the channel, but it did not enter through
-      // the raised GOAL opening. The lane boundary must return it to the field
-      // side rather than treating it as a classifier arrival.
+      // This overlaps the top-down channel footprint, but it did not enter
+      // through the raised GOAL opening. Height-gated GOAL membership, not a
+      // plan-view overlap, is the only way into classifier storage.
       pieces: [{
         pieceId: 'loose',
         pieceType: 'P',
@@ -91,9 +91,7 @@ describe('physical classifier lane smoke test', () => {
     if (loose === undefined) throw new Error('loose artifact missing');
     expect(sim.conveyors.queued('red-classifier')).toEqual([]);
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
-    // The declared public-side correction point is x=63 in, outside the
-    // six-inch channel whose field-side edge is x=66 in.
-    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(66);
+    expect(loose.heldByRobotId).toBeNull();
     expect(sim.score.red).toBe(0);
   });
 });

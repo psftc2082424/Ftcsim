@@ -13,6 +13,7 @@ import {
   PieceConveyors,
   farEndOf,
   nearEndOf,
+  queuePoint,
   resolveConveyorPlaces,
   slotPoint,
   type ConveyorWorld,
@@ -21,6 +22,7 @@ import {
 import { createRectRegion, createRectZone } from './regions.js';
 import { vec2, type Vec2 } from '../math/vec2.js';
 import type { WorldSnapshot } from '../sim/snapshot.js';
+import { inchesToMeters } from '../units/convert.js';
 
 const DT = 1 / 200;
 
@@ -493,6 +495,24 @@ describe('letting pieces out', () => {
     expect(conveyors.isOpen('chute', world.snapshot(drainTicks * 3 + 6))).toBe(true);
   });
 
+  it('retracts a declared live gate for an indexed queue, then closes it after the final release', () => {
+    const indexed: PieceConveyorSpec = { ...SPEC, gateColliderTag: 'indexed-gate' };
+    const positions = new Map(['a', 'b'].map((id, index) => [id, inEntry(index)] as const));
+    const gate = vec2(0, -20 * 0.0254);
+    const world = new FakeWorld(positions, gate);
+    const conveyors = new PieceConveyors([indexed], places(indexed), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    expect(world.colliderStates.get('indexed-gate')).toBe(false);
+
+    // Its trigger robot still overlaps the zone, but gravity closes the field
+    // gate after the last indexed ball has left.
+    const drainTicks = Math.round(indexed.drainIntervalSec / DT);
+    conveyors.update(world.snapshot(drainTicks), drainTicks, world);
+    expect(conveyors.queued('chute')).toEqual([]);
+    expect(world.colliderStates.get('indexed-gate')).toBe(true);
+  });
+
   it('drains in arrival order, way-out end first', () => {
     const drainTicks = Math.round(SPEC.drainIntervalSec / DT);
     const { conveyors } = run(['a', 'b', 'c'], 10 + drainTicks, { openAt: 10 });
@@ -602,6 +622,16 @@ describe('slot geometry', () => {
       const at = slotPoint(QUEUE, 9, i);
       expect(Math.abs(at.y - QUEUE.centerM.y)).toBeLessThan(halfLength);
     }
+  });
+
+  it('uses a declared pitch to keep identical pieces end-to-end from the exit end', () => {
+    const pitch = inchesToMeters(5);
+    const first = queuePoint(QUEUE, 9, 0, pitch);
+    const second = queuePoint(QUEUE, 9, 1, pitch);
+    const ninth = queuePoint(QUEUE, 9, 8, pitch);
+
+    expect(second.y - first.y).toBeCloseTo(pitch, 8);
+    expect(ninth.y - first.y).toBeCloseTo(pitch * 8, 8);
   });
 
   it('clamps an index past the end rather than running off the region', () => {

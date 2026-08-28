@@ -746,3 +746,36 @@ shoot; then Phase 4 (PDF ingestion).
   a valid shot cannot numerically step beyond its target before the normal
   membership detector observes it. It still travels visibly and becomes an
   ordinary collidable ball once the GOAL basin captures it.
+
+### Latest handoff — 2026-08-27 (reliable indexed DECODE classifier)
+
+- **Supersedes the physical `GuidedLaneSpec` implementation for DECODE only.**
+  The elevated GOAL/RAMP funnel could visibly strand ARTIFACTS in a top-down
+  contact solve. A valid, height-gated GOAL entry now enters the generic
+  `PieceConveyors` ordered holder, with DECODE declaring the official 4.9 in
+  ARTIFACT diameter as `queuePitchM`. The stored row is therefore nine
+  deterministic, end-to-end ARTIFACTS from the GATE end, rather than a broken
+  approximation of an elevated 3D funnel. Do not re-enable DECODE's old
+  `lane` configuration unless a stable 3D-equivalent model is demonstrated.
+- **Overflow remains real gameplay:** tenth-and-later accepted arrivals bypass
+  the nine-item holder through the generic conveyor release route; normal rules
+  still award through membership/events, never from storage itself. Loose
+  floor pieces remain barred from elevated GOAL/classifier access by the
+  existing height-gated entry boundary.
+- `PieceConveyorSpec` now has generic `queuePitchM` and `gateColliderTag` data.
+  The latter lets an indexed mechanism retract its semantic gate collider while
+  latched open and, importantly, closes it after the final actual release even
+  if a robot remains on the trigger zone. This did not touch drivetrain code.
+- Gate/overflow releases are ordinary loose ARTIFACT bodies. Exit speed is now
+  50 in/s; with the existing 20 in/s² rolling loss this carries one through the
+  SECRET TUNNEL to the human-player loading side. It retains normal loose-ball
+  collision/restitution after release.
+- Regression coverage: generic fixed-pitch and live-gate tests in
+  `src/core/game/conveyor.test.ts`; DECODE's nine-shot, end-to-end, exactly-once
+  scoring test and human-player-side return assertion in
+  `src/core/game/fixtures/decodeMatch.test.ts`. `npm run verify` is green:
+  TypeScript, ESLint, and **972 tests across 48 files**.
+- **Next priority:** browser-playtest one complete cycle: valid shot → nine
+  stored → GATE touch → sequential return to loading side. Preserve the
+  deterministic classifier representation and existing drivetrain/collision
+  tuning.
