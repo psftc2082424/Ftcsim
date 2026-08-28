@@ -1021,8 +1021,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
   });
 
   /**
-   * Three real shots, one behind another, with the GATE never opened: nothing
-   * here is a virtual queue slot, so what keeps three balls apart is the same
+   * Nine real shots, one behind another, with the GATE never opened: nothing
+   * here is a virtual queue slot, so what keeps the balls apart is the same
    * contact solver every other piece in the sim uses. This is also the "does
    * not re-score" case that matters — with three balls jostling and settling
    * against a closed gate, a piece bouncing back above the GOAL's lip and
@@ -1030,7 +1030,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
    * second, illegitimate CLASSIFIED unless the rule's own de-duplication
    * holds.
    */
-  it('packs three real shots touching, each scoring exactly once with the GATE held shut', () => {
+  it('packs the full nine-shot physical classifier touching, each scoring exactly once with the GATE held shut', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
     const standoffIn = 48;
 
@@ -1041,19 +1041,21 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       // actual intake → shoot action; this one isolates three colliding,
       // physically launched balls after they leave the shooter.
       robots: [idle('red', -50, -50)],
-      pieces: ['a1', 'a2', 'a3'].map((pieceId, index) => ({
+      pieces: Array.from({ length: 9 }, (_, index) => `a${index + 1}`).map((pieceId, index) => ({
         pieceId,
         pieceType: 'P',
         diameterIn: 5,
         massLb: 0.3,
-        startPositionM: at(goal[0] + (index - 1) * 6, goal[1] - standoffIn),
+        startPositionM: at(goal[0] + ((index % 3) - 1) * 6, goal[1] - standoffIn - Math.floor(index / 3) * 8),
       })),
     });
 
     const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
     if (destination === undefined) throw new Error('red GOAL missing');
-    const launches = new Map<number, string>([[0, 'a1'], [300, 'a2'], [600, 'a3']]);
-    for (let i = 0; i < 1800; i++) {
+    const launches = new Map(
+      Array.from({ length: 9 }, (_, index) => [index * 300, `a${index + 1}`] as const),
+    );
+    for (let i = 0; i < 4200; i++) {
       const pieceId = launches.get(i);
       if (pieceId !== undefined) {
         sim.world.launchPieceTowards(
@@ -1067,15 +1069,15 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     }
 
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
-    expect(classified).toHaveLength(3);
-    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
+    expect(classified).toHaveLength(9);
+    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 9);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
-    expect(sim.conveyors.queued('red-classifier')).toHaveLength(3);
+    expect(sim.conveyors.queued('red-classifier')).toHaveLength(9);
     // Every accepted shot reaches the actual arch and boards the rail; none
     // may mill indefinitely in the GOAL's receiving basin above it.
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
 
-    const artifacts = ['a1', 'a2', 'a3'].map((id) => {
+    const artifacts = Array.from({ length: 9 }, (_, index) => `a${index + 1}`).map((id) => {
       const piece = sim.world.snapshot().pieces.find((p) => p.pieceId === id);
       if (piece === undefined) throw new Error(`${id} missing`);
       return piece;
@@ -1107,7 +1109,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     // Run well past settling: a piece resting in a closed, packed lane must
     // not re-cross the GOAL's scoring threshold and score again.
     for (let i = 0; i < 800; i++) sim.step();
-    expect(sim.score.deltas.filter((d) => d.ruleId.includes('classified'))).toHaveLength(3);
-    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
+    expect(sim.score.deltas.filter((d) => d.ruleId.includes('classified'))).toHaveLength(9);
+    expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 9);
   });
 });

@@ -213,6 +213,10 @@ interface SimPiece {
   carriedBy: EntityId | null;
   /** A deterministic shot ignores unrelated contacts until its declared GOAL captures it. */
   transferring: boolean;
+  /** Declared GOAL point a deterministic transfer may not overshoot. */
+  transferTargetM: Vec2 | null;
+  /** Height at the declared GOAL target, used for a fixed-step exact arrival. */
+  transferTargetHeightM: number | null;
   /** A field lane/basin is carrying this piece above the floor, not launching it. */
   supportedByField: boolean;
   /**
@@ -340,6 +344,8 @@ export class SimWorld {
       verticalVelocityMps: 0,
       carriedBy: null,
       transferring: false,
+      transferTargetM: null,
+      transferTargetHeightM: null,
       supportedByField: false,
       parked: false,
     });
@@ -430,6 +436,7 @@ export class SimWorld {
         bottom: Math.max(0, piece.heightM - piece.radiusM),
         top: piece.heightM + piece.radiusM,
       };
+      this.clampTransferAtTarget(piece);
     }
 
     // 6d. Held pieces ride with their robot, which has now moved.
@@ -642,6 +649,8 @@ export class SimWorld {
     // A field basin is the declared end of a deterministic shot transfer.
     // From this tick onward the piece rejoins ordinary ball/body contacts.
     piece.transferring = false;
+    piece.transferTargetM = null;
+    piece.transferTargetHeightM = null;
     this.cachedSnapshot = null;
   }
 
@@ -675,6 +684,8 @@ export class SimWorld {
     piece.parked = false;
     piece.carriedBy = null;
     piece.transferring = true;
+    piece.transferTargetM = targetM;
+    piece.transferTargetHeightM = apexHeightM;
     piece.supportedByField = false;
     piece.body.vel = { v: vec2(direction.x * horizontalMps, direction.y * horizontalMps), omega: 0 };
     piece.heightM = Math.max(piece.radiusM, launchHeightM);
@@ -700,10 +711,37 @@ export class SimWorld {
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
     piece.heightM = piece.radiusM;
     piece.verticalVelocityMps = 0;
+    piece.transferTargetM = null;
+    piece.transferTargetHeightM = null;
     piece.supportedByField = false;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
     piece.previousHeightM = piece.heightM;
+  }
+
+  /** Keep a routed perfect-accuracy shot from stepping past its GOAL target. */
+  private clampTransferAtTarget(piece: SimPiece): void {
+    const target = piece.transferTargetM;
+    if (!piece.transferring || target === null) return;
+    const start = piece.previousPose.p;
+    const end = piece.body.pose.p;
+    const deltaX = end.x - start.x;
+    const deltaY = end.y - start.y;
+    const lengthSquared = deltaX * deltaX + deltaY * deltaY;
+    if (lengthSquared <= 1e-12) return;
+    const t = ((target.x - start.x) * deltaX + (target.y - start.y) * deltaY) / lengthSquared;
+    if (t < 0 || t > 1) return;
+    const nearestX = start.x + deltaX * t;
+    const nearestY = start.y + deltaY * t;
+    if (Math.hypot(target.x - nearestX, target.y - nearestY) > 1e-6) return;
+    piece.body.pose = { p: target, theta: piece.body.pose.theta };
+    piece.body.vel = { v: vec2(0, 0), omega: 0 };
+    piece.heightM = Math.max(piece.radiusM, piece.transferTargetHeightM ?? piece.heightM);
+    piece.verticalVelocityMps = 0;
+    piece.body.span = {
+      bottom: Math.max(0, piece.heightM - piece.radiusM),
+      top: piece.heightM + piece.radiusM,
+    };
   }
 
   private pieceNamed(pieceId: string): SimPiece {

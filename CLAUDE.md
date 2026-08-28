@@ -738,6 +738,11 @@ shoot; then Phase 4 (PDF ingestion).
   incorrectly aimed at `y=68 in`, above the physical inner-rail arch; this was
   the remaining source of balls stalled high in the GOAL. `decode.ts` now aims
   directly at the arch centre and waits for one-radius physical clearance
-  before changing a body from basin to rail guidance. The three-shot packing
-  test explicitly requires an empty basin after all balls have reached the
-  single-file column.
+  before changing a body from basin to rail guidance. The full nine-shot
+  packing test explicitly requires an empty basin after every ball has reached
+  the single-file column.
+- `SimWorld.launchPieceTowards()` now clamps only the final fixed-step segment
+  of a deterministic perfect-accuracy transfer at its declared GOAL point, so
+  a valid shot cannot numerically step beyond its target before the normal
+  membership detector observes it. It still travels visibly and becomes an
+  ordinary collidable ball once the GOAL basin captures it.
