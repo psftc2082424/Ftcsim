@@ -8,10 +8,11 @@ import { inchesToMeters } from '../../units/convert.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
 import {
   createDecodeField,
+  CLASSIFIER_CHANNEL_WIDTH_IN,
   DECODE_FIELD_COLLISION_CLASSIFICATION,
   DECODE_GAME_LOGIC_REGION_IDS,
 } from './decodeCollision.js';
-import { FIELD, GOAL } from './decodeDimensions.js';
+import { ARTIFACT, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, GOAL } from './decodeDimensions.js';
 
 const classified = (id: string) => {
   const entry = DECODE_FIELD_COLLISION_CLASSIFICATION.find((candidate) => candidate.id === id);
@@ -60,6 +61,13 @@ describe('DECODE collision classification', () => {
     expect(classified('red-goal-opening').hasCollisionBody).toBe(false);
     expect(field.colliderTags?.['red-classifier-gate']).toEqual([2112]);
     expect(field.colliderTags?.['blue-classifier-gate']).toEqual([2113]);
+  });
+
+  it('makes the physical classifier exactly one ARTIFACT wide, not a six-inch parking area', () => {
+    // 4.9 in specified ball diameter plus only the 0.1 in dSim running
+    // clearance: two ARTIFACTS cannot occupy a cross-section side-by-side.
+    expect(CLASSIFIER_CHANNEL_WIDTH_IN).toBe(ARTIFACT.specifiedDiameterIn.value + 0.1);
+    expect(CLASSIFIER_CHANNEL_WIDTH_IN).toBe(CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value);
   });
 
   /** Points inside the red GOAL footprint, in the fixture's own frame. */

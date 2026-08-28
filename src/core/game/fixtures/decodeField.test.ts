@@ -18,7 +18,7 @@ import {
   layoutFitsField,
 } from './decodeField.js';
 import { DECODE_REGIONS, DECODE_ZONES, spikeMarkIds } from './decode.js';
-import { FIELD, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
+import { CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 import {
   horizontalSeamYIn,
   rowCenterYIn,
@@ -308,9 +308,12 @@ describe('element placement comes from the setup guide', () => {
   it('places each GATE ZONE at its cross-court classifier mouth', () => {
     const [x, y] = centreIn(DECODE_ZONES.blueGateZone);
     // dSim/CAD plan view: blue's cross-court classifier is on the far-left
-    // wall; its tape starts at the 6 in channel edge and runs 10 in inward.
+    // wall; its tape starts at the single-file channel edge and runs 10 in inward.
     expect(y).toBeCloseTo(0.5, 6);
-    expect(x).toBeCloseTo(-(HALF_FIELD_IN - 6 - ZONES.gateZoneLengthIn.value / 2), 6);
+    expect(x).toBeCloseTo(
+      -(HALF_FIELD_IN - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value - ZONES.gateZoneLengthIn.value / 2),
+      6,
+    );
   });
 
   /** "LOADING ZONES are in TILES A1 and F1, in the corners on the audience side." */

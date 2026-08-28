@@ -57,7 +57,7 @@ import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../../sim/shooter.js';
 import { inchesToMeters, metersToInches } from '../../units/convert.js';
 import { meters } from '../../units/si.js';
 import { vec2 } from '../../math/vec2.js';
-import { ZONES } from './decodeDimensions.js';
+import { ARTIFACT, ZONES } from './decodeDimensions.js';
 
 const at = (xIn: number, yIn: number) => vec2(inchesToMeters(xIn), inchesToMeters(yIn));
 
@@ -295,7 +295,7 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
   const artifact = (pieceId: string, xIn: number, yIn: number, type = 'P'): GamePieceSpec => ({
     pieceId,
     pieceType: type,
-    diameterIn: 5,
+    diameterIn: ARTIFACT.specifiedDiameterIn.value,
     massLb: 0.3,
     startPositionM: at(xIn, yIn),
   });
@@ -381,6 +381,18 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
     });
   };
 
+  /** A legal shot source fully inside the GOAL-side LAUNCH ZONE. */
+  const shootingFromLaunchZone = () =>
+    decodeMatch({
+      robots: [{
+        config: SHOOTER_ROBOT,
+        alliance: 'red',
+        controller: new ScriptedController(SHOOT_TRACE),
+        startPose: { p: at(0, 63), theta: 0 },
+      }],
+      pieces: [artifact('legal', 11, 63)],
+    });
+
   it('awards CLASSIFIED for an artifact shot through the GOAL', () => {
     const sim = shootingAtGoal();
     for (let i = 0; i < 401; i++) sim.step();
@@ -396,6 +408,28 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
 
     const classified = sim.score.deltas.filter((d) => d.ruleId === 'red-classified-auto');
     expect(classified).toHaveLength(1);
+  });
+
+  it('awards the opponent one MINOR FOUL for a shot launched outside a LAUNCH ZONE', () => {
+    const sim = decodeMatch({
+      robots: [{
+        config: SHOOTER_ROBOT,
+        alliance: 'red',
+        controller: new ScriptedController(SHOOT_TRACE),
+        // This is deliberately clear of both the goal-side and audience-side
+        // LAUNCH ZONES, while still using the real intake → launch route.
+        startPose: { p: at(0, -20), theta: 0 },
+      }],
+      pieces: [artifact('outside', 11, -20)],
+    });
+
+    for (let i = 0; i < 401; i++) sim.step();
+
+    const fouls = sim.score.deltas.filter((delta) => delta.ruleId === 'red-launch-outside-zone');
+    expect(sim.events.some((event) => event.kind === 'PieceLaunched')).toBe(true);
+    expect(fouls).toHaveLength(1);
+    expect(fouls[0]?.alliance).toBe('blue');
+    expect(fouls[0]?.points).toBe(DECODE_PENALTIES.minorToOpponent.value);
   });
 
   /**
@@ -416,10 +450,19 @@ describe('CLASSIFIED and OVERFLOW (§10.5.1)', () => {
     expect(result.score.deltas.filter((d) => d.ruleId.includes('overflow'))).toEqual([]);
   });
 
-  it('does not award the blue alliance for a red GOAL', () => {
+  it('credits an illegal red GOAL shot but awards the blue alliance its G416 foul', () => {
     const sim = shootingAtGoal();
     sim.run();
-    expect(sim.score.blue).toBe(0);
+    expect(sim.score.blue).toBe(DECODE_PENALTIES.minorToOpponent.value);
+    expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('red-launch-outside-zone'))).toHaveLength(1);
+  });
+
+  it('does not penalise a shot launched from inside the GOAL-side LAUNCH ZONE', () => {
+    const sim = shootingFromLaunchZone();
+    for (let i = 0; i < 401; i++) sim.step();
+
+    expect(sim.events.some((event) => event.kind === 'PieceLaunched')).toBe(true);
+    expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('launch-outside-zone'))).toEqual([]);
   });
 
   /**
@@ -1029,11 +1072,10 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
 
   /**
    * Nine real shots, one behind another, with the GATE never opened.  A valid
-   * GOAL entry transfers into the field-declared classifier storage channel;
-   * the storage pitch is the official ARTIFACT diameter, so the nine indices
-   * remain an end-to-end, deterministic row rather than a fragile 2D
-   * reconstruction of an elevated 3D funnel.  This also proves every shot is
-   * scored once before it is stored.
+   * GOAL entry transfers into the field-declared classifier channel. The rail
+   * gap is one specified ARTIFACT plus only running clearance, so normal
+   * contacts create an end-to-end physical row rather than a virtual storage
+   * index. This also proves every shot is scored once before it is stored.
    */
   it('stores nine scored shots end-to-end in the closed classifier exactly once', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
@@ -1048,7 +1090,7 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       pieces: Array.from({ length: 9 }, (_, index) => `a${index + 1}`).map((pieceId, index) => ({
         pieceId,
         pieceType: 'P',
-        diameterIn: 5,
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
         massLb: 0.3,
         startPositionM: at(goal[0] + ((index % 3) - 1) * 6, goal[1] - standoffIn - Math.floor(index / 3) * 8),
       })),
@@ -1090,10 +1132,10 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     // None are airborne any more, and every one sits inside the classifier
     // channel. A packed row can legitimately extend up toward its GOAL-side
     // entrance, so a floor-level Y cutoff is not a valid membership check.
+    const laneCentreXIn = centreOf(DECODE_REGIONS.redRamp)[0];
     for (const artifact of artifacts) {
       expect(artifact.airborne).toBe(false);
-      expect(artifact.pose.p.x).toBeGreaterThan(inchesToMeters(65));
-      expect(artifact.pose.p.x).toBeLessThan(inchesToMeters(73));
+      expect(Math.abs(metersToInches(meters(artifact.pose.p.x)) - laneCentreXIn)).toBeLessThan(0.25);
       expect(artifact.pose.p.y).toBeGreaterThan(inchesToMeters(0));
       expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(72));
     }
@@ -1112,5 +1154,47 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     for (let i = 0; i < 800; i++) sim.step();
     expect(sim.score.deltas.filter((d) => d.ruleId.includes('classified'))).toHaveLength(9);
     expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 9);
+  });
+
+  it('keeps exactly nine scored ARTIFACTS in the closed single-file classifier, then overflows the tenth', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const standoffIn = 48;
+    const pieceIds = Array.from({ length: 10 }, (_, index) => `overflow-${index + 1}`);
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [idle('red', -50, -50)],
+      pieces: pieceIds.map((pieceId, index) => ({
+        pieceId,
+        pieceType: 'P',
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
+        massLb: 0.3,
+        startPositionM: at(
+          goal[0] + ((index % 3) - 1) * 6,
+          goal[1] - standoffIn - Math.floor(index / 3) * 8,
+        ),
+      })),
+    });
+    const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
+    if (destination === undefined) throw new Error('red GOAL missing');
+
+    let sawTenthOverflow = false;
+    for (let tick = 0; tick < 4800; tick++) {
+      const launchIndex = Math.floor(tick / 300);
+      if (tick % 300 === 0 && launchIndex < pieceIds.length) {
+        sim.world.launchPieceTowards(
+          pieceIds[launchIndex] as string,
+          destination.centerM,
+          inchesToMeters(60),
+          inchesToMeters(18),
+        );
+      }
+      sim.step();
+      if (sim.conveyors.overflowed('red-classifier').includes('overflow-10')) sawTenthOverflow = true;
+    }
+
+    expect(sim.conveyors.queued('red-classifier')).toHaveLength(RAMP_SLOT_COUNT.value);
+    expect(sawTenthOverflow).toBe(true);
+    expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(9);
+    expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('overflow'))).toHaveLength(1);
   });
 });

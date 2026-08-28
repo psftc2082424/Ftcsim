@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { simulationFromDefinition } from '../matchSimulation.js';
 import { DECODE_GAME } from './decodeGame.js';
 import { createDecodeField } from './decodeCollision.js';
-import { DECODE_REGIONS } from './decode.js';
+import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
+import { ARTIFACT } from './decodeDimensions.js';
 import { DECODE_FIELD_REGIONS, DECODE_FIELD_ZONES } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
@@ -50,7 +51,7 @@ describe('classifier storage integration', () => {
         startPose: { p: vec2(inchesToMeters(goal[0]), inchesToMeters(goal[1] - standoffIn)), theta: Math.PI / 2 },
       }],
       pieces: ['a1', 'a2', 'a3'].map((pieceId, index) => ({
-        pieceId, pieceType: 'P', diameterIn: 5, massLb: 0.3,
+        pieceId, pieceType: 'P', diameterIn: ARTIFACT.specifiedDiameterIn.value, massLb: 0.3,
         startPositionM: vec2(inchesToMeters(goal[0]), inchesToMeters(startY + (index - 1) * 4)),
       })),
     });
@@ -76,14 +77,17 @@ describe('classifier storage integration', () => {
     expect(sawRollingDownClassifier).toBe(true);
   });
 
-  it('does not admit an unaccepted loose ground ball into classifier storage', () => {
+  it('does not admit an unaccepted loose ground ball into an open classifier', () => {
+    const gate = centreOf(DECODE_ZONES.redGateZone);
     const sim = simulationFromDefinition(DECODE_GAME, {
       field: createDecodeField(),
       robots: [{
         config: DEFAULT_ROBOT_CONFIG,
         alliance: 'red',
         controller: constantController(NEUTRAL_INPUT),
-        startPose: { p: vec2(inchesToMeters(-40), inchesToMeters(-40)), theta: 0 },
+        // The robot opens the live gate, proving that this is an elevated
+        // admission guard rather than a closed-gate collision artifact.
+        startPose: { p: vec2(inchesToMeters(gate[0]), inchesToMeters(gate[1])), theta: 0 },
       }],
       // This overlaps the top-down channel footprint, but it did not enter
       // through the raised GOAL opening. Height-gated GOAL membership, not a
@@ -91,7 +95,7 @@ describe('classifier storage integration', () => {
       pieces: [{
         pieceId: 'loose',
         pieceType: 'P',
-        diameterIn: 5,
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
         massLb: 0.3,
         startPositionM: vec2(inchesToMeters(69), inchesToMeters(57)),
       }],
@@ -103,6 +107,7 @@ describe('classifier storage integration', () => {
     if (loose === undefined) throw new Error('loose artifact missing');
     expect(sim.conveyors.queued('red-classifier')).toEqual([]);
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
+    expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
     expect(loose.heldByRobotId).toBeNull();
     expect(sim.score.red).toBe(0);
   });

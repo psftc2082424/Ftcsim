@@ -31,6 +31,7 @@ export const SIM_EVENT_KINDS = [
   'PiecePossessed',
   'PossessionSustained',
   'PieceReleasedBy',
+  'PieceLaunched',
   'PieceCameToRest',
   'RobotEnteredZone',
   'RobotExitedZone',
@@ -127,6 +128,15 @@ export interface PieceReleasedByEvent extends SimEventBase {
   readonly possessedCount: number;
 }
 
+/** A robot intentionally launched a piece through a declared mechanism action. */
+export interface PieceLaunchedEvent extends SimEventBase {
+  readonly kind: 'PieceLaunched';
+  readonly pieceId: string;
+  readonly pieceType: string;
+  readonly robotId: string;
+  readonly alliance: Alliance;
+}
+
 /**
  * A piece stopped moving. Several games assess scoring only once pieces settle,
  * so this is distinct from merely entering a region.
@@ -207,6 +217,7 @@ export type SimEvent =
   | PiecePossessedEvent
   | PossessionSustainedEvent
   | PieceReleasedByEvent
+  | PieceLaunchedEvent
   | PieceCameToRestEvent
   | RobotZoneEvent
   | RobotHeightExceededEvent

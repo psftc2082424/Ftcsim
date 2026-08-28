@@ -106,6 +106,20 @@ export class MatchRunner {
   }
 
   /**
+   * Seed current zone support without presenting a match-start baseline as a
+   * rule-triggering event. Rules such as a launch-zone restriction need the
+   * starting robot position on their first action, while a `RobotOverlapsZone`
+   * score must not be awarded merely because setup placed a robot there.
+   */
+  primeZoneOccupancy(events: readonly SimEvent[]): void {
+    for (const event of events) {
+      if (event.kind === 'RobotEnteredZone' || event.kind === 'RobotOverlapsZone') {
+        this.applyEventToWorld(event);
+      }
+    }
+  }
+
+  /**
    * Feed one fact into the match.
    *
    * World bookkeeping is updated *before* rules run, so a rule evaluating a
@@ -240,6 +254,7 @@ export class MatchRunner {
       case 'PiecePossessed':
       case 'PossessionSustained':
       case 'PieceReleasedBy':
+      case 'PieceLaunched':
       case 'RobotHeightExceeded':
       case 'MechanismStateChanged':
       case 'PhaseChanged':

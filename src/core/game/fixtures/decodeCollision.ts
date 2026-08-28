@@ -20,7 +20,7 @@ import { vec2 } from '../../math/vec2.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
-import { CLASSIFIER, FIELD, GOAL } from './decodeDimensions.js';
+import { CLASSIFIER, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, GOAL } from './decodeDimensions.js';
 
 /** Human-auditable classification; it is not a physics shape type. */
 export type DecodeCollisionClass =
@@ -188,11 +188,15 @@ export const DECODE_FIELD_COLLISION_CLASSIFICATION: readonly DecodeFieldElementC
 const GOAL_BODY_ID_BASE = 1100;
 
 /**
- * Classifier channel width, traced from the supplied CAD/dSim top-down field
- * reference.  The manual establishes that it is a physical RAMP assembly but
- * does not print a plan-view channel width, so this remains visibly inferred.
+ * Classifier channel clear width. The manual specifies a 4.9 in ARTIFACT; the
+ * dSim reference leaves a tenth of an inch of running clearance around its
+ * 5 in ball. That produces a genuinely single-file channel while avoiding a
+ * numerically over-constrained two-rail contact in a top-down solver.
+ *
+ * This is clearance *between* the rails, not a parking pitch: pieces remain
+ * ordinary bodies and determine their own touching positions along the lane.
  */
-const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
+export const CLASSIFIER_CHANNEL_WIDTH_IN = CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value;
 /**
  * The physical rail reaches the gate arm.  The scored/queue region begins two
  * inches up the ramp, but ending the rail there leaves a floor-level corner
@@ -237,7 +241,7 @@ const CLASSIFIER_GATE_BLOCKING_TOP_IN = CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN + 
  */
 // One inch is the rail's material half-thickness: this makes the diagonal
 // physically meet the inner classifier rail, rather than stopping at the
-// abstract six-inch channel boundary and leaving a one-inch seam.
+// abstract channel boundary and leaving a seam.
 const GOAL_CLASSIFIER_ARCH_CLEARANCE_IN = GOAL_WALL_THICKNESS_IN / 2;
 
 /**
@@ -300,7 +304,7 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
     inchesToMeters(sign * (half - openingWidthIn)),
     inchesToMeters(half),
   );
-  // The six-inch CLASSIFIER channel replaces only the side-wall end of the
+  // The single-file CLASSIFIER channel replaces only the side-wall end of the
   // GOAL face. The diagonal closes everywhere else, leaving one direct arch
   // into the classifier rather than a broad field-facing basin exit.
   const channelInnerXIn = sign * (half - CLASSIFIER_CHANNEL_WIDTH_IN - GOAL_CLASSIFIER_ARCH_CLEARANCE_IN);

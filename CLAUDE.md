@@ -802,3 +802,33 @@ shoot; then Phase 4 (PDF ingestion).
   and **972 tests across 48 files**.
 - **Next priority:** browser check of valid shot → visible classifier roll →
   physical gate crossing → tunnel return. Do not alter drivetrain physics.
+
+### Latest handoff — 2026-08-27 (single-file classifier and launch-zone foul)
+
+- The DECODE classifier collision/render region is now **5.0 in clear**: the
+  manual's explicit 4.9 in ARTIFACT diameter plus 0.1 in observed dSim running
+  clearance. `CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN` is the shared inferred
+  dimension; the lane intake and GOAL throat derive from it. This replaces the
+  previous 6 in placeholder, prevents side-by-side packing, and preserves
+  ordinary active ball contacts—there are no fixed classifier slots.
+- Capacity remains the manual's explicit nine. The regression suite now proves
+  nine real accepted shots form one physical end-to-end row and the tenth takes
+  the elevated overflow path. An open, latched GATE still cannot admit an
+  unauthorised ground-level ARTIFACT into the raised lane.
+- Added the generic `PieceLaunched` event at the mechanism-action boundary.
+  DECODE G416 is data (`red|blue-launch-outside-zone`): each shot outside both
+  LAUNCH ZONES credits the opponent one 5-point MINOR FOUL through rules and
+  scoring, while valid LAUNCH-ZONE shots receive no such delta. Action robot
+  entity ids are now stringified to match the game-layer identities used by
+  zone and possession events.
+- Match startup now primes zone support into `MatchRunner` **without** emitting
+  a scoring event. This is required for first-tick legal launches to see their
+  LAUNCH ZONE, while preserving the rule that a starting position never earns
+  points merely by existing there.
+- Verification: `npm run verify` passed (TypeScript, ESLint, **976 tests / 48
+  files**).
+- **Do not restore** fixed classifier slots, shooter physics, or drivetrain
+  changes. The outstanding next task is browser playtesting the narrowed lane
+  and then deciding whether the official G416 MAJOR escalation for a violating
+  ball entering the open GOAL is required; only the user-requested 5-point
+  per-shot MINOR portion is implemented.

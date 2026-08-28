@@ -156,6 +156,10 @@ export class MatchSimulation {
     // Pieces and robots start where the game placed them. Priming means the
     // starting layout is a baseline, not a flurry of scoring events on tick 0.
     this.detector.prime(observationFrom(this.world.snapshot(), { attribution: this.attribution }));
+    // Membership baselines do not become scoring events, but rule predicates
+    // still need initial robot zone support for a first-tick action such as a
+    // launch-zone foul. Seed runner bookkeeping without evaluating rules.
+    this.runner.primeZoneOccupancy(this.detector.restateOccupancy(this.world.tick));
   }
 
   get score(): ScoreState {
@@ -306,6 +310,21 @@ export class MatchSimulation {
         route.arcApexHeightM,
         launchHeightM,
       );
+      const launchedPiece = snapshotBeforeRouting.pieces.find((piece) => piece.pieceId === action.pieceId);
+      this.ingestAll([
+        {
+          kind: 'PieceLaunched',
+          tick: this.world.tick,
+          timeSec: snapshotBeforeRouting.timeSec,
+          pieceId: action.pieceId,
+          pieceType: launchedPiece?.pieceType ?? '',
+          // The game/event layer uses stable string identities; physics uses
+          // numeric entity ids. Keep this action fact consistent with zone and
+          // possession events so predicates can correlate the firing robot.
+          robotId: String(action.robotId),
+          alliance: action.alliance,
+        },
+      ]);
     }
   }
 

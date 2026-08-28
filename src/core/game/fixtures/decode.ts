@@ -32,7 +32,7 @@ import type {
   PenaltyValues,
   RankingPointRules,
 } from '../gameDefinition.js';
-import { ARTIFACT, CONTROL_LIMIT, GOAL, ZONES } from './decodeDimensions.js';
+import { ARTIFACT, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, CONTROL_LIMIT, FIELD, GOAL, ZONES } from './decodeDimensions.js';
 import type { PieceConveyorSpec } from '../conveyor.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { vec2 } from '../../math/vec2.js';
@@ -168,7 +168,7 @@ export const CLASSIFIER_LANE_ACCELERATION_MPS2 = inferred(
   72,
 );
 
-/** Limited funnel pull so a landed ball joins the six-inch classifier lane. */
+/** Limited funnel pull so a landed ball joins the one-ball-wide classifier lane. */
 export const CLASSIFIER_LANE_CENTERING_ACCELERATION_MPS2 = inferred(
   inchesToMeters(80),
   'dSim-style funnel guide, capped at the same 80 in/s² scale as the rail acceleration.',
@@ -218,21 +218,21 @@ export const CLASSIFIER_OVERFLOW_HEIGHT_M = inferred(
 /**
  * Physical approach point for the GOAL-to-classifier throat.
  *
- * dSim's logical rail hand-off is at y=57 in. In this simulator a 5 in
+ * dSim's logical rail hand-off is at y=57 in. In this simulator a 4.9 in
  * physical disc must reach that same open arch before it becomes a rail ball;
  * this keeps the basin's slope aimed at the real channel inlet rather than at
  * an unreachable point above the inner rail.
  */
 export const CLASSIFIER_BASIN_THROAT = inferred(
-  { xIn: 69, yIn: 57 },
-  'dSim\'s x = field half - 3 in, y = gate origin + 55 in rail hand-off; the physical classifier arch is centred at this point.',
+  { xIn: FIELD.sideIn.value / 2 - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value / 2, yIn: 57 },
+  'dSim\'s rail hand-off is centred in its single-file classifier; the physical classifier arch is centred in this simulator\'s 4.9 in ARTIFACT plus 0.1 in clearance channel.',
   72,
 );
 
 /** Field-facing point immediately outside dSim's clipped GOAL-to-ramp throat. */
 export const CLASSIFIER_INBOUND_REJECT_POINT = inferred(
   { xIn: 63, yIn: 57 },
-  'dSim clips the GOAL face at the six-inch classifier channel and projects ordinary ground balls out of that channel on the field side.',
+  'dSim clips the GOAL face at the single-file classifier channel and projects ordinary ground balls out of that channel on the field side.',
   72,
 );
 
@@ -252,8 +252,14 @@ export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
  * lane, rather than appearing in a stored classifier slot.
  */
 export const CLASSIFIER_LANE_ENTRY = inferred(
-  { xIn: 69, yIn: 54 },
-  'dSim arch is centred at y = 57 in. The y = 54 in intake is one ball-radius below that arch, clear of the GOAL side-leg projection while still at the physical classifier entrance.',
+  {
+    // The physical channel is one 4.9 in ARTIFACT plus 0.1 in running
+    // clearance wide, so this is its actual centreline rather than the old
+    // overly-wide placeholder centre.
+    xIn: FIELD.sideIn.value / 2 - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value / 2,
+    yIn: 54,
+  },
+  'dSim arch is centred at y = 57 in. The y = 54 in intake is one ball-radius below that arch, clear of the GOAL side-leg projection while still at the physical single-file classifier entrance.',
   72,
 );
 
@@ -737,13 +743,11 @@ function tierMap(
  * A foul is *credited to the opponent's* total rather than deducted from the
  * violator's, which matters: a penalised alliance's own score is unchanged.
  *
- * None of DECODE's violations are simulated, and that is a limit of the
- * simulator rather than an omission from the manual. Every foul turns on
- * referee perception — the manual says so directly, "All rules throughout the
- * Game Rules section are called as perceived by a REFEREE" (p.89) — and on
- * judgements like MOMENTARY, PERSISTENT and REPEATED that no geometric
- * predicate decides. The values are recorded so a caller applying a foul
- * externally uses the right number.
+ * Most DECODE violations turn on referee perception — the manual says so
+ * directly, "All rules throughout the Game Rules section are called as
+ * perceived by a REFEREE" (p.89) — and on judgements like MOMENTARY,
+ * PERSISTENT and REPEATED that no geometric predicate decides. The explicit,
+ * machine-observable exceptions modelled below use these same values.
  */
 export const DECODE_PENALTIES: PenaltyValues = {
   minorToOpponent: explicit(
@@ -1135,7 +1139,8 @@ export const DECODE_SCORING_RULES: readonly ScoringRule[] = [
 // ------------------------------------------------------------- foul rules ---
 
 /**
- * The one violation this simulator can assess: G408's CONTROL limit.
+ * Machine-assessable foul subset: G408's CONTROL limit and G416's LAUNCH-zone
+ * restriction. All other foul calls remain referee-assessed.
  *
  * Almost every DECODE foul turns on referee perception — the manual says so
  * outright, "All rules throughout the Game Rules section are called as perceived
@@ -1173,7 +1178,7 @@ const MAX_SIMULTANEOUS_CONTACTS = Math.floor(
   (4 * DECODE_ROBOT_CONSTRAINTS.startingCubeIn.value) / ARTIFACT.specifiedDiameterIn.value,
 );
 
-export const DECODE_FOUL_RULES: readonly ScoringRule[] = (['red', 'blue'] as const).flatMap(
+const DECODE_CONTROL_LIMIT_FOUL_RULES: readonly ScoringRule[] = (['red', 'blue'] as const).flatMap(
   (alliance) =>
     Array.from(
       { length: Math.max(0, MAX_SIMULTANEOUS_CONTACTS - CONTROL_LIMIT.value) },
@@ -1200,7 +1205,40 @@ export const DECODE_FOUL_RULES: readonly ScoringRule[] = (['red', 'blue'] as con
 );
 
 /**
- * Everything the rules engine runs: scoring and the one assessable foul.
+ * G416: an ARTIFACT may only be LAUNCHED from a LAUNCH ZONE or while the robot
+ * overlaps a LAUNCH LINE. A `PieceLaunched` event is emitted by the generic
+ * mechanism-action route, so this remains events → rules → scoring rather
+ * than putting a season penalty in the shooter implementation.
+ *
+ * The requested simulator behaviour is the rule's per-piece MINOR FOUL. The
+ * current fixture deliberately does not add G416's separate MAJOR escalation
+ * for a violating ball entering the open GOAL; that needs a referee-level
+ * interpretation of the open top and is recorded in ASSUMPTIONS.md.
+ */
+export const DECODE_LAUNCH_ZONE_FOUL_RULES: readonly ScoringRule[] = (['red', 'blue'] as const).map(
+  (alliance): ScoringRule => ({
+    id: `${alliance}-launch-outside-zone`,
+    label: `${alliance} LAUNCH outside LAUNCH ZONE`,
+    phase: 'ANY',
+    trigger: {
+      event: 'PieceLaunched',
+      filters: [{ field: 'alliance', equals: alliance }],
+    },
+    condition: {
+      predicateId: 'robotNotInZone',
+      params: { zoneIds: ALL_LAUNCH_LINE_ZONE_IDS },
+    },
+    award: { points: DECODE_PENALTIES.minorToOpponent, alliance: 'opponent' },
+  }),
+);
+
+export const DECODE_FOUL_RULES: readonly ScoringRule[] = [
+  ...DECODE_CONTROL_LIMIT_FOUL_RULES,
+  ...DECODE_LAUNCH_ZONE_FOUL_RULES,
+];
+
+/**
+ * Everything the rules engine runs: scoring and the machine-assessable fouls.
  *
  * Kept as two lists and joined here because the manual keeps them apart — Table
  * 10-2 is what an alliance earns, Table 10-4 is what it concedes — and because a

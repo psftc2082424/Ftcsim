@@ -1786,11 +1786,43 @@ height-gated GOAL and protected-lane rejection path, so a robot cannot push one
 into the classifier. The membership detector and rules engine remain the only
 scoring path.
 
+### 10.21 Single-file rail clearance and G416 launch-zone foul
+
+| | |
+|---|---|
+| **Values** | 5.0 in classifier clear width = explicit 4.9 in ARTIFACT diameter + inferred 0.1 in dSim running clearance; 9-ball capacity; 5-point MINOR FOUL per invalid launch |
+| **Confidence** | ARTIFACT diameter, capacity, and MINOR FOUL are **EXPLICIT**; the 0.1 in clearance is **INFERRED** from dSim's observable 5.1 in rail pitch for its nominal 5 in ball |
+| **Location** | `decodeDimensions.ts`, `decodeCollision.ts`, `decodeField.ts`, `decode.ts`, `matchSimulation.ts` |
+
+The older six-inch plan-view classifier was wide enough for visibly misleading
+lateral gaps. The shared `CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN` narrows both
+the rendered RAMP region and the two physical rails to one specified ARTIFACT
+plus only 0.1 in running clearance. This is an environmental channel dimension,
+not a storage pitch: accepted pieces remain active bodies, collide and settle
+at positions chosen by the ordinary solver, and the tenth arrival still uses
+the elevated overflow path after the manual's explicit nine-ball capacity.
+
+G416 is now assessed at the generic mechanism-action boundary. A launch emits
+`PieceLaunched` with the same string robot identity used by zone observations;
+the DECODE data rules apply a 5-point opponent MINOR FOUL for each event whose
+robot is outside both LAUNCH ZONES. This implements the requested base per-ball
+penalty without putting DECODE knowledge in the shooter. The Competition Manual
+also describes a MAJOR escalation when a violating ball enters the open GOAL;
+that referee-level escalation is intentionally **not** implemented yet, rather
+than silently approximated from top-down geometry.
+
+Initial zone occupancy is seeded into the rule runner as non-scoring
+bookkeeping. A robot that starts in a LAUNCH ZONE is therefore recognized for
+its first launch, but no `RobotOverlapsZone` award is manufactured from the
+initial field setup. This is generic match-state initialization, not a DECODE
+exception.
+
 ## 11. Revision log
 
 | Date | Change |
 |---|---|
 | 2026-08-27 | Replaced the direct DECODE classifier-storage fallback with a physical classifier run. A valid GOAL entry may be placed only at the lane intake below the GOAL arch, then rolls/collides down the full visible classifier. The gate applies return velocity at the physical exit position rather than teleporting the ball into the SECRET TUNNEL. |
+| 2026-08-27 | Narrowed the DECODE classifier from a 6 in placeholder to the shared 5.0 in single-file clear width (4.9 in ARTIFACT plus 0.1 in dSim-derived clearance), and added G416's requested per-launch 5-point MINOR FOUL as a generic `PieceLaunched` event/rule. |
 | 2026-08-27 | Superseded the unreliable 2D physical GOAL-to-classifier lane experiment with an indexed elevated field mechanism after legitimate GOAL membership. The nine explicit 4.9 in ARTIFACT positions are end-to-end at the GATE end; tenth-and-later arrivals use the ordinary overflow release. Added the generic `queuePitchM` and `gateColliderTag` conveyor data, and raised return speed to 50 in/s so normal rolling loss carries released ARTIFACTS to the human-player loading side. |
 | 2026-08-27 | Updated §10.18 with an explicit reusable elevated-surface profile: 14 in basin, 10 in normal rail, and 13.5 in overflow centres. The STEP full-field assembly was loaded to verify the GOAL/RAMP are raised assemblies; dSim supplies the observed ball-surface heights. |
 | 2026-08-27 | Updated §10.18: the physical classifier now has one raised GOAL arch and continuous rails to the live gate. This closes the former rail/gate seam without adding parked slots; GOAL entry is admitted before the protected-lane guard so valid shots cannot be rejected during the overlapping hand-off tick. |

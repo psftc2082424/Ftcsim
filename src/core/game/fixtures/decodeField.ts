@@ -43,7 +43,7 @@ import {
 } from '../regions.js';
 import { DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT, spikeMarkId } from './decode.js';
 import { vec2, type Vec2 } from '../../math/vec2.js';
-import { ARTIFACT, CLASSIFIER, FIELD, GOAL, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
+import { ARTIFACT, CLASSIFIER, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, GOAL, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 import {
   rowCenterYIn,
   tileBounds,
@@ -156,8 +156,12 @@ const SECRET_TUNNEL_OFFSET_IN = explicitRule(
   'The tape lines are placed such that they are 16.75 in. (42.55 cm) away from the inside of TILE seam V or Z, respectively',
 );
 
-/** dSim/CAD plan-view classifier channel: six inches from side wall. */
-const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
+/**
+ * A single-file classifier: 4.9 in ARTIFACT diameter plus the 0.1 in running
+ * clearance observed in dSim's 5.1 in rail pitch.  This is a physical channel
+ * width, not a virtual storage-slot pitch.
+ */
+const CLASSIFIER_CHANNEL_WIDTH_IN = CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value;
 const CLASSIFIER_GATE_Y_IN = -2;
 const CLASSIFIER_RAMP_START_Y_IN = 2;
 

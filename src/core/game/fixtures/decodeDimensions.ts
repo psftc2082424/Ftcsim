@@ -227,6 +227,21 @@ export const ARTIFACT = {
 } as const;
 
 /**
+ * Clear width of the single-file classifier lane in the top-down model.
+ *
+ * The manual establishes the ARTIFACT diameter and the nine-ball capacity but
+ * does not print the rail gap. dSim's observable 5.1 in rail pitch for its
+ * 5 in ball gives 0.1 in of running clearance; applying that to DECODE's
+ * specified 4.9 in ARTIFACT makes the lane one ball wide without relying on
+ * virtual parking coordinates.
+ */
+export const CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN: Sourced<number> = inferred(
+  ARTIFACT.specifiedDiameterIn.value + 0.1,
+  'Manual §9.9 specifies a 4.9 in ARTIFACT. The 0.1 in running clearance is inferred from dSim\'s observable 5.1 in rail pitch for its nominal 5 in ball; the official CAD does not print this gap.',
+  73,
+);
+
+/**
  * ARTIFACT mass is **not stated anywhere in the Competition Manual**.
  *
  * §9.9 gives diameter, tolerance, colour, part numbers (am-3376a_purple /
