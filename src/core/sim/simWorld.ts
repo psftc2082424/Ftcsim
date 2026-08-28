@@ -213,6 +213,8 @@ interface SimPiece {
   carriedBy: EntityId | null;
   /** A deterministic shot ignores unrelated contacts until its declared GOAL captures it. */
   transferring: boolean;
+  /** A field lane/basin is carrying this piece above the floor, not launching it. */
+  supportedByField: boolean;
   /**
    * Held by a *field* mechanism rather than a robot (`game/conveyor.ts`).
    *
@@ -338,6 +340,7 @@ export class SimWorld {
       verticalVelocityMps: 0,
       carriedBy: null,
       transferring: false,
+      supportedByField: false,
       parked: false,
     });
   }
@@ -496,7 +499,10 @@ export class SimWorld {
       heightM: piece.heightM,
       previousHeightM: piece.previousHeightM,
       verticalVelocityMps: piece.verticalVelocityMps,
-      airborne: isAirborne({ heightM: piece.heightM, velocityMps: piece.verticalVelocityMps }, piece.radiusM),
+      airborne: !piece.supportedByField && isAirborne(
+        { heightM: piece.heightM, velocityMps: piece.verticalVelocityMps },
+        piece.radiusM,
+      ),
       heldByRobotId: piece.carriedBy,
     }));
 
@@ -525,6 +531,7 @@ export class SimWorld {
     piece.parked = true;
     piece.carriedBy = null;
     piece.transferring = false;
+    piece.supportedByField = false;
     this.settlePiece(piece, positionM);
     this.cachedSnapshot = null;
   }
@@ -535,6 +542,7 @@ export class SimWorld {
     piece.parked = false;
     piece.carriedBy = null;
     piece.transferring = false;
+    piece.supportedByField = false;
     this.settlePiece(piece, positionM);
   }
 
@@ -552,6 +560,7 @@ export class SimWorld {
     piece.parked = false;
     piece.carriedBy = null;
     piece.transferring = false;
+    piece.supportedByField = false;
     this.settlePiece(piece, positionM);
     piece.body.vel = { v: velocityM, omega: 0 };
     this.cachedSnapshot = null;
@@ -595,6 +604,7 @@ export class SimWorld {
     this.cachedSnapshot = null;
 
     if (targetHeightM === undefined || heightRateMps <= 0) return;
+    piece.supportedByField = true;
     const delta = targetHeightM - piece.heightM;
     const step = Math.min(Math.abs(delta), heightRateMps * DT_SECONDS);
     if (step === 0) return;
@@ -663,6 +673,7 @@ export class SimWorld {
     piece.parked = false;
     piece.carriedBy = null;
     piece.transferring = true;
+    piece.supportedByField = false;
     piece.body.vel = { v: vec2(direction.x * horizontalMps, direction.y * horizontalMps), omega: 0 };
     piece.heightM = Math.max(piece.radiusM, launchHeightM);
     piece.verticalVelocityMps = verticalMps;
@@ -687,6 +698,7 @@ export class SimWorld {
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
     piece.heightM = piece.radiusM;
     piece.verticalVelocityMps = 0;
+    piece.supportedByField = false;
     piece.body.span = { bottom: 0, top: piece.radiusM * 2 };
     piece.previousPose = piece.body.pose;
     piece.previousHeightM = piece.heightM;

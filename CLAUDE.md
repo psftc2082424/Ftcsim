@@ -694,3 +694,27 @@ shoot; then Phase 4 (PDF ingestion).
   `dampPieceVelocity()` clears that marker on receiving-basin capture, before
   GOAL → classifier physics begins. This is only transfer access control; the
   captured ball remains an ordinary active, collidable body.
+
+### Latest handoff — 2026-08-27 (physical GOAL/classifier hand-off)
+
+- CLASSIFIED and OVERFLOW retain normal per-entry scoring: an ARTIFACT that
+  genuinely leaves and later re-enters a GOAL may score again. Do **not** use
+  `oncePerPiece` to hide a settling defect. The physical GOAL basin, one arch,
+  continuous rails and closed live gate keep an accepted ball from re-entering
+  the GOAL score region while it packs.
+- The former classifier escape was two separate geometry/order defects:
+  the rail stopped short of the gate, and the continuous inner rail also
+  blocked the one legitimate raised GOAL arch. `decodeCollision.ts` now has a
+  continuous outer rail, inner segments around one dSim-observed arch, and a
+  tagged gate collision envelope that overlaps the raised 5 in ARTIFACT. In
+  `conveyor.ts`, declared GOAL arrivals are authorized before the protected
+  lane rejects loose ground balls. The drivetrain is untouched.
+- `SimWorld` records field-supported raised pieces as resting rather than
+  airborne while they remain active/collidable; this is presentation/state
+  semantics only, not a parked queue. The three-real-shot closed-gate test now
+  asserts all pieces remain queued in the physical channel, packed and scored
+  once. `npm run verify` passes: typecheck + ESLint + **970 tests / 48 files**.
+- **Next priority:** manually playtest GOAL → arch → lane → gate → SECRET
+  TUNNEL in the browser and compare the visible arch/rail spacing with the
+  CAD/dSim reference. Keep the single-arch, continuous-rail invariant; do not
+  restore `oncePerPiece`, fixed slots, or drivetrain changes.

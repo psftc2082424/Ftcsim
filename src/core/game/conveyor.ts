@@ -261,9 +261,14 @@ export class PieceConveyors {
 
       this.refreshReleased(state, places, snapshot);
       this.blockInboundExit(spec, state, places, snapshot, world);
-      this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       const releaseHeldNow = this.releaseHeld(spec, snapshot);
+      // A GOAL/basin entry may overlap the physical lane footprint. Admit a
+      // legitimate declared entry first, then reject only pieces which still
+      // have no authorization. Doing this in the reverse order projects a
+      // valid shot to the public-side reject point during the one tick before
+      // it is recorded as taken.
       this.takeArrivals(spec, state, places, snapshot, world);
+      this.blockUnauthorisedLanePieces(spec, state, places, snapshot, world);
       // A contact is one gate activation, not a continuously-held override.
       // This lets a robot remain parked after a drain without keeping an empty
       // gate open forever; it must leave and touch again to activate a later

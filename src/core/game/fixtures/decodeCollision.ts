@@ -193,8 +193,20 @@ const GOAL_BODY_ID_BASE = 1100;
  * does not print a plan-view channel width, so this remains visibly inferred.
  */
 const CLASSIFIER_CHANNEL_WIDTH_IN = 6;
-/** dSim's side-wall classifier begins just beyond the 5 in gate mouth. */
-const CLASSIFIER_RAMP_START_Y_IN = 2;
+/**
+ * The physical rail reaches the gate arm.  The scored/queue region begins two
+ * inches up the ramp, but ending the rail there leaves a floor-level corner
+ * beside the gate that a 5 in ARTIFACT can roll around.  This is a continuous
+ * channel wall, not an extra scoring or parking surface.
+ */
+const CLASSIFIER_RAIL_START_Y_IN = 0;
+/**
+ * The sole physical arch from the raised GOAL basin into the classifier rail.
+ * The centre follows dSim's observed hand-off; 14 in gives a 5 in ARTIFACT
+ * clearance through the two-in rail walls. The rail remains closed elsewhere.
+ */
+const CLASSIFIER_ARCH_CENTRE_Y_IN = 57;
+const CLASSIFIER_ARCH_OPENING_LENGTH_IN = 14;
 
 /**
  * GOALS and classifier assemblies are cross-court from their drive-team side:
@@ -214,12 +226,19 @@ function goalSide(alliance: 'red' | 'blue'): number {
  * robot needs to be kept out of the corner.
  */
 const GOAL_WALL_THICKNESS_IN = 2;
+/** Normal ARTIFACT centre on the raised classifier rail, per dSim/CAD audit. */
+const CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN = 10;
+/** A 5 in ARTIFACT must meet the closed arm across the full normal rail span. */
+const CLASSIFIER_GATE_BLOCKING_TOP_IN = CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN + 2.5;
 /**
  * The GOAL's diagonal front closes against the classifier arch.  The arch is
  * the sole physical outlet from the receiving basin: widening it creates a
  * second field-facing escape path for accepted ARTIFACTS.
  */
-const GOAL_CLASSIFIER_ARCH_CLEARANCE_IN = 0;
+// One inch is the rail's material half-thickness: this makes the diagonal
+// physically meet the inner classifier rail, rather than stopping at the
+// abstract six-inch channel boundary and leaving a one-inch seam.
+const GOAL_CLASSIFIER_ARCH_CLEARANCE_IN = GOAL_WALL_THICKNESS_IN / 2;
 
 /**
  * The GOAL opening is a right triangle in the far corner. Its two legs and its
@@ -307,25 +326,36 @@ function goalWallBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly R
   return [backLeg, sideLeg, face];
 }
 
-/** Rails bound a physical classifier lane while leaving its interior available to balls. */
+/**
+ * Rails bound the physical classifier lane. Its inner rail has one raised
+ * arch from the GOAL basin; it remains solid everywhere else so ground balls
+ * cannot enter the channel sideways.
+ */
 function classifierRailBodies(alliance: 'red' | 'blue', firstId: EntityId): readonly RigidBody[] {
   const sign = goalSide(alliance);
   const half = FIELD.sideIn.value / 2;
   const widthIn = CLASSIFIER_CHANNEL_WIDTH_IN;
-  const lengthIn = half - CLASSIFIER_RAMP_START_Y_IN;
+  const lengthIn = half - CLASSIFIER_RAIL_START_Y_IN;
   const thicknessM = inchesToMeters(GOAL_WALL_THICKNESS_IN);
   const centerX = inchesToMeters(sign * (half - widthIn / 2));
-  const centerY = inchesToMeters(CLASSIFIER_RAMP_START_Y_IN + lengthIn / 2);
   const offsetM = inchesToMeters(widthIn) / 2 + thicknessM / 2;
   const span = { bottom: 0, top: inchesToMeters(GOAL.heightIn.value) };
-  return [-1, 1].map((side, index) =>
+  const rail = (id: EntityId, x: number, startYIn: number, endYIn: number): RigidBody =>
     createStaticBody({
-      id: firstId + index,
-      shape: createObb(thicknessM, inchesToMeters(lengthIn)),
+      id,
+      shape: createObb(thicknessM, inchesToMeters(endYIn - startYIn)),
       span,
-      pose: { p: vec2(centerX + side * offsetM, centerY), theta: 0 },
-    }),
-  );
+      pose: { p: vec2(x, inchesToMeters((startYIn + endYIn) / 2)), theta: 0 },
+    });
+  const innerX = centerX - offsetM;
+  const outerX = centerX + offsetM;
+  const archMinYIn = CLASSIFIER_ARCH_CENTRE_Y_IN - CLASSIFIER_ARCH_OPENING_LENGTH_IN / 2;
+  const archMaxYIn = CLASSIFIER_ARCH_CENTRE_Y_IN + CLASSIFIER_ARCH_OPENING_LENGTH_IN / 2;
+  return [
+    rail(firstId, outerX, CLASSIFIER_RAIL_START_Y_IN, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
+    rail(firstId + 1, innerX, CLASSIFIER_RAIL_START_Y_IN, archMinYIn),
+    rail(firstId + 2, innerX, archMaxYIn, CLASSIFIER_RAIL_START_Y_IN + lengthIn),
+  ];
 }
 
 /** A live arm across the lane mouth. The conveyor retracts its semantic tag. */
@@ -338,7 +368,10 @@ function gateBody(alliance: 'red' | 'blue', id: EntityId): RigidBody {
       inchesToMeters(CLASSIFIER_CHANNEL_WIDTH_IN + GOAL_WALL_THICKNESS_IN),
       inchesToMeters(1),
     ),
-    span: { bottom: 0, top: inchesToMeters(CLASSIFIER.gateClosedMaxHeightIn.value) },
+    span: {
+      bottom: 0,
+      top: inchesToMeters(Math.max(CLASSIFIER.gateClosedMaxHeightIn.value, CLASSIFIER_GATE_BLOCKING_TOP_IN)),
+    },
     pose: {
       p: vec2(
         inchesToMeters(sign * (half - CLASSIFIER_CHANNEL_WIDTH_IN / 2)),
@@ -355,9 +388,9 @@ export function createDecodeField(firstEntityId: EntityId = 1000): FieldTemplate
   const redGoal = goalWallBodies('red', firstEntityId + GOAL_BODY_ID_BASE);
   const blueGoal = goalWallBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 3);
   const redRails = classifierRailBodies('red', firstEntityId + GOAL_BODY_ID_BASE + 6);
-  const blueRails = classifierRailBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 8);
-  const redGate = gateBody('red', firstEntityId + GOAL_BODY_ID_BASE + 10);
-  const blueGate = gateBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 11);
+  const blueRails = classifierRailBodies('blue', firstEntityId + GOAL_BODY_ID_BASE + 9);
+  const redGate = gateBody('red', firstEntityId + GOAL_BODY_ID_BASE + 12);
+  const blueGate = gateBody('blue', firstEntityId + GOAL_BODY_ID_BASE + 13);
   return {
     ...standard,
     id: 'ftc-decode-2025-26',

@@ -49,16 +49,17 @@ describe('DECODE collision classification', () => {
   it('models a hollow GOAL, physical classifier rails, and live gate colliders', () => {
     const field = createDecodeField();
 
-    // Four perimeter walls, three GOAL boundaries per alliance, two lane rails
-    // per alliance, and two live gates. The taped tunnel has no wall bodies.
-    expect(field.bodies).toHaveLength(16);
+    // Four perimeter walls, three GOAL boundaries per alliance, a continuous
+    // outer rail plus two inner-rail segments around the sole GOAL arch per
+    // alliance, and two live gates. The taped tunnel has no wall bodies.
+    expect(field.bodies).toHaveLength(18);
     expect(classified('red-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('blue-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('red-ramp-assembly').hasCollisionBody).toBe(true);
     expect(classified('red-goal-opening').classification).toBe('PASSABLE');
     expect(classified('red-goal-opening').hasCollisionBody).toBe(false);
-    expect(field.colliderTags?.['red-classifier-gate']).toEqual([2110]);
-    expect(field.colliderTags?.['blue-classifier-gate']).toEqual([2111]);
+    expect(field.colliderTags?.['red-classifier-gate']).toEqual([2112]);
+    expect(field.colliderTags?.['blue-classifier-gate']).toEqual([2113]);
   });
 
   /** Points inside the red GOAL footprint, in the fixture's own frame. */
@@ -128,7 +129,7 @@ describe('DECODE collision classification', () => {
     const field = createDecodeField();
     expect(classified('red-secret-tunnel').classification).toBe('PASSABLE');
     expect(classified('red-secret-tunnel').hasCollisionBody).toBe(false);
-    expect(field.bodies.filter((body) => body.id >= 2112)).toEqual([]);
+    expect(field.bodies.filter((body) => body.id >= 2114)).toEqual([]);
   });
 
   it('declares the physical gate collider rather than turning its zone into a wall', () => {

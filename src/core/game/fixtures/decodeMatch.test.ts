@@ -1064,6 +1064,8 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     const classified = sim.score.deltas.filter((d) => d.ruleId.includes('classified'));
     expect(classified).toHaveLength(3);
     expect(sim.score.red).toBe(DECODE_POINTS.classifiedAuto.value * 3);
+    expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
+    expect(sim.conveyors.queued('red-classifier')).toHaveLength(3);
 
     const artifacts = ['a1', 'a2', 'a3'].map((id) => {
       const piece = sim.world.snapshot().pieces.find((p) => p.pieceId === id);
@@ -1071,11 +1073,16 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
       return piece;
     });
 
-    // None are airborne any more, and none sit at their original launch spot
-    // — every one actually flew, landed, and settled in the classifier.
+    // None are airborne any more, and every one sits inside the physical
+    // classifier channel. A raised packed column can legitimately extend up
+    // toward its GOAL-side entrance, so a floor-level Y cutoff is not a valid
+    // assertion of classifier membership.
     for (const artifact of artifacts) {
       expect(artifact.airborne).toBe(false);
-      expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(goal[1] - 8));
+      expect(artifact.pose.p.x).toBeGreaterThan(inchesToMeters(65));
+      expect(artifact.pose.p.x).toBeLessThan(inchesToMeters(73));
+      expect(artifact.pose.p.y).toBeGreaterThan(inchesToMeters(0));
+      expect(artifact.pose.p.y).toBeLessThan(inchesToMeters(72));
     }
 
     // Packed touching, not spread across three invented slots: sorted along
