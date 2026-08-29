@@ -409,13 +409,6 @@ export class PieceConveyors {
         this.holdQueue(spec, state, places, world);
       } else {
         this.guideLane(spec, state, places, snapshot, world);
-        // A guided lane is physical rather than indexed, but the open GATE
-        // still needs to hand its leading ball into the return path. Previously
-        // this branch only guided bodies and never called `drain`, so an open
-        // GATE left every packed classifier ball permanently queued.
-        if (spec.gateColliderStaysActiveWhenOpen === true && this.leadingLaneBallAtGate(state, places, snapshot)) {
-          this.drain(spec, state, places, tick, world);
-        }
       }
       const hasQueuedPieces = state.queue.length > 0 || state.basin.size > 0;
       const releasedBallStillInPassage = spec.lane !== undefined && [...state.released].some((pieceId) => {
@@ -882,21 +875,6 @@ export class PieceConveyors {
       return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <=
         piece.radiusM * CLOSED_GATE_CLEARANCE_RADII;
     });
-  }
-
-  /** The queue's physical way-out ball is the only one a GATE may release. */
-  private leadingLaneBallAtGate(
-    state: ConveyorState,
-    places: ConveyorPlaces,
-    snapshot: WorldSnapshot,
-  ): boolean {
-    const pieceId = state.queue[0];
-    if (pieceId === undefined) return false;
-    const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-    if (piece === undefined || piece.heldByRobotId !== null) return false;
-    const gateM = nearEndOf(places.exit, places.queue.centerM);
-    return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <=
-      piece.radiusM * CLOSED_GATE_CLEARANCE_RADII;
   }
 
   /**

@@ -505,8 +505,8 @@ describe('guided lane physics', () => {
     expect(world.colliderStates.get('chute-gate')).toBe(false);
   });
 
-  it('drains the leading raised-lane ball through an open physical gate', () => {
-    const raisedGate: PieceConveyorSpec = { ...LANE_SPEC, gateColliderStaysActiveWhenOpen: true };
+  it('lets a raised physical lane ball roll through a retracted gate', () => {
+    const raisedGate: PieceConveyorSpec = LANE_SPEC;
     const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
     const positions = new Map([['a', inEntry(0)]]);
     const world = new FakeWorld(positions, gateM);
@@ -516,19 +516,14 @@ describe('guided lane physics', () => {
     expect(conveyors.queued('chute')).toEqual(['a']);
 
     // The fixed-step physics world has rolled the admitted body down to the
-    // arm. The conveyor must release this already-physical leading body; it
-    // must not depend on a virtual slot or a retracted ground-level collider.
+    // arm. An open GATE removes that actual collider; the body stays queued
+    // and receives normal lane acceleration until it crosses the exit itself.
     positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(4)));
     conveyors.update(world.snapshot(1), 1, world);
 
-    expect(conveyors.queued('chute')).toEqual([]);
-    expect(world.released.get('a')).toEqual({
-      positionM: vec2(gateM.x, gateM.y + inchesToMeters(4)),
-      velocityM: EXIT_VELOCITY_MPS,
-    });
-    // The field-specific physical arm stays active; elevated pieces clear it
-    // by height while a floor ball still sees the static collider.
-    expect(world.colliderStates.get('chute-gate')).toBe(true);
+    expect(conveyors.queued('chute')).toEqual(['a']);
+    expect(world.guided.get('a')?.accelerationMps2.y).toBeLessThan(0);
+    expect(world.colliderStates.get('chute-gate')).toBe(false);
   });
 
   it('governs the down-lane drive so an unblocked piece cruises rather than accelerating forever', () => {

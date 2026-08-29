@@ -1673,11 +1673,12 @@ receiving-basin/lane contract, not a positional move through the lane: accepted
 balls remain subject to the same integration, `0.20` restitution, rolling loss,
 and ball/field contacts as every other loose ball.
 
-The live GATE remains a tagged solid collider at ground level even while its
-owner has latched it open. Opening it authorises only the leading physical
-guided-lane ball to receive the declared return velocity once it reaches the
-arm; it neither animates nor repositions that ball. Its raised support span
-clears the physical arm. After the full ball clears the arm, the same guide
+The live GATE's tagged arm collider retracts while its owner has latched it
+open. The already-active physical lane guide continues to push a packed ball
+downhill through that newly clear geometry; the ball is not dequeued, moved, or
+given return velocity at the arm. Only after its centre actually crosses the
+declared exit region does the ordinary conveyor exit path authorise it and
+apply its return velocity. After the full ball clears the arm, the same guide
 lowers it onto the ordinary return/tunnel surface, which is a one-way
 raised-to-ground transition unavailable to public field balls. One continuous
 robot contact is one activation: when the lane and receiving basin become
@@ -1729,22 +1730,24 @@ An unauthorised ball reaching the rectangular GATE-arm footprint (expanded by
 only its own radius) is returned to its last recorded legal public-side pose
 and its velocity is cancelled. The arm depth comes from the fixture's declared
 physical panel thickness, rather than an arbitrary multi-ball-radius zone.
-This boundary is active whether the live GATE is open or closed: the physical
-arm resolves ordinary contact while the semantic boundary supplies the
-equivalent one-way hard stop for a discrete-step or robot-push overlap. It does
-**not** relocate a loose ball down the SECRET TUNNEL or into the human-player
-area. Thus an open GATE only opens the classifier's authorised outbound path.
+This boundary is active whether the live GATE is open or closed. When closed,
+the physical arm resolves ordinary contact. When open, the same compact
+gate-envelope guard supplies the one-way hard stop for a discrete-step or
+robot-push overlap by a public ground ball, while an authorised elevated lane
+ball is driven outward by the lane itself. It does **not** relocate a loose
+ball down the SECRET TUNNEL or into the human-player area. Thus an open GATE
+only opens the classifier's authorised outbound path.
 
-DECODE's GATE collider remains physically active while its release state is
-open. Classifier and OVERFLOW ARTIFACTS travel on declared raised surfaces and
-clear the `5.5 in` arm by vertical span; ground-level ARTIFACTS collide with the
-same canonical CAD-backed arm as a normal wall. This replaces the prior
-coordinate-based gate admission correction.
+DECODE's GATE collider retracts while open. A prior projection made its top
+`12.5 in`; this overlapped a normal classifier ARTIFACT's `7.55–12.45 in`
+vertical span and physically pinned the ball even though the UI said OPEN.
+The retracted collider plus the existing local one-way envelope corrects that
+geometry error without changing ordinary robot or ball collision behaviour.
 
-When a raised guided-lane ARTIFACT is released, the conveyor changes only its
-velocity; it does not call the floor-level release operation. This retains the
-raised surface height across the active arm, so a legitimate classifier ball
-rolls out while a ground ball sees the wall.
+When a raised guided-lane ARTIFACT has physically entered the exit region, the
+conveyor changes only its velocity; it does not call the floor-level release
+operation. This retains the raised surface height across the arm before the
+guided one-way descent onto the tunnel return surface.
 
 If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
@@ -2049,6 +2052,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Extended protected deterministic-shot transfer one ARTIFACT diameter past the GOAL/classifier throat. Contacts resume only once the active ball is fully inside the guided lane, preventing entry-rail clipping without parking or teleporting it. |
 | 2026-08-28 | Added a 12 in protected ordered classifier-entry run, with a separate 6 in throat-clearance test for the next GOAL arrival. Protected one-way exits now project unauthorised balls one full radius beyond the opening, making open GATEs hard stops for inbound field balls. |
 | 2026-08-29 | Expanded the one-way GATE boundary to cover the complete arm while both open and closed. A loose ball is restored only to its preceding fixed-step pose rather than teleported down the SECRET TUNNEL; an authorised ball caught by a timeout is ejected downstream before closure and is never restored upstream into the classifier. |
+| 2026-08-29 | Corrected the open-GATE collision projection: its active `12.5 in` arm overlapped a normal classifier ball's `7.55–12.45 in` span and physically pinned it. The arm now retracts while open; the persistent, compact one-way gate-envelope guard still blocks only unauthorised ground-level reverse entry. Guided classifier balls cross the exit under their existing downhill force and become released only after that physical crossing. |
 | 2026-08-28 | Accepted GOAL shots now start on the final raised funnel surface, centered 5 in above the classifier throat, then roll the full lane. A GATE timeout restores a normal ball still in its retracted passage upstream before closing; it never reclaims elevated overflow. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |

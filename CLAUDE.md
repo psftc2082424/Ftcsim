@@ -1180,23 +1180,27 @@ coordinate jump. Preserve the guided physical classifier and drivetrain; do
 not reintroduce coordinate-based inbound rejection, upstream reclaim, parked
 slots, or a reverse tunnel entrance.
 
-### Latest handoff — 2026-08-29 (open raised GATE drain)
+### Latest handoff — 2026-08-29 (physical open-GATE drain)
 
-- **Root cause fixed:** guided physical lanes applied their downhill/centring
-  force but never invoked `drain()`. Therefore an open DECODE GATE had an
-  eligible robot latch and packed physical balls at its arm, but no operation
-  could transfer the leading ball to the existing return path.
-- **Open GATE now releases only the actual leading lane ARTIFACT** once its
-  centre reaches the physical arm envelope. The active ground-level GATE
-  collider is intentionally retained: a raised authorised ball clears it by
-  vertical span, while a loose ground ball remains wall-blocked.
-- **Height handoff is explicit:** after the released ball's complete disc has
-  cleared the arm, the guided return lowers it from the raised classifier
-  support to the normal SECRET TUNNEL/field return surface. There is no inverse
-  ground-to-classifier transition.
-- **Regression coverage:** `conveyor.test.ts` now admits a real guided-lane
-  ball, moves it to the live arm, and proves an open physical GATE drains it
-  without disabling its collider. Existing DECODE physical-lane, nine-ball,
-  overflow, one-way-entry, and single-score regressions remain green.
-- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **993
+- **Actual root cause:** the OPEN GATE collider was still active and extended
+  from 0 to `12.5 in`. A normal classifier ball spans `7.55–12.45 in`, so
+  contact resolution pinned it at `y≈3.46 in` with only `−0.52 in/s` residual
+  speed. The lane guide itself was correctly directed downhill; it was simply
+  pushing into a live wall.
+- **Fix:** the physical arm now retracts while the GATE is open. The normal
+  guided lane stays in charge of motion, carries the leading ball through the
+  exit under its own downhill acceleration, and only then lets the existing
+  exit logic mark it released and continue its return velocity. No ball is
+  dequeued, repositioned, or teleported at the arm.
+- **One-way access is preserved:** DECODE enables the existing compact
+  `blocksInboundExit` gate-envelope guard. It blocks loose ground balls at the
+  open or closed arm without making the authorised elevated outbound route a
+  two-way doorway. The released ball descends to the return surface only after
+  it has cleared the arm.
+- **Regression coverage:** `decodeMatch.test.ts` now proves one real shot
+  physically crosses an open GATE exit and three actual shots exit in arrival
+  order. `conveyor.test.ts` proves the retracted collider leaves the lane's
+  downhill guide active. Existing nine-ball packing, overflow, reverse-entry,
+  and single-score regressions remain green.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **995
   tests across 48 files**.

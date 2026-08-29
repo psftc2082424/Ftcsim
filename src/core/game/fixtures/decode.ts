@@ -425,7 +425,10 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
     capacity: RAMP_SLOT_COUNT.value,
     gateColliderTag: `${alliance}-classifier-gate`,
-    gateColliderStaysActiveWhenOpen: true,
+    // The physical arm retracts when a GATE opens.  The conveyor's existing
+    // gate-envelope guard remains active for unauthorised ground-level balls,
+    // so this is a one-way raised-platform exit rather than a two-way hole.
+    blocksInboundExit: true,
     // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
     // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
     // (§9.8.3) and the GATE ZONE is the 2.75 in strip "adjacent to each GATE"

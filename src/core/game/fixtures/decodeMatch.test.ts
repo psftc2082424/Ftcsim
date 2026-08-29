@@ -1056,6 +1056,71 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect(sim.conveyors.queued('red-classifier')).toEqual(['a1']);
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(false);
+
+  });
+
+  it('physically rolls one classifier ball across an open GATE exit', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
+    if (destination === undefined) throw new Error('red GOAL missing');
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [
+        // Remain in the taped release zone without initially overlapping the
+        // closed arm. The test opens the actual GATE collider, not a mock.
+        idle('red', gate[0] - 4.5, gate[1]),
+      ],
+      pieces: [{
+        pieceId: 'drain-one', pieceType: 'P', diameterIn: ARTIFACT.specifiedDiameterIn.value, massLb: 0.3,
+        startPositionM: at(goal[0], goal[1] - 36),
+      }],
+    });
+
+    let enteredExit = false;
+    for (let tick = 0; tick < 1800; tick++) {
+      if (tick === 0) sim.world.launchPieceTowards('drain-one', destination.centerM, inchesToMeters(60), inchesToMeters(18));
+      sim.step();
+      const piece = sim.world.snapshot().pieces.find((candidate) => candidate.pieceId === 'drain-one');
+      if (piece !== undefined && piece.pose.p.y < inchesToMeters(-3)) enteredExit = true;
+    }
+
+    expect(enteredExit).toBe(true);
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+  });
+
+  it('drains three touching classifier balls through an open GATE in arrival order', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
+    if (destination === undefined) throw new Error('red GOAL missing');
+    const ids = ['drain-1', 'drain-2', 'drain-3'] as const;
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [idle('red', gate[0] - 4.5, gate[1])],
+      pieces: ids.map((pieceId, index) => ({
+        pieceId, pieceType: 'P', diameterIn: ARTIFACT.specifiedDiameterIn.value, massLb: 0.3,
+        startPositionM: at(goal[0], goal[1] - 36 - index * 8),
+      })),
+    });
+
+    const exitTicks = new Map<string, number>();
+    for (let tick = 0; tick < 3000; tick++) {
+      const id = ids[Math.floor(tick / 300)];
+      if (tick % 300 === 0 && id !== undefined) {
+        sim.world.launchPieceTowards(id, destination.centerM, inchesToMeters(60), inchesToMeters(18));
+      }
+      sim.step();
+      for (const id of ids) {
+        const piece = sim.world.snapshot().pieces.find((candidate) => candidate.pieceId === id);
+        if (piece !== undefined && piece.pose.p.y < inchesToMeters(-3) && !exitTicks.has(id)) exitTicks.set(id, tick);
+      }
+    }
+
+    expect([...exitTicks.keys()]).toEqual([...ids]);
+    expect(exitTicks.get('drain-1')).toBeLessThan(exitTicks.get('drain-2')!);
+    expect(exitTicks.get('drain-2')).toBeLessThan(exitTicks.get('drain-3')!);
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
   });
 
   /**
