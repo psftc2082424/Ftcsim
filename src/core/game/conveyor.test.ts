@@ -117,6 +117,11 @@ class FakeWorld implements ConveyorWorld {
     this.positions.set(pieceId, positionM);
   }
 
+  placeAcceptedTransfer(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
+    this.released.set(pieceId, { positionM, velocityM });
+    this.positions.set(pieceId, positionM);
+  }
+
   setPieceVelocity(pieceId: string, velocityM: Vec2): void {
     const positionM = this.positions.get(pieceId);
     if (positionM === undefined) throw new Error(`unknown piece ${pieceId}`);
@@ -369,9 +374,9 @@ describe('guided lane physics', () => {
     conveyors.update(world2.snapshot(1), 1, world2);
     expect(conveyors.queued('chute')).toEqual([]);
 
-    // The collider tag itself follows one tick behind an emptied queue (this
-    // same update already opened it for the piece that just left); the next
-    // tick is what a season's own render loop would actually show closed.
+    // The departing ball must clear the actual passage before gravity closes
+    // the arm behind it. (The fake harness does not integrate its velocity.)
+    positions.set('a', away);
     conveyors.update(world2.snapshot(2), 2, world2);
     expect(world2.colliderStates.get('chute-gate')).toBe(true);
   });
@@ -415,6 +420,29 @@ describe('guided lane physics', () => {
     expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
     expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
+  });
+
+  it('returns a ball still inside an open gate passage to the lane before closing', () => {
+    const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
+    const positions = new Map([['a', inEntry(0)]]);
+    const gate = vec2(0, -20 * 0.0254);
+    const world = new FakeWorld(positions, gate);
+    const conveyors = new PieceConveyors([timedLane], lanePlaces(timedLane), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+    // The ball has physically crossed the retracted arm, but a robot blocks
+    // the return passage long enough for the live gate's quiet window to end.
+    positions.set('a', LANE_EXIT.centerM);
+    conveyors.update(world.snapshot(1), 1, world);
+    expect(conveyors.queued('chute')).toEqual([]);
+
+    world.moveRobot(null);
+    conveyors.update(world.snapshot(12), 12, world);
+
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    expect(conveyors.queued('chute')).toEqual(['a']);
+    expect(world.pushedOut.get('a')?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
+    expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
   it('clears a normal lane ball that later overlaps an already-closed gate', () => {

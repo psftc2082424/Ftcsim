@@ -600,6 +600,21 @@ export class SimWorld {
   }
 
   /**
+   * Reposition a valid high GOAL transfer on its declared elevated funnel
+   * entry. Unlike an ordinary field release, this retains the transfer flag,
+   * height, and collision isolation until the field mechanism explicitly
+   * admits the ball to normal lane physics.
+   */
+  placeAcceptedTransfer(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
+    const piece = this.pieceNamed(pieceId);
+    if (piece.parked || piece.carriedBy !== null) return;
+    piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
+    piece.previousPose = piece.body.pose;
+    piece.body.vel = { v: velocityM, omega: 0 };
+    this.cachedSnapshot = null;
+  }
+
+  /**
    * Resolve a game-declared one-way field mechanism without inventing a force.
    * The piece remains a normal loose body after being returned to the public
    * side of the passage; only the invalid transition is rejected.

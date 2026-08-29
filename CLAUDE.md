@@ -1132,3 +1132,22 @@ shoot; then Phase 4 (PDF ingestion).
   TypeScript, ESLint, and **989 tests across 48 files**. The DECODE regression
   explicitly proves nine real shots pack in the closed classifier and the
   tenth takes overflow.
+
+### Latest handoff — 2026-08-28 (aligned GOAL admission and safe GATE closing)
+
+- **Accepted shots now enter on the physical classifier centreline.** Once a
+  shot has legitimately cleared the elevated GOAL, it is placed on the final
+  raised funnel surface at `y=62 in`, then rolls through the visible throat and
+  full lane. The lane guide uses that same canonical throat centre rather than
+  a scoring-region rectangle, so rendering, admission, and travel agree.
+- **A GATE never closes through a ball.** A normal released ball still inside
+  the open passage at timeout is restored to the raised classifier side before
+  the arm activates; it waits there if a robot was blocking the return. This
+  reclaim occurs only on an open-to-closed transition, so elevated overflow
+  remains free to use its separate path. Loose balls remain blocked from the
+  elevated lane regardless of GATE state.
+- **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
+  close; `classifierPhysicalLane.test.ts` proves accepted admission remains
+  centered before normal physical packing.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **990
+  tests across 48 files**.

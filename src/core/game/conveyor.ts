@@ -197,6 +197,11 @@ export interface ConveyorWorld {
   holdPiece(pieceId: string, positionM: Vec2): void;
   /** Release a piece into ordinary physics, moving at a given velocity. */
   releasePieceMoving(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
+  /**
+   * Place an already-authorised elevated transfer at its declared lane entry
+   * without converting it into an ordinary released floor piece.
+   */
+  placeAcceptedTransfer(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
   /** Apply a field mechanism's outflow velocity without changing its position. */
   setPieceVelocity(pieceId: string, velocityM: Vec2): void;
   /** Put an invalid inbound piece just outside a one-way exit, at rest. */
@@ -397,14 +402,18 @@ export class PieceConveyors {
         this.guideLane(spec, state, places, snapshot, world);
       }
       const hasQueuedPieces = state.queue.length > 0 || state.basin.size > 0;
+      const releasedBallStillInPassage = spec.lane !== undefined && [...state.released].some((pieceId) => {
+        const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+        return piece !== undefined && regionContains(places.exit, piece.pose.p, piece.heightM);
+      });
       // A completed drain gravity-closes immediately. A touch that never
       // produces normal lane flow closes after a short quiet window instead of
       // staying open while a robot cycles unrelated shots nearby.
       if (state.releaseLatched && (
-        (state.releaseFlowed && !hasQueuedPieces) ||
+        (state.releaseFlowed && !hasQueuedPieces && !releasedBallStillInPassage) ||
         tick >= state.releaseDeadlineTick
       )) {
-        this.pushNormalLaneBallsOutOfClosingGate(spec, state, places, snapshot, world);
+        this.pushNormalLaneBallsOutOfClosingGate(spec, state, places, snapshot, world, CLOSED_GATE_CLEARANCE_RADII, true);
         state.releaseLatched = false;
         state.releaseFlowed = false;
         state.releaseDeadlineTick = Number.NEGATIVE_INFINITY;
@@ -445,7 +454,7 @@ export class PieceConveyors {
         // the live gate and the return corridor still determine everything
         // afterwards.
         if (spec.lane.entryPointM !== undefined) {
-          world.releasePieceMoving(
+          world.placeAcceptedTransfer(
             piece.pieceId,
             spec.lane.entryPointM,
             spec.lane.entryVelocityMps ?? vec2(0, 0),
@@ -722,8 +731,13 @@ export class PieceConveyors {
     const guide = (pieceId: string, overflow: boolean): void => {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) return;
-      const offsetX = places.queue.centerM.x - piece.pose.p.x;
-      const offsetY = places.queue.centerM.y - piece.pose.p.y;
+      // The physical throat, rather than a scoring region's convenient
+      // rectangle centre, is the canonical line down a guided lane.  A season
+      // may make those coincide, but relying on that accident lets a visual
+      // scoring region and a one-ball-wide field channel drift apart.
+      const laneCentre = lane.receivingBasinTargetM ?? places.queue.centerM;
+      const offsetX = laneCentre.x - piece.pose.p.x;
+      const offsetY = laneCentre.y - piece.pose.p.y;
       const lateralDistance = offsetX * lateral.x + offsetY * lateral.y;
       const lateralAcceleration = Math.max(
         -lane.lateralCenteringAccelerationMps2,
@@ -826,6 +840,7 @@ export class PieceConveyors {
     snapshot: WorldSnapshot,
     world: ConveyorWorld,
     clearanceRadii = CLOSED_GATE_CLEARANCE_RADII,
+    reclaimReleasedInPassage = false,
   ): void {
     const lane = spec.lane;
     if (lane === undefined) return;
@@ -833,7 +848,13 @@ export class PieceConveyors {
     if (magnitude < 1e-9) return;
     const direction = vec2(lane.travelDirection.x / magnitude, lane.travelDirection.y / magnitude);
     const gateM = nearEndOf(places.exit, places.queue.centerM);
-    for (const pieceId of state.queue) {
+    // A piece that has crossed the open arm remains physically in the exit
+    // passage until it rolls clear.  If the quiet window expires while a robot
+    // is blocking it, put it back on the raised lane before the arm returns;
+    // otherwise the arm would be recreated through an already-released ball.
+    // It can then wait harmlessly in the classifier until the robot leaves.
+    const candidates = reclaimReleasedInPassage ? [...state.queue, ...state.released] : state.queue;
+    for (const pieceId of candidates) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) continue;
       const distance = Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y);
@@ -842,6 +863,12 @@ export class PieceConveyors {
       // the clearance envelope.
       const crossedClosedGate = regionContains(places.exit, piece.pose.p, piece.heightM);
       if (!crossedClosedGate && distance > piece.radiusM * clearanceRadii) continue;
+      if (state.released.delete(pieceId)) {
+        state.taken.add(pieceId);
+        // The returned ball is the leading physical lane body.  The existing
+        // guide and ordinary contacts determine all later packing/motion.
+        state.queue.unshift(pieceId);
+      }
       world.pushPieceOutOfGate(
         pieceId,
         vec2(

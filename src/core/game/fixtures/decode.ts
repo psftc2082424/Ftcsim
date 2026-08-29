@@ -239,6 +239,18 @@ export const CLASSIFIER_BASIN_THROAT = inferred(
   72,
 );
 
+/**
+ * Accepted-shot admission point immediately above the physical classifier
+ * throat.  This is the last retained GOAL surface before the one-ball-wide
+ * channel, not a stored classifier position: every body then rolls the full
+ * visible lane under the shared guide.
+ */
+export const CLASSIFIER_BASIN_ADMISSION_POINT = inferred(
+  { xIn: FIELD.sideIn.value / 2 - CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN.value / 2, yIn: 62 },
+  'The CAD/dSim-equivalent GOAL slope terminates immediately above the classifier throat at y=57 in. Starting an accepted, already-scored ball 5 in up-channel at y=62 in puts every arrival on the same elevated funnel centreline without granting any ground-level object access.',
+  72,
+);
+
 /** Shared GOAL/ramp guide surface reaches the physical basin hand-off neighbourhood. */
 export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
   inchesToMeters(4),
@@ -429,6 +441,10 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     // lane guide; nothing places it at a classifier position or tunnel exit.
     lane: {
       receivingBasin: true,
+      entryPointM: vec2(
+        inchesToMeters(alliance === 'red' ? CLASSIFIER_BASIN_ADMISSION_POINT.value.xIn : -CLASSIFIER_BASIN_ADMISSION_POINT.value.xIn),
+        inchesToMeters(CLASSIFIER_BASIN_ADMISSION_POINT.value.yIn),
+      ),
       receivingBasinTargetM: vec2(
         inchesToMeters(alliance === 'red' ? CLASSIFIER_BASIN_THROAT.value.xIn : -CLASSIFIER_BASIN_THROAT.value.xIn),
         inchesToMeters(CLASSIFIER_BASIN_THROAT.value.yIn),

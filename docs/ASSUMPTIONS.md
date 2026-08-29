@@ -1704,10 +1704,13 @@ a stationary robot cannot reopen it without leaving and touching again.
 
 The physical basin target is the dSim rail hand-off at `x = 69 in, y = 57 in`,
 the centre of the single GOAL-to-classifier arch. A previous target above that
-arch could leave an accepted ball pressing against the inner rail. The body now
-remains under basin guidance until its centre reaches the throat (one-radius
-clearance), then boards the physical rail. This is an **inferred** placement
-from dSim's observable geometry, not a new fixed storage position.
+arch could leave an accepted ball pressing against the inner rail. Once a valid
+shot has entered the raised GOAL, it is placed on the centre of the last
+elevated funnel surface at `y = 62 in`, five inches above that throat, and
+rolls the remaining distance under the basin guide before boarding the physical
+rail. This **inferred** acceptance placement serialises the GOAL-to-classifier
+transition; it is not a classifier storage slot and does not grant a loose
+ground ball access.
 
 An accepted shot remains collision-isolated for the first 12 in of the
 single-file classifier. The GOAL basin admits the next arrival once the throat
@@ -1722,6 +1725,14 @@ storage coordinate.
 An unauthorised ball is projected a full ball radius beyond a protected
 one-way exit opening. Thus an open GATE only opens the classifier's authorised
 outbound path; it remains a geometric hard stop for loose field balls.
+
+If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
+when its one-second quiet window ends, the mechanism first restores it to the
+raised classifier side with the declared three-radius clearance and only then
+re-enables the arm. This makes a robot that blocks the return path form an
+ordinary waiting classifier stack, rather than letting the arm materialise
+through a ball. An already-closed gate does not reclaim elevated OVERFLOW;
+overflow keeps its separate raised path.
 
 The simplified deterministic shooter clamps its final integration segment at
 the declared GOAL target before capture. This prevents a fixed 200 Hz step from
@@ -2016,6 +2027,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Expanded generic closed-GATE clearance to three ARTIFACT radii. Normal lane balls are now held with a full-radius gap before the arm, and a closed-gate traversal is ejected even after a discrete-step crossing. |
 | 2026-08-28 | Extended protected deterministic-shot transfer one ARTIFACT diameter past the GOAL/classifier throat. Contacts resume only once the active ball is fully inside the guided lane, preventing entry-rail clipping without parking or teleporting it. |
 | 2026-08-28 | Added a 12 in protected ordered classifier-entry run, with a separate 6 in throat-clearance test for the next GOAL arrival. Protected one-way exits now project unauthorised balls one full radius beyond the opening, making open GATEs hard stops for inbound field balls. |
+| 2026-08-28 | Accepted GOAL shots now start on the final raised funnel surface, centered 5 in above the classifier throat, then roll the full lane. A GATE timeout restores a normal ball still in its retracted passage upstream before closing; it never reclaims elevated overflow. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
