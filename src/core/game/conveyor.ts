@@ -183,6 +183,8 @@ export interface GuidedLaneSpec {
   readonly surfaceHeightRateMps?: number | undefined;
   /** Semantic field collider tag retracted while the gate is latched open. */
   readonly gateColliderTag: string;
+  /** Physical thickness of the gate arm in the travel direction, metres. */
+  readonly gateArmThicknessM?: number | undefined;
   /** Centre height of an overflow piece riding above the packed lane. */
   readonly overflowHeightM: number;
   /** Vertical approach rate to that overflow surface, m/s. */
@@ -204,8 +206,8 @@ export interface ConveyorWorld {
   placeAcceptedTransfer(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
   /** Apply a field mechanism's outflow velocity without changing its position. */
   setPieceVelocity(pieceId: string, velocityM: Vec2): void;
-  /** Put an invalid inbound piece just outside a one-way exit, at rest. */
-  blockPiece(pieceId: string): void;
+  /** Reject an invalid inbound piece at the supplied nearby legal pose. */
+  blockPiece(pieceId: string, positionM: Vec2): void;
   /** Apply a physical lane acceleration; the piece remains active and collidable. */
   guidePiece(
     pieceId: string,
@@ -254,6 +256,8 @@ interface ConveyorState {
   releaseFlowed: boolean;
   /** Previous raw gate-contact state, for one activation per touch. */
   releaseHeldLastTick: boolean;
+  /** Last legal public-side pose for each loose ball approaching the live gate. */
+  readonly publicGatePoses: Map<string, Vec2>;
 }
 
 /**
@@ -263,9 +267,6 @@ interface ConveyorState {
  * a closing gate instead of being allowed to touch and settle in its collider.
  */
 const CLOSED_GATE_CLEARANCE_RADII = 3;
-
-/** Cover a live GATE's entire plan-view arm plus a ball-radius safety margin. */
-const GATE_INBOUND_GUARD_RADII = CLOSED_GATE_CLEARANCE_RADII;
 
 /**
  * Runs every conveyor a game declares.
@@ -294,6 +295,7 @@ export class PieceConveyors {
         releaseDeadlineTick: Number.NEGATIVE_INFINITY,
         releaseFlowed: false,
         releaseHeldLastTick: false,
+        publicGatePoses: new Map(),
       });
     }
   }
@@ -566,15 +568,21 @@ export class PieceConveyors {
       // away, but cannot cross the arm into the classifier while open or
       // closed.
       if (spec.lane !== undefined) {
-        if (!inGateEnvelope(spec, places, piece.pose.p, piece.radiusM)) continue;
-        world.blockPiece(piece.pieceId);
+        if (!inGateEnvelope(spec, places, piece.pose.p, piece.radiusM)) {
+          state.publicGatePoses.set(piece.pieceId, piece.pose.p);
+          continue;
+        }
+        // Use the last confirmed public-side pose, not the world's previous
+        // pose. The latter can be on the wrong side after a robot contact
+        // solver correction and visibly place the ball behind the robot.
+        world.blockPiece(piece.pieceId, state.publicGatePoses.get(piece.pieceId) ?? piece.previousPose.p);
         continue;
       }
       // Generic one-way exits have no separate arm geometry. Preserve their
       // existing full-passage rejection behavior for seasons that declare a
       // chute without a live GATE.
       if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId);
+      world.blockPiece(piece.pieceId, piece.previousPose.p);
     }
   }
 
@@ -600,7 +608,7 @@ export class PieceConveyors {
       // admitted or rejected as an ordinary physical ball.
       if (piece.heldByRobotId !== null || piece.transferring === true || state.taken.has(piece.pieceId)) continue;
       if (!regionContains(places.queue, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId);
+      world.blockPiece(piece.pieceId, piece.previousPose.p);
     }
   }
 
@@ -1011,17 +1019,27 @@ function exitOutflowDirection(spec: PieceConveyorSpec, places: ConveyorPlaces): 
 function inGateEnvelope(spec: PieceConveyorSpec, places: ConveyorPlaces, positionM: Vec2, radiusM: number): boolean {
   if (spec.lane === undefined) return false;
   const gateM = nearEndOf(places.exit, places.queue.centerM);
-  const clearanceM = Math.max(0, radiusM) * GATE_INBOUND_GUARD_RADII;
   const outflow = exitOutflowDirection(spec, places);
   const fromGateX = positionM.x - gateM.x;
   const fromGateY = positionM.y - gateM.y;
   const alongM = fromGateX * outflow.x + fromGateY * outflow.y;
-  // The arm must guard its entire width and downstream opening, but it must
-  // not claim a several-ball-radius patch *upstream* of the physical arm:
-  // those are ordinary field locations from which a valid shot can originate.
-  const upstreamReachM = Math.max(0, radiusM) * 1.1;
-  return alongM >= -upstreamReachM && alongM <= clearanceM &&
-    Math.hypot(fromGateX, fromGateY) <= clearanceM;
+  const crossM = Math.abs(-outflow.y * fromGateX + outflow.x * fromGateY);
+  const halfArmDepthM = Math.max(0, spec.lane.gateArmThicknessM ?? 0) / 2 + Math.max(0, radiusM);
+  const halfArmWidthM = gateHalfWidthM(places.exit, outflow) + Math.max(0, radiusM);
+  // This is a swept disc against the actual rectangular arm footprint—not a
+  // three-ball-radius circle around the GATE. It therefore blocks only the
+  // physical arm and the ball's contact clearance.
+  return Math.abs(alongM) <= halfArmDepthM && crossM <= halfArmWidthM;
+}
+
+/** Cross-axis half-width of the canonical exit/gate footprint. */
+function gateHalfWidthM(exit: Shaped, outflow: Vec2): number {
+  const crossX = -outflow.y;
+  const crossY = outflow.x;
+  if (exit.shape.kind === 'circle') return exit.shape.radius;
+  return Math.max(...exit.shape.vertices.map((vertex) =>
+    Math.abs((vertex.x - exit.centerM.x) * crossX + (vertex.y - exit.centerM.y) * crossY),
+  ));
 }
 
 function slotPointAtEdge(place: Shaped, sign: -1 | 1): Vec2 {

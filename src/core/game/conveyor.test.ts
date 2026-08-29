@@ -129,9 +129,7 @@ class FakeWorld implements ConveyorWorld {
     this.released.set(pieceId, { positionM, velocityM });
   }
 
-  blockPiece(pieceId: string): void {
-    const positionM = this.positions.get(pieceId);
-    if (positionM === undefined) throw new Error(`unknown piece ${pieceId}`);
+  blockPiece(pieceId: string, positionM: Vec2): void {
     this.blocked.set(pieceId, positionM);
     this.released.delete(pieceId);
     this.positions.set(pieceId, positionM);
@@ -769,6 +767,26 @@ describe('one-way exits', () => {
     // The live gate blocks at contact rather than relocating it through the
     // return path or into a human-player area.
     expect(world.blocked.get('intruder')).toEqual(vec2(gateM.x, gateM.y + inchesToMeters(1)));
+  });
+
+  it('uses the tight gate arm footprint and restores the last public-side pose', () => {
+    const oneWayGate: PieceConveyorSpec = { ...LANE_SPEC, blocksInboundExit: true };
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    const publicSide = vec2(gateM.x, gateM.y - inchesToMeters(4));
+    const positions = new Map([['intruder', publicSide]]);
+    const world = new FakeWorld(positions, gateM);
+    const conveyors = new PieceConveyors([oneWayGate], lanePlaces(oneWayGate), DT);
+
+    // Four inches below the arm is clear of a 4.9 in ball's tight swept arm
+    // boundary; the old three-radius circle incorrectly blocked it here.
+    conveyors.update(world.snapshot(0), 0, world);
+    expect(world.blocked.has('intruder')).toBe(false);
+
+    // A later inward move is returned only to that immediately preceding
+    // public-side pose, never to a wide guard coordinate behind the robot.
+    positions.set('intruder', vec2(gateM.x, gateM.y - inchesToMeters(1)));
+    conveyors.update(world.snapshot(1), 1, world);
+    expect(world.blocked.get('intruder')).toEqual(publicSide);
   });
 
   it('does not block a piece the conveyor itself released', () => {

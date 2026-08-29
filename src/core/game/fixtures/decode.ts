@@ -464,6 +464,10 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       surfaceHeightM: CLASSIFIER_SURFACE_HEIGHT_M.value,
       surfaceHeightRateMps: inchesToMeters(30),
       gateColliderTag: `${alliance}-classifier-gate`,
+      // Matches the canonical STEP-backed assembly arm: a 1 in deep panel
+      // across the classifier mouth. The generic conveyor expands it only by
+      // the contacting ball radius for one-way admission.
+      gateArmThicknessM: inchesToMeters(1),
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
       entryVelocityRetention: 0.05,

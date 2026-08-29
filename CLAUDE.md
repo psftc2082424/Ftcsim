@@ -1148,11 +1148,12 @@ shoot; then Phase 4 (PDF ingestion).
   tunnel outflow velocity, preventing a zero-speed stall beneath the arm. Loose
   balls remain blocked from the elevated lane regardless of GATE state.
 - **The GATE guard is now contact-style, not a teleporter.** Any unauthorised
-  ball is restored only to its immediately preceding fixed-step pose and has
-  its velocity cancelled. The physical closed arm resolves contact while the
-  semantic guard supplies the same one-way hard stop when open, so no loose
-  ball can reverse from the SECRET TUNNEL into the classifier or jump toward
-  the human-player area.
+  ball is restored to its last legal public-side pose and has its velocity
+  cancelled. Its boundary is the actual rectangular GATE arm plus one ball
+  radius—not the former three-ball-radius circle. The physical closed arm
+  resolves contact while the semantic guard supplies the same one-way hard
+  stop when open, so no loose ball can reverse from the SECRET TUNNEL into the
+  classifier or jump toward the human-player area.
 - **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
   close, full open-GATE-envelope rejection, and no-teleport blocking;
   `classifierPhysicalLane.test.ts` proves accepted admission remains centered

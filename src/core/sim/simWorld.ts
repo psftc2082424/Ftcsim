@@ -622,10 +622,10 @@ export class SimWorld {
    * contact wall makes; it never moves a loose ARTIFACT along a tunnel or into
    * another field area.
    */
-  blockPiece(pieceId: string): void {
+  blockPiece(pieceId: string, positionM: Vec2): void {
     const piece = this.pieceNamed(pieceId);
     if (piece.parked || piece.carriedBy !== null) return;
-    piece.body.pose = { p: piece.previousPose.p, theta: piece.body.pose.theta };
+    piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
     piece.heightM = piece.previousHeightM;
     piece.verticalVelocityMps = 0;

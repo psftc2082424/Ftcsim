@@ -1722,15 +1722,15 @@ ball↔field contacts resume before it packs at the GATE. This is a general
 `GuidedLaneSpec.contactActivationDistanceM` boundary, not a fixed DECODE
 storage coordinate.
 
-An unauthorised ball reaching the complete GATE-arm clearance envelope is
-rolled back only to its position at the beginning of the current fixed step
-and its velocity is cancelled. This boundary is active whether the live GATE
-is open or closed: the physical arm resolves ordinary contact while the
-semantic boundary supplies the equivalent one-way hard stop for a
-discrete-step or robot-push overlap. It does **not** relocate a loose ball down
-the SECRET TUNNEL or into the human-player area. Thus an open GATE only opens
-the classifier's authorised outbound path; it remains a local geometric hard
-stop for loose field balls.
+An unauthorised ball reaching the rectangular GATE-arm footprint (expanded by
+only its own radius) is returned to its last recorded legal public-side pose
+and its velocity is cancelled. The arm depth comes from the fixture's declared
+physical panel thickness, rather than an arbitrary multi-ball-radius zone.
+This boundary is active whether the live GATE is open or closed: the physical
+arm resolves ordinary contact while the semantic boundary supplies the
+equivalent one-way hard stop for a discrete-step or robot-push overlap. It does
+**not** relocate a loose ball down the SECRET TUNNEL or into the human-player
+area. Thus an open GATE only opens the classifier's authorised outbound path.
 
 If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
