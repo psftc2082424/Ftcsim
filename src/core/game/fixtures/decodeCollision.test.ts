@@ -53,9 +53,10 @@ describe('DECODE collision classification', () => {
 
     // Four perimeter walls, a complete low GOAL face, a continuous
     // outer rail, two inner-rail segments, a low elevated-arch guard per
-    // alliance, two live gates, and a low raised-platform threshold per gate.
+    // alliance, two live gates, a low raised-platform threshold, and a
+    // continuous raised-classifier ground guard per side.
     // The taped tunnel itself has no wall bodies.
-    expect(field.bodies).toHaveLength(22);
+    expect(field.bodies).toHaveLength(24);
     expect(classified('red-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('blue-goal-shell').hasCollisionBody).toBe(true);
     expect(classified('red-ramp-assembly').hasCollisionBody).toBe(true);
@@ -85,7 +86,7 @@ describe('DECODE collision classification', () => {
       .flatMap((assembly) => assembly.parts)
       .filter((part) => part.collider !== undefined && part.geometry.kind === 'obb');
 
-    expect(colliderParts).toHaveLength(18);
+    expect(colliderParts).toHaveLength(20);
     for (const part of colliderParts) {
       const body = field.bodies.find((candidate) => candidate.id === part.collider?.id);
       expect(body).toBeDefined();
@@ -205,9 +206,11 @@ describe('DECODE collision classification', () => {
     expect(classified('red-secret-tunnel').classification).toBe('PASSABLE');
     expect(classified('red-secret-tunnel').hasCollisionBody).toBe(false);
     // 2114/2115 are low Goal Archway guards, 2116/2117 are full front-face
-    // low guards, and 2118/2119 are low GATE thresholds—not tunnel walls.
+    // low guards, 2118/2119 are low GATE thresholds, and 2120/2121 are full
+    // raised-classifier guards—not tunnel walls.
     // The tunnel itself remains a passable tape surface with no bodies.
-    expect(field.bodies.filter((body) => body.id >= 2118).map((body) => body.id)).toEqual([2118, 2119]);
+    expect(field.bodies.filter((body) => body.id >= 2118).map((body) => body.id).sort((a, b) => a - b))
+      .toEqual([2118, 2119, 2120, 2121]);
   });
 
   it('declares the physical gate collider rather than turning its zone into a wall', () => {

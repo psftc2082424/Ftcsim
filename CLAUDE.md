@@ -1172,13 +1172,13 @@ shoot; then Phase 4 (PDF ingestion).
 
 ### Current next task
 
-Manually playtest the GATE from the browser with a full physical classifier
-batch: verify its leading elevated ARTIFACT rolls through an open GATE and
-drops onto the return/tunnel surface only after clearing the arm. Then push a
-loose ground ARTIFACT from the SECRET TUNNEL toward the open mouth: it must
-stop at the low physical threshold with continuous contact motion. Preserve the
-guided physical classifier and drivetrain; do not reintroduce coordinate-based
-inbound rejection, upstream reclaim, parked slots, or a reverse tunnel entrance.
+Manually playtest the browser field at the raised classifier's long public
+edge, its GOAL throat, and its open GATE with a robot pushing loose ARTIFACTs.
+They must remain ordinary floor balls with continuous collision motion and may
+never enter classifier state. Then run a complete accepted-shot batch to check
+the elevated channel's visual flow and gate drain. Preserve the canonical low
+channel guard and explicit admission provenance; do not restore generic
+coordinate rollback, parked slots, or plan-view-driven lane guidance.
 
 ### Latest handoff — 2026-08-29 (physical open-GATE drain)
 
@@ -1223,3 +1223,25 @@ inbound rejection, upstream reclaim, parked slots, or a reverse tunnel entrance.
   three-ball ordered-drain tests remain the outbound proof.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **996
   tests across 48 files**.
+
+### Latest handoff — 2026-08-29 (sealed classifier admission and dynamic lane)
+
+- **Actual root cause:** the prior permanent low guard covered only the GATE
+  mouth. A loose ground ARTIFACT could still overlap another plan-view edge of
+  the raised classifier channel. It was correctly not admitted, so it received
+  no elevated lane guide and could look frozen beneath the visual channel.
+- **Fix:** the canonical mirrored assembly now gives the *whole* raised
+  classifier channel a low `0–6.5 in` physical guard. Separately,
+  `PieceConveyors` stores explicit accepted-entry provenance and refuses to
+  guide, raise, basin-feed, overflow-guide, or return-guide any piece without
+  it. A valid GOAL transfer is the sole way DECODE grants that provenance.
+  Admitted pieces remain normal dynamic, colliding bodies; no hold, parking,
+  velocity-zeroing, or loose-ball correction was added.
+- **Regression coverage:** `classifierPhysicalLane.test.ts` now covers a
+  fixed-seed twelve-vector open-GATE entrance stress run tick-by-tick (no
+  membership, transfer flag, or elevation change), while the real-shot test
+  asserts an accepted classifier ball remains loose and moving. Canonical
+  collision tests assert both full-channel guards derive from the shared field
+  assembly.
+- **Verification:** focused classifier/collision tests and full `npm run
+  verify` pass (TypeScript, ESLint, and the complete Vitest suite).

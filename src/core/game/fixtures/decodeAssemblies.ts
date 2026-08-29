@@ -181,6 +181,19 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
         elevation: { bottom: inchesToMeters(0), top: inchesToMeters(CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN) },
         semanticIds: goalSemantic,
       },
+      // The classifier is an elevated physical channel, not a painted
+      // plan-view region. This low structural projection covers its complete
+      // length, so a floor ball cannot enter from an open side and become an
+      // un-guided body beneath the raised lane. An admitted ARTIFACT rides at
+      // the declared 10 in centre height and clears this 6.5 in guard.
+      {
+        id: `${goalPrefix}-classifier-ground-guard`,
+        geometry: obb(channel, half - CLASSIFIER_RAIL_START_Y_IN, channelCentreX, (half + CLASSIFIER_RAIL_START_Y_IN) / 2),
+        material: 'metal',
+        elevation: { bottom: 0, top: inchesToMeters(GATE_GROUND_GUARD_TOP_IN) },
+        collider: collider(bodyIds[10]!, 0, GATE_GROUND_GUARD_TOP_IN),
+        semanticIds: goalSemantic,
+      },
       {
         id: `${goalPrefix}-perimeter-rail`,
         geometry: obb(wall, half - CLASSIFIER_RAIL_START_Y_IN, perimeterRailX, (half + CLASSIFIER_RAIL_START_Y_IN) / 2),
@@ -265,7 +278,8 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
  * Build both mirrored STEP-CAD assembly projections.  IDs deliberately match
  * the historic collision fixture (2100–2113) and append the two archway
  * guards (2114–2115), two full-front low guards (2116–2117), and two low
- * GATE thresholds (2118–2119), so save/replay determinism and
+ * GATE thresholds (2118–2119), and two full classifier-channel ground guards
+ * (2120–2121), so save/replay determinism and
  * existing field-mechanism tags remain stable through this presentation pass.
  */
 export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BASE): readonly FieldAssembly[] {
@@ -284,6 +298,7 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 12,
       firstBodyId + 16,
       firstBodyId + 18,
+      firstBodyId + 20,
     ]),
     goalClassifierAssembly('blue', [
       firstBodyId + 3,
@@ -296,6 +311,7 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 13,
       firstBodyId + 17,
       firstBodyId + 19,
+      firstBodyId + 21,
     ]),
   ];
 }

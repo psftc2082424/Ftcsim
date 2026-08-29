@@ -251,6 +251,14 @@ interface ConveyorState {
   lastDrainTick: number;
   /** Pieces this conveyor is holding, so an arrival is not counted twice. */
   readonly taken: Set<string>;
+  /**
+   * Pieces that completed this conveyor's declared admission contract.
+   *
+   * This is deliberately distinct from plan-view region membership. A lane
+   * may use overlap to *detect* its declared entry, but only an admitted piece
+   * may receive lane guidance or the raised support surface afterwards.
+   */
+  readonly accepted: Set<string>;
   /** Pieces this conveyor released and may therefore travel through its exit. */
   readonly released: Set<string>;
   /** Full-lane arrivals that ride the declared elevated overflow surface. */
@@ -297,6 +305,7 @@ export class PieceConveyors {
         queue: [],
         lastDrainTick: Number.NEGATIVE_INFINITY,
         taken: new Set(),
+        accepted: new Set(),
         released: new Set(),
         overflow: new Set(),
         basin: new Set(),
@@ -352,6 +361,7 @@ export class PieceConveyors {
   rearmPiece(pieceId: string): void {
     for (const state of this.states.values()) {
       state.taken.delete(pieceId);
+      state.accepted.delete(pieceId);
       state.basin.delete(pieceId);
       state.overflow.delete(pieceId);
       state.released.delete(pieceId);
@@ -466,7 +476,10 @@ export class PieceConveyors {
       // top-down entry footprint at a matching height.
       if (spec.lane?.requiresTransferForEntry === true && piece.transferring !== true) continue;
 
+      // From here on this body has passed the conveyor's declared admission
+      // contract. No later geometric overlap can manufacture this state.
       state.taken.add(piece.pieceId);
+      state.accepted.add(piece.pieceId);
 
       if (spec.lane !== undefined) {
         world.dampPieceVelocity(piece.pieceId, spec.lane.entryVelocityRetention);
@@ -719,7 +732,7 @@ export class PieceConveyors {
     const basinTarget = lane.receivingBasinTargetM ?? farEndOf(places.queue, places.exit.centerM);
     for (const pieceId of [...state.basin]) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-      if (piece === undefined || piece.heldByRobotId !== null) continue;
+      if (piece === undefined || piece.heldByRobotId !== null || !state.accepted.has(pieceId)) continue;
       const dx = basinTarget.x - piece.pose.p.x;
       const dy = basinTarget.y - piece.pose.p.y;
       const distance = Math.hypot(dx, dy);
@@ -780,7 +793,10 @@ export class PieceConveyors {
 
     const guide = (pieceId: string, overflow: boolean): void => {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-      if (piece === undefined || piece.heldByRobotId !== null) return;
+      // Guidance is an elevated field surface, never an inference from a
+      // body's coordinates. In particular, a loose floor ball that happens
+      // to overlap a lane region cannot be raised or accelerated into it.
+      if (piece === undefined || piece.heldByRobotId !== null || !state.accepted.has(pieceId)) return;
       // The physical throat, rather than a scoring region's convenient
       // rectangle centre, is the canonical line down a guided lane.  A season
       // may make those coincide, but relying on that accident lets a visual
@@ -826,7 +842,7 @@ export class PieceConveyors {
     // with tunnel walls and other balls.
     for (const pieceId of state.released) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
-      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      if (piece === undefined || !state.accepted.has(pieceId) || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
       const alongSpeed = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
       const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
       const gateM = nearEndOf(places.exit, places.queue.centerM);

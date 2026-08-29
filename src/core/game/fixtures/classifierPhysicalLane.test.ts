@@ -82,7 +82,14 @@ describe('classifier storage integration', () => {
         // becomes a normal colliding classifier ball. This prevents a trailing
         // launch from clipping it sideways through the entrance rails.
         if (a1.transferring) sawProtectedClassifierEntry = true;
-        else sawPhysicalClassifier = true;
+        else {
+          // A classifier member is still an ordinary dynamic body: it is not
+          // held, parked, or kinematic while the lane guide/collision solver
+          // packs it below the GOAL throat.
+          expect(a1.heldByRobotId).toBeNull();
+          expect(Math.hypot(a1.vel.v.x, a1.vel.v.y)).toBeGreaterThan(0);
+          sawPhysicalClassifier = true;
+        }
       }
       const yIn = metersToInches(meters(a1.pose.p.y));
       const speedInPerSec = metersToInches(meters(Math.hypot(a1.vel.v.x, a1.vel.v.y)));
@@ -151,8 +158,9 @@ describe('classifier storage integration', () => {
     // The nearby physical arm/rail may resolve a fraction of an inch of
     // overlap, but the loose ball must stay local rather than being routed to
     // the GOAL or classifier state.
-    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(70);
-    expect(metersToInches(meters(loose.pose.p.x))).toBeGreaterThan(68);
+    // The complete raised-channel guard resolves it onto the public field
+    // side; it is neither admitted nor left beneath the elevated classifier.
+    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(66);
     expect(sim.score.red).toBe(0);
   });
 
@@ -204,6 +212,64 @@ describe('classifier storage integration', () => {
     // old coordinate rollback into the lane or human-player return.
     expect(furthestInM).toBeLessThan(inchesToMeters(0));
     expect(largestStepM).toBeLessThan(inchesToMeters(1));
+  });
+
+  it('never admits or guides randomized loose pushes against an open classifier', () => {
+    // Fixed-seed samples keep this an entrance stress regression rather than
+    // a flaky UI test. Each approaches a different public-side point/angle
+    // while a robot holds the GATE open.
+    let seed = 0xdec0de;
+    const next = (): number => {
+      seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+      return seed / 0x1_0000_0000;
+    };
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const lane = centreOf(DECODE_REGIONS.redRamp);
+
+    for (let sample = 0; sample < 12; sample++) {
+      const start = vec2(inchesToMeters(lane[0] - 5 + next() * 3), inchesToMeters(-18 + next() * 14));
+      const sim = simulationFromDefinition(DECODE_GAME, {
+        field: createDecodeField(),
+        robots: [{
+          config: DEFAULT_ROBOT_CONFIG,
+          alliance: 'red',
+          controller: constantController(NEUTRAL_INPUT),
+          startPose: { p: vec2(inchesToMeters(gate[0] - 4.5), inchesToMeters(gate[1])), theta: 0 },
+        }],
+        pieces: [{
+          pieceId: `loose-${sample}`,
+          pieceType: 'P',
+          diameterIn: ARTIFACT.specifiedDiameterIn.value,
+          massLb: 0.3,
+          startPositionM: start,
+        }],
+      });
+      const id = `loose-${sample}`;
+      sim.world.releasePieceMoving(
+        id,
+        start,
+        vec2(inchesToMeters(-8 + next() * 16), inchesToMeters(36 + next() * 24)),
+      );
+
+      for (let tick = 0; tick < 120; tick++) {
+        sim.step();
+        const during = sim.world.snapshot().pieces.find((candidate) => candidate.pieceId === id);
+        if (during === undefined) throw new Error('stress artifact missing during run');
+        // The check is per tick so a brief accidental entry followed by a
+        // release cannot hide behind the final snapshot.
+        expect(sim.conveyors.queued('red-classifier')).not.toContain(id);
+        expect(sim.conveyors.inBasin('red-classifier')).not.toContain(id);
+        expect(during.transferring).toBe(false);
+        expect(during.heightM).toBeCloseTo(during.radiusM, 12);
+      }
+      const piece = sim.world.snapshot().pieces.find((candidate) => candidate.pieceId === id);
+      if (piece === undefined) throw new Error('stress artifact missing');
+      expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
+      expect(sim.conveyors.queued('red-classifier')).not.toContain(id);
+      expect(sim.conveyors.inBasin('red-classifier')).not.toContain(id);
+      expect(piece.transferring).toBe(false);
+      expect(piece.heightM).toBeCloseTo(piece.radiusM, 12);
+    }
   });
 
   it('keeps an open GATE one-way at the field-facing SECRET TUNNEL edge', () => {

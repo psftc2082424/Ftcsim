@@ -1994,13 +1994,13 @@ incorrectly prevent a recirculated ball from being shot again.
 | **Decision** | A declared one-way exit authorises only pieces released by its conveyor; normal Play renders real tape/material markings without diagnostic envelopes. |
 
 The GATE controls the release of an already contained classifier ARTIFACT; it
-does not create a bidirectional hole into the return. `blocksInboundExit`
-therefore rejects any non-released loose piece found in the SECRET TUNNEL from
-the nearest public boundary, regardless of its velocity or whether the GATE is
-open. This closes both the end and the long field-facing edge while leaving an
-authorised, still-physical conveyor release untouched. It is a reusable
-gameplay-access rule for any declared one-way chute, not a DECODE-specific
-force or collision exception.
+does not create a bidirectional hole into the return. DECODE does **not** use
+the generic `blocksInboundExit` coordinate rollback: a permanent low physical
+threshold and the classifier channel's low structural guard block normal floor
+pieces through ordinary collision, regardless of whether the retractable arm
+is open. Only an already admitted, elevated conveyor piece clears those guards
+and uses the return. This keeps the boundary one-way without teleporting a
+loose piece or granting it classifier membership.
 
 The former short upper GOAL-throat collider has been removed from the shared
 assembly because it created a nonphysical snag inside the accepted elevated
@@ -2023,14 +2023,16 @@ and labels remain debug-only, so these markings are not evidence of a collider.
 | **Decision** | A lane's public footprint rejects unauthorised floor balls at its nearest edge; DECODE's quiet GATE window is 1 s and can restart only for a real leading lane ball at a held arm. Closing the live arm clears any normal ball overlapping its plane. |
 
 The old classifier guard used one fixed coordinate beside the GOAL. That point
-could itself become a visible accumulation site. The generic
-`blocksInboundLane` boundary now returns a loose, unauthorised piece beyond the
-nearest edge of the declared lane instead. A ballistic transfer is explicitly
-marked in the world snapshot until it has travelled through the ordinary high
-GOAL membership event and its shared funnel has reached the physical classifier
-lane. Its projected top-down path is not mistakenly rejected, and it cannot
-displace another accepted shot inside the GOAL basin. Once it boards the lane
-it is an accepted, normal physical ball.
+could itself become a visible accumulation site. The canonical assembly now
+projects a continuous low structural guard across the complete raised channel,
+so a loose floor ball cannot enter through any plan-view edge and become an
+un-guided body below it. A legitimate transfer is explicitly marked in the
+world snapshot until it has travelled through the high GOAL membership event
+and shared funnel. `PieceConveyors` records a separate accepted-entry state at
+that declared boundary; basin, lane, overflow, and release guidance all require
+it. Region overlap, a GATE opening, or a matching top-down height can never
+raise, accelerate, or queue an unaccepted ball. Once boarded, an accepted ball
+is a normal dynamic physical body with ordinary collisions and rolling loss.
 
 The requested 1 s GATE window replaces the previous six-second estimate. It
 closes an idle gate promptly. A normal lane ball within two of its own radii of
@@ -2058,6 +2060,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-29 | Expanded the one-way GATE boundary to cover the complete arm while both open and closed. A loose ball is restored only to its preceding fixed-step pose rather than teleported down the SECRET TUNNEL; an authorised ball caught by a timeout is ejected downstream before closure and is never restored upstream into the classifier. |
 | 2026-08-29 | Corrected the open-GATE collision projection: its active `12.5 in` arm overlapped a normal classifier ball's `7.55–12.45 in` span and physically pinned it. The arm now retracts while open; the persistent, compact one-way gate-envelope guard still blocks only unauthorised ground-level reverse entry. Guided classifier balls cross the exit under their existing downhill force and become released only after that physical crossing. |
 | 2026-08-29 | Replaced DECODE's open-GATE `blockPiece` rollback with a permanent 0–6.5 in canonical-assembly gate threshold. Ground balls now stop through ordinary collisions and never snap into the classifier; elevated authorised balls still clear it outbound. Guided-lane capture additionally requires the explicit active `transferring` state, so plan-view overlap cannot grant classifier membership. |
+| 2026-08-29 | Extended the low raised-platform collision guard over the entire classifier channel and made generic lane guidance require explicit conveyor admission. A loose ball can therefore neither enter nor become an un-guided/frozen classifier body through geometric overlap; admitted shots stay dynamic and colliding. |
 | 2026-08-28 | Accepted GOAL shots now start on the final raised funnel surface, centered 5 in above the classifier throat, then roll the full lane. A GATE timeout restores a normal ball still in its retracted passage upstream before closing; it never reclaims elevated overflow. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
