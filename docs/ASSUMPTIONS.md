@@ -1722,14 +1722,15 @@ ball↔field contacts resume before it packs at the GATE. This is a general
 `GuidedLaneSpec.contactActivationDistanceM` boundary, not a fixed DECODE
 storage coordinate.
 
-An unauthorised ball reaching the complete GATE-arm clearance envelope is held
-immediately on the *public* side of that arm. This boundary is active whether
-the live GATE is open or closed: the physical arm resolves ordinary contact
-while the semantic boundary rejects a discrete-step or robot-push overlap from
-any part of the arm. It does **not** eject a loose ball down the SECRET TUNNEL
-or into the human-player area. Thus an open GATE only opens the classifier's
-authorised outbound path; it remains a local geometric hard stop for loose
-field balls.
+An unauthorised ball reaching the complete GATE-arm clearance envelope is
+rolled back only to its position at the beginning of the current fixed step
+and its velocity is cancelled. This boundary is active whether the live GATE
+is open or closed: the physical arm resolves ordinary contact while the
+semantic boundary supplies the equivalent one-way hard stop for a
+discrete-step or robot-push overlap. It does **not** relocate a loose ball down
+the SECRET TUNNEL or into the human-player area. Thus an open GATE only opens
+the classifier's authorised outbound path; it remains a local geometric hard
+stop for loose field balls.
 
 If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
@@ -2031,7 +2032,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Expanded generic closed-GATE clearance to three ARTIFACT radii. Normal lane balls are now held with a full-radius gap before the arm, and a closed-gate traversal is ejected even after a discrete-step crossing. |
 | 2026-08-28 | Extended protected deterministic-shot transfer one ARTIFACT diameter past the GOAL/classifier throat. Contacts resume only once the active ball is fully inside the guided lane, preventing entry-rail clipping without parking or teleporting it. |
 | 2026-08-28 | Added a 12 in protected ordered classifier-entry run, with a separate 6 in throat-clearance test for the next GOAL arrival. Protected one-way exits now project unauthorised balls one full radius beyond the opening, making open GATEs hard stops for inbound field balls. |
-| 2026-08-29 | Expanded the one-way GATE boundary to cover the complete arm while both open and closed. A loose ball is held locally on the public side rather than teleported down the SECRET TUNNEL; an authorised ball caught by a timeout is ejected downstream before closure and is never restored upstream into the classifier. |
+| 2026-08-29 | Expanded the one-way GATE boundary to cover the complete arm while both open and closed. A loose ball is restored only to its preceding fixed-step pose rather than teleported down the SECRET TUNNEL; an authorised ball caught by a timeout is ejected downstream before closure and is never restored upstream into the classifier. |
 | 2026-08-28 | Accepted GOAL shots now start on the final raised funnel surface, centered 5 in above the classifier throat, then roll the full lane. A GATE timeout restores a normal ball still in its retracted passage upstream before closing; it never reclaims elevated overflow. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |

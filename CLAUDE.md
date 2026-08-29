@@ -1146,14 +1146,14 @@ shoot; then Phase 4 (PDF ingestion).
   occurs only on an open-to-closed transition, so elevated overflow remains
   free to use its separate path. Loose balls remain blocked from the elevated
   lane regardless of GATE state.
-- **The GATE guard covers the arm in both states without tunnel teleporting.**
-  Any unauthorised ball is held just outside the public side of the arm; it is
-  not sent into the SECRET TUNNEL/human-player zone. The physical closed arm
-  resolves contact while the semantic guard rejects every discrete-step or
-  robot-push overlap, so no loose ball can reverse from the SECRET TUNNEL into
-  the classifier.
+- **The GATE guard is now contact-style, not a teleporter.** Any unauthorised
+  ball is restored only to its immediately preceding fixed-step pose and has
+  its velocity cancelled. The physical closed arm resolves contact while the
+  semantic guard supplies the same one-way hard stop when open, so no loose
+  ball can reverse from the SECRET TUNNEL into the classifier or jump toward
+  the human-player area.
 - **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
-  close, full open-GATE-envelope rejection, and local public-side blocking;
+  close, full open-GATE-envelope rejection, and no-teleport blocking;
   `classifierPhysicalLane.test.ts` proves accepted admission remains centered
   before normal physical packing. The DECODE nine-shot/overflow scenario now
   deliberately stages sources outside the protected return assembly.
@@ -1163,7 +1163,7 @@ shoot; then Phase 4 (PDF ingestion).
 ### Current next task
 
 Manually playtest the GATE from the browser with a loose ARTIFACT pushed from
-the SECRET TUNNEL, verifying it is held locally outside the open or closed arm
-rather than teleported down the tunnel. Preserve the guided physical classifier
-and drivetrain; do not reintroduce upstream reclaim, parked slots, or a
-reverse tunnel entrance.
+the SECRET TUNNEL, verifying it stops at the open or closed arm without a
+coordinate jump. Preserve the guided physical classifier and drivetrain; do
+not reintroduce coordinate-based inbound rejection, upstream reclaim, parked
+slots, or a reverse tunnel entrance.

@@ -128,7 +128,9 @@ class FakeWorld implements ConveyorWorld {
     this.released.set(pieceId, { positionM, velocityM });
   }
 
-  blockPiece(pieceId: string, positionM: Vec2): void {
+  blockPiece(pieceId: string): void {
+    const positionM = this.positions.get(pieceId);
+    if (positionM === undefined) throw new Error(`unknown piece ${pieceId}`);
     this.blocked.set(pieceId, positionM);
     this.released.delete(pieceId);
     this.positions.set(pieceId, positionM);
@@ -736,17 +738,16 @@ describe('one-way exits', () => {
     conveyors.update(snapshot, 0, world);
 
     expect(world.blocked.get('intruder')).toBeDefined();
-    // An unauthorised ball is stopped one whole radius beyond its own edge;
-    // it never gets close enough to use a one-way opening.
-    expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
+    // A one-way barrier cancels the invalid move at the current contact point;
+    // it must not relocate a loose ball through the exit.
+    expect(world.blocked.get('intruder')).toEqual(publicMouth);
 
     // A ball pushed through the long field-facing wall is blocked too. This
     // is the path a velocity-only check missed when a live gate was open.
     const sideIntruder = new FakeWorld(new Map([['side', vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y)]]));
     conveyors.update(sideIntruder.snapshot(1), 1, sideIntruder);
     expect(sideIntruder.blocked.get('side')).toBeDefined();
-    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity)
-      .toBeGreaterThan(EXIT.centerM.x + inchesToMeters(4) + 0.06223 * 2);
+    expect(sideIntruder.blocked.get('side')).toEqual(vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y));
   });
 
   it('guards the complete open-gate envelope, not only the tunnel rectangle', () => {
@@ -760,9 +761,9 @@ describe('one-way exits', () => {
     conveyors.update(world.snapshot(0), 0, world);
 
     expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
-    // The local gate boundary holds it just outside the arm rather than
-    // relocating it through the entire return path.
-    expect(world.blocked.get('intruder')?.y).toBeCloseTo(gateM.y - 0.06223 * 3);
+    // The live gate blocks at contact rather than relocating it through the
+    // return path or into a human-player area.
+    expect(world.blocked.get('intruder')).toEqual(vec2(gateM.x, gateM.y + inchesToMeters(1)));
   });
 
   it('does not block a piece the conveyor itself released', () => {

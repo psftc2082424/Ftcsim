@@ -615,12 +615,25 @@ export class SimWorld {
   }
 
   /**
-   * Resolve a game-declared one-way field mechanism without inventing a force.
-   * The piece remains a normal loose body after being returned to the public
-   * side of the passage; only the invalid transition is rejected.
+   * Resolve a game-declared one-way boundary as a fixed-step hard stop.
+   *
+   * The game layer calls this after physics has attempted an invalid crossing.
+   * Restoring only this tick's starting pose is the same local correction a
+   * contact wall makes; it never moves a loose ARTIFACT along a tunnel or into
+   * another field area.
    */
-  blockPiece(pieceId: string, positionM: Vec2): void {
-    this.releasePiece(pieceId, positionM);
+  blockPiece(pieceId: string): void {
+    const piece = this.pieceNamed(pieceId);
+    if (piece.parked || piece.carriedBy !== null) return;
+    piece.body.pose = { p: piece.previousPose.p, theta: piece.body.pose.theta };
+    piece.body.vel = { v: vec2(0, 0), omega: 0 };
+    piece.heightM = piece.previousHeightM;
+    piece.verticalVelocityMps = 0;
+    piece.body.span = {
+      bottom: Math.max(0, piece.heightM - piece.radiusM),
+      top: piece.heightM + piece.radiusM,
+    };
+    this.cachedSnapshot = null;
   }
 
   /**

@@ -146,9 +146,9 @@ describe('classifier storage integration', () => {
     expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
     expect(loose.heldByRobotId).toBeNull();
-    // The guard clears the ball beyond the channel wall instead of assigning a
-    // fixed point beside the GOAL where future balls could pile up.
-    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(66);
+    // The barrier does not relocate the ball; it simply rejects its attempted
+    // ground-level classifier entry. It remains loose and unscored.
+    expect(metersToInches(meters(loose.pose.p.x))).toBeCloseTo(69);
     expect(sim.score.red).toBe(0);
   });
 

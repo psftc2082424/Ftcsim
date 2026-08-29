@@ -205,7 +205,7 @@ export interface ConveyorWorld {
   /** Apply a field mechanism's outflow velocity without changing its position. */
   setPieceVelocity(pieceId: string, velocityM: Vec2): void;
   /** Put an invalid inbound piece just outside a one-way exit, at rest. */
-  blockPiece(pieceId: string, positionM: Vec2): void;
+  blockPiece(pieceId: string): void;
   /** Apply a physical lane acceleration; the piece remains active and collidable. */
   guidePiece(
     pieceId: string,
@@ -263,9 +263,6 @@ interface ConveyorState {
  * a closing gate instead of being allowed to touch and settle in its collider.
  */
 const CLOSED_GATE_CLEARANCE_RADII = 3;
-
-/** Keep an unauthorised ball a full radius outside a protected exit opening. */
-const INBOUND_EXIT_CLEARANCE_RADII = 2;
 
 /** Cover a live GATE's entire plan-view arm plus a ball-radius safety margin. */
 const GATE_INBOUND_GUARD_RADII = CLOSED_GATE_CLEARANCE_RADII;
@@ -570,14 +567,14 @@ export class PieceConveyors {
       // closed.
       if (spec.lane !== undefined) {
         if (!inGateEnvelope(spec, places, piece.pose.p, piece.radiusM)) continue;
-        world.blockPiece(piece.pieceId, publicSideOfGate(spec, places, piece.radiusM));
+        world.blockPiece(piece.pieceId);
         continue;
       }
       // Generic one-way exits have no separate arm geometry. Preserve their
       // existing full-passage rejection behavior for seasons that declare a
       // chute without a live GATE.
       if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.exit, piece.pose.p, piece.radiusM));
+      world.blockPiece(piece.pieceId);
     }
   }
 
@@ -603,7 +600,7 @@ export class PieceConveyors {
       // admitted or rejected as an ordinary physical ball.
       if (piece.heldByRobotId !== null || piece.transferring === true || state.taken.has(piece.pieceId)) continue;
       if (!regionContains(places.queue, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.queue, piece.pose.p, piece.radiusM));
+      world.blockPiece(piece.pieceId);
     }
   }
 
@@ -1024,50 +1021,6 @@ function inGateEnvelope(spec: PieceConveyorSpec, places: ConveyorPlaces, positio
   const upstreamReachM = Math.max(0, radiusM) * 1.1;
   return alongM >= -upstreamReachM && alongM <= clearanceM &&
     Math.hypot(fromGateX, fromGateY) <= clearanceM;
-}
-
-/**
- * Keep an unauthorised ball just beyond the GATE's public side.
- *
- * This is a local hard stop, not an ejection through the SECRET TUNNEL: the
- * ball stays in ordinary field play immediately downstream of the arm and is
- * free to roll away after the invalid inward transition is rejected.
- */
-function publicSideOfGate(spec: PieceConveyorSpec, places: ConveyorPlaces, radiusM: number): Vec2 {
-  const outflow = exitOutflowDirection(spec, places);
-  const gateM = nearEndOf(places.exit, places.queue.centerM);
-  const clearanceM = Math.max(0, radiusM) * GATE_INBOUND_GUARD_RADII + 1e-6;
-  return vec2(gateM.x + outflow.x * clearanceM, gateM.y + outflow.y * clearanceM);
-}
-
-function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {
-  // The first radius places the ball's edge outside the opening; the second
-  // leaves a full-radius air gap so an open gate is still a hard stop for an
-  // unauthorised ball rather than a correction after it has reached the arm.
-  const clearanceM = Math.max(0, radiusM) * INBOUND_EXIT_CLEARANCE_RADII + 1e-6;
-  if (place.shape.kind === 'circle') {
-    const dx = positionM.x - place.centerM.x;
-    const dy = positionM.y - place.centerM.y;
-    const distance = Math.hypot(dx, dy);
-    const direction = distance > 1e-9 ? vec2(dx / distance, dy / distance) : vec2(1, 0);
-    return vec2(
-      place.centerM.x + direction.x * (place.shape.radius + clearanceM),
-      place.centerM.y + direction.y * (place.shape.radius + clearanceM),
-    );
-  }
-
-  const vertices = place.shape.vertices;
-  const minX = Math.min(...vertices.map((vertex) => vertex.x));
-  const maxX = Math.max(...vertices.map((vertex) => vertex.x));
-  const minY = Math.min(...vertices.map((vertex) => vertex.y));
-  const maxY = Math.max(...vertices.map((vertex) => vertex.y));
-  const nearest = [
-    { distance: Math.abs(positionM.x - minX), point: vec2(minX - clearanceM, positionM.y) },
-    { distance: Math.abs(maxX - positionM.x), point: vec2(maxX + clearanceM, positionM.y) },
-    { distance: Math.abs(positionM.y - minY), point: vec2(positionM.x, minY - clearanceM) },
-    { distance: Math.abs(maxY - positionM.y), point: vec2(positionM.x, maxY + clearanceM) },
-  ].reduce((best, candidate) => candidate.distance < best.distance ? candidate : best);
-  return nearest.point;
 }
 
 function slotPointAtEdge(place: Shaped, sign: -1 | 1): Vec2 {
