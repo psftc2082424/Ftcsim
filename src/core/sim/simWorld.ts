@@ -697,12 +697,12 @@ export class SimWorld {
    * piece back onto the floor. The ARTIFACT remains active and collidable; only
    * the invalid overlap with the newly-closed arm is resolved.
    */
-  pushPieceOutOfGate(pieceId: string, positionM: Vec2): void {
+  pushPieceOutOfGate(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
     const piece = this.pieceNamed(pieceId);
     if (piece.parked || piece.carriedBy !== null) return;
     piece.body.pose = { p: positionM, theta: piece.body.pose.theta };
     piece.previousPose = piece.body.pose;
-    piece.body.vel = { v: vec2(0, 0), omega: 0 };
+    piece.body.vel = { v: velocityM, omega: 0 };
     this.cachedSnapshot = null;
   }
 

@@ -1736,8 +1736,10 @@ If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
 outward through the return side before re-enabling the arm. Thus a robot cannot
 leave a ball intersecting a closing GATE, and the classifier never pulls an
-already released ball backward into its lane. An already-closed gate does not
-affect elevated OVERFLOW; overflow keeps its separate raised path.
+already released ball backward into its lane. That cleared outbound ball keeps
+the conveyor's declared `exitVelocityMps`, so it continues normally through the
+return path instead of parking beneath the closing arm. An already-closed gate
+does not affect elevated OVERFLOW; overflow keeps its separate raised path.
 
 The simplified deterministic shooter clamps its final integration segment at
 the declared GOAL target before capture. This prevents a fixed 200 Hz step from

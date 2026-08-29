@@ -220,7 +220,7 @@ export interface ConveyorWorld {
    * Separate an active physical piece from a gate as it closes, preserving its
    * current field-surface height rather than resetting it to floor level.
    */
-  pushPieceOutOfGate(pieceId: string, positionM: Vec2): void;
+  pushPieceOutOfGate(pieceId: string, positionM: Vec2, velocityM: Vec2): void;
   /** Slow an accepted piece in a receiving basin without ending its funnel transfer. */
   dampPieceVelocity(pieceId: string, retention: number): void;
   /** Restore ordinary contacts once an accepted piece has boarded the physical lane. */
@@ -885,6 +885,7 @@ export class PieceConveyors {
           gateM.x + direction.x * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII * (releasedThroughGate ? 1 : -1),
           gateM.y + direction.y * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII * (releasedThroughGate ? 1 : -1),
         ),
+        releasedThroughGate ? spec.exitVelocityMps : vec2(0, 0),
       );
     }
   }

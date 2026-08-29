@@ -1144,8 +1144,9 @@ shoot; then Phase 4 (PDF ingestion).
   the open passage at timeout is pushed outward through the return side before
   the arm activates; it is never pulled back into the classifier. This ejection
   occurs only on an open-to-closed transition, so elevated overflow remains
-  free to use its separate path. Loose balls remain blocked from the elevated
-  lane regardless of GATE state.
+  free to use its separate path. The cleared outbound ball retains its declared
+  tunnel outflow velocity, preventing a zero-speed stall beneath the arm. Loose
+  balls remain blocked from the elevated lane regardless of GATE state.
 - **The GATE guard is now contact-style, not a teleporter.** Any unauthorised
   ball is restored only to its immediately preceding fixed-step pose and has
   its velocity cancelled. The physical closed arm resolves contact while the

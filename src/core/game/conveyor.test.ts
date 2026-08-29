@@ -97,6 +97,7 @@ class FakeWorld implements ConveyorWorld {
   >();
   readonly colliderStates = new Map<string, boolean>();
   readonly pushedOut = new Map<string, Vec2>();
+  readonly pushedOutVelocity = new Map<string, Vec2>();
   readonly completedTransfers = new Set<string>();
 
   constructor(
@@ -144,8 +145,9 @@ class FakeWorld implements ConveyorWorld {
     this.colliderStates.set(tag, active);
   }
 
-  pushPieceOutOfGate(pieceId: string, positionM: Vec2): void {
+  pushPieceOutOfGate(pieceId: string, positionM: Vec2, velocityM: Vec2): void {
     this.pushedOut.set(pieceId, positionM);
+    this.pushedOutVelocity.set(pieceId, velocityM);
     this.positions.set(pieceId, positionM);
   }
 
@@ -444,6 +446,9 @@ describe('guided lane physics', () => {
     const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
     expect(conveyors.queued('chute')).toEqual([]);
     expect(world.pushedOut.get('a')?.y).toBeCloseTo(gateM.y - 0.06223 * 3);
+    // A closing arm clears the authorised outbound ball with its normal
+    // tunnel outflow, rather than leaving it parked below the GATE.
+    expect(world.pushedOutVelocity.get('a')).toEqual(EXIT_VELOCITY_MPS);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
