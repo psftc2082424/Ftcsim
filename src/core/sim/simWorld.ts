@@ -447,7 +447,7 @@ export class SimWorld {
         bottom: Math.max(0, piece.heightM - piece.radiusM),
         top: piece.heightM + piece.radiusM,
       };
-      this.clampTransferAtTarget(piece);
+      this.brakeTransferAtTarget(piece);
     }
 
     // 6d. Held pieces ride with their robot, which has now moved.
@@ -792,8 +792,13 @@ export class SimWorld {
     piece.previousHeightM = piece.heightM;
   }
 
-  /** Keep a routed perfect-accuracy shot from stepping past its GOAL target. */
-  private clampTransferAtTarget(piece: SimPiece): void {
+  /**
+   * Stop a deterministic perfect-accuracy shot at its GOAL crossing without
+   * changing its pose. The older implementation snapped the pose to the target
+   * point; this keeps the integrated crossing position and only removes the
+   * horizontal launch velocity so gravity can complete normal GOAL capture.
+   */
+  private brakeTransferAtTarget(piece: SimPiece): void {
     const target = piece.transferTargetM;
     if (!piece.transferring || target === null) return;
     const start = piece.previousPose.p;
@@ -807,14 +812,7 @@ export class SimWorld {
     const nearestX = start.x + deltaX * t;
     const nearestY = start.y + deltaY * t;
     if (Math.hypot(target.x - nearestX, target.y - nearestY) > 1e-6) return;
-    piece.body.pose = { p: target, theta: piece.body.pose.theta };
     piece.body.vel = { v: vec2(0, 0), omega: 0 };
-    piece.heightM = Math.max(piece.radiusM, piece.transferTargetHeightM ?? piece.heightM);
-    piece.verticalVelocityMps = 0;
-    piece.body.span = {
-      bottom: Math.max(0, piece.heightM - piece.radiusM),
-      top: piece.heightM + piece.radiusM,
-    };
   }
 
   private pieceNamed(pieceId: string): SimPiece {

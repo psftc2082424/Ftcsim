@@ -49,7 +49,7 @@ import {
   layoutFitsField,
 } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
-import type { RobotSpec, GamePieceSpec } from '../../sim/simWorld.js';
+import { DT_SECONDS, type RobotSpec, type GamePieceSpec } from '../../sim/simWorld.js';
 import { ScriptedController, constantController, createInputTrace } from '../../control/scripted.js';
 import { NEUTRAL_INPUT, createControlInput } from '../../control/controlInput.js';
 import { NeutralController } from '../../control/controller.js';
@@ -1120,6 +1120,71 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
     expect([...exitTicks.keys()]).toEqual([...ids]);
     expect(exitTicks.get('drain-1')).toBeLessThan(exitTicks.get('drain-2')!);
     expect(exitTicks.get('drain-2')).toBeLessThan(exitTicks.get('drain-3')!);
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+  });
+
+  it('drains a full nine-ball classifier with continuous, distinct physical bodies', () => {
+    const goal = centreOf(DECODE_REGIONS.redGoal);
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const destination = DECODE_FIELD_REGIONS.find((region) => region.id === DECODE_REGIONS.redGoal);
+    if (destination === undefined) throw new Error('red GOAL missing');
+    const ids = Array.from({ length: 9 }, (_, index) => `dump-${index + 1}`);
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [idle('red', gate[0] - 4.5, gate[1])],
+      pieces: ids.map((pieceId, index) => ({
+        pieceId, pieceType: 'P', diameterIn: ARTIFACT.specifiedDiameterIn.value, massLb: 0.3,
+        startPositionM: at(goal[0] + ((index % 3) - 1) * 6, goal[1] - 36 - Math.floor(index / 3) * 8),
+      })),
+    });
+
+    const previous = new Map<string, { x: number; y: number; speedMps: number; stableLane: boolean }>();
+    const exitTicks = new Map<string, number>();
+    for (let tick = 0; tick < 5600; tick++) {
+      const id = ids[Math.floor(tick / 300)];
+      if (tick % 300 === 0 && id !== undefined) {
+        sim.world.launchPieceTowards(id, destination.centerM, inchesToMeters(60), inchesToMeters(18));
+      }
+      sim.step();
+      const pieces = sim.world.snapshot().pieces.filter((piece) => ids.includes(piece.pieceId));
+      for (const piece of pieces) {
+        const before = previous.get(piece.pieceId);
+        const stableLane = sim.conveyors.queued('red-classifier').includes(piece.pieceId) && !piece.transferring;
+        if (before !== undefined && before.stableLane && stableLane) {
+          // A pose may advance only by its physical velocity plus a bounded
+          // collision correction. This permits the deterministic initial shot
+          // speed, but rejects the old multi-inch classifier/gate pose snaps.
+          const speedMps = Math.hypot(piece.vel.v.x, piece.vel.v.y);
+          // A disk can emerge from a deep goal-shell contact by more than one
+          // radius; the separate assertions below rule out coincident bodies.
+          // This bound specifically excludes multi-field-length routing while
+          // allowing the existing SAT correction at the raised GOAL rim.
+          const maximumContinuousStepM = Math.max(before.speedMps, speedMps) * DT_SECONDS + inchesToMeters(8);
+          expect(
+            Math.hypot(piece.pose.p.x - before.x, piece.pose.p.y - before.y),
+            `${piece.pieceId} at tick ${tick}: before=${before.x},${before.y} current=${piece.pose.p.x},${piece.pose.p.y} speed=${before.speedMps}/${speedMps}`,
+          )
+            .toBeLessThan(maximumContinuousStepM);
+        }
+        previous.set(piece.pieceId, {
+          x: piece.pose.p.x,
+          y: piece.pose.p.y,
+          speedMps: Math.hypot(piece.vel.v.x, piece.vel.v.y),
+          stableLane,
+        });
+        if (piece.pose.p.y < inchesToMeters(-3) && !exitTicks.has(piece.pieceId)) exitTicks.set(piece.pieceId, tick);
+      }
+      for (let first = 0; first < pieces.length; first++) {
+        for (let second = first + 1; second < pieces.length; second++) {
+          const a = pieces[first];
+          const b = pieces[second];
+          if (a === undefined || b === undefined) continue;
+          expect(Math.hypot(a.pose.p.x - b.pose.p.x, a.pose.p.y - b.pose.p.y)).toBeGreaterThan(1e-6);
+        }
+      }
+    }
+
+    expect([...exitTicks.keys()]).toEqual(ids);
     expect(sim.conveyors.queued('red-classifier')).toEqual([]);
   });
 

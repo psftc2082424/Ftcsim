@@ -1172,13 +1172,12 @@ shoot; then Phase 4 (PDF ingestion).
 
 ### Current next task
 
-Manually playtest the browser field at the raised classifier's long public
-edge, its GOAL throat, and its open GATE with a robot pushing loose ARTIFACTs.
-They must remain ordinary floor balls with continuous collision motion and may
-never enter classifier state. Then run a complete accepted-shot batch to check
-the elevated channel's visual flow and gate drain. Preserve the canonical low
-channel guard and explicit admission provenance; do not restore generic
-coordinate rollback, parked slots, or plan-view-driven lane guidance.
+Manually playtest a full open-GATE nine-ball dump in the browser and a very
+fast loose-ball impact at each perimeter edge/corner. Preserve continuous
+classifier motion: do not restore gate timeout ejections, shared release poses,
+or gate outflow velocity resets. If a future elevated GOAL change affects
+containment, extend physical fixture geometry rather than adding a coordinate
+clamp.
 
 ### Latest handoff — 2026-08-29 (physical open-GATE drain)
 
@@ -1245,3 +1244,18 @@ coordinate rollback, parked slots, or plan-view-driven lane guidance.
   assembly.
 - **Verification:** focused classifier/collision tests and full `npm run
   verify` pass (TypeScript, ESLint, and the complete Vitest suite).
+
+### Latest handoff — 2026-08-29 (continuous classifier discharge)
+
+- **Root cause:** the quiet-GATE timeout called `pushPieceOutOfGate` for every
+  queued/released ball, assigning each one a shared gate-relative pose and
+  velocity. That collapsed a full drain into visible groups. The deterministic
+  GOAL target clamp was another pose write.
+- **Fix:** gates now remain retracted until their physical passage is clear;
+  the lane guide/contact solver alone drains balls. The timeout ejection,
+  lane release velocity reset, classifier entry placement, and target pose
+  clamp are gone. Target capture uses a velocity-only brake; no classifier or
+  gate code writes a moving ball position.
+- **Coverage:** a real nine-shot open-GATE dump asserts ordered exits, distinct
+  bodies, and bounded physical motion; `pieces.test.ts` drives balls at
+ 240 in/s into all four walls and corners and checks containment each tick.

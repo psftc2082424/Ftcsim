@@ -471,7 +471,11 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       gateArmThicknessM: inchesToMeters(1),
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
-      entryVelocityRetention: 0.05,
+      // GOAL capture absorbs the incoming shot's cross-field launch momentum.
+      // The accepted ball keeps its exact integrated pose, then the physical
+      // receiving-basin guide accelerates it toward the classifier throat;
+      // retaining even 5% could carry a high shot over the perimeter-side rim.
+      entryVelocityRetention: 0,
       requiresTransferForEntry: true,
     },
     // Every SECRET TUNNEL runs the same way regardless of which side of the

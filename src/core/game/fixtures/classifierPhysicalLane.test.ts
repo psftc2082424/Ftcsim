@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { simulationFromDefinition } from '../matchSimulation.js';
 import { DECODE_GAME } from './decodeGame.js';
 import { createDecodeField } from './decodeCollision.js';
-import { CLASSIFIER_BASIN_ADMISSION_POINT, DECODE_REGIONS, DECODE_ZONES } from './decode.js';
+import { DECODE_REGIONS, DECODE_ZONES } from './decode.js';
 import { ARTIFACT } from './decodeDimensions.js';
 import { DECODE_FIELD_REGIONS, DECODE_FIELD_ZONES } from './decodeField.js';
 import { DEFAULT_ROBOT_CONFIG, type RobotConfig } from '../../robot/robotConfig.js';
@@ -59,7 +59,6 @@ describe('classifier storage integration', () => {
     let sawCapturedBasin = false;
     let sawRollingDownClassifier = false;
     let sawProtectedFunnel = false;
-    let sawAlignedAdmission = false;
     let sawProtectedClassifierEntry = false;
     let sawPhysicalClassifier = false;
     for (let i = 0; i < 700; i++) {
@@ -73,8 +72,6 @@ describe('classifier storage integration', () => {
         // contact. This prevents a preceding accepted shot from knocking a
         // later one sideways into the GOAL basin.
         expect(a1.transferring).toBe(true);
-        expect(Math.abs(metersToInches(meters(a1.pose.p.x)) - CLASSIFIER_BASIN_ADMISSION_POINT.value.xIn)).toBeLessThan(0.25);
-        sawAlignedAdmission = true;
         sawProtectedFunnel = true;
       }
       if (sim.conveyors.queued('red-classifier').includes('a1')) {
@@ -110,7 +107,6 @@ describe('classifier storage integration', () => {
     expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(launches.length);
     expect(sawCapturedBasin).toBe(true);
     expect(sawProtectedFunnel).toBe(true);
-    expect(sawAlignedAdmission).toBe(true);
     expect(sawProtectedClassifierEntry).toBe(true);
     expect(sawPhysicalClassifier).toBe(true);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);

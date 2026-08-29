@@ -255,6 +255,48 @@ describe('pieces interact through the existing collision resolver', () => {
     expect(Math.abs(piece.vel.v.x)).toBeLessThan(0.01);
   });
 
+  it('contains high-speed artifacts at every perimeter and corner seam', () => {
+    const bounds = fieldBounds(createStandardField());
+    const starts = [
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+      vec2(0, 0),
+    ];
+    const directions = [
+      vec2(1, 0), vec2(-1, 0), vec2(0, 1), vec2(0, -1),
+      vec2(1, 1), vec2(1, -1), vec2(-1, 1), vec2(-1, -1),
+    ];
+    const w = world(starts.map((startPositionM, index) => artifact({ pieceId: `fast-${index}`, startPositionM })));
+
+    // 240 in/s is far above the normal rolling / classifier speed, but covers
+    // a whole inch per fixed tick. The 12 in overlapping perimeter walls must
+    // still contain every disc at edges and corners without a containment snap.
+    directions.forEach((direction, index) => {
+      const magnitude = Math.hypot(direction.x, direction.y);
+      w.setPieceVelocity(`fast-${index}`, vec2(
+        inchesToMeters(240) * direction.x / magnitude,
+        inchesToMeters(240) * direction.y / magnitude,
+      ));
+    });
+
+    for (let tick = 0; tick < 200; tick++) {
+      w.step();
+      for (const piece of w.snapshot().pieces) {
+        expect(Number.isFinite(piece.pose.p.x)).toBe(true);
+        expect(Number.isFinite(piece.pose.p.y)).toBe(true);
+        expect(piece.pose.p.x).toBeGreaterThanOrEqual(bounds.minX - piece.radiusM);
+        expect(piece.pose.p.x).toBeLessThanOrEqual(bounds.maxX + piece.radiusM);
+        expect(piece.pose.p.y).toBeGreaterThanOrEqual(bounds.minY - piece.radiusM);
+        expect(piece.pose.p.y).toBeLessThanOrEqual(bounds.maxY + piece.radiusM);
+      }
+    }
+  });
+
   /**
    * Known defect, recorded rather than hidden (ASSUMPTIONS.md §5.6).
    *

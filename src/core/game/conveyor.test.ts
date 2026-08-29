@@ -399,7 +399,7 @@ describe('guided lane physics', () => {
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
-  it('pushes a normal lane ball clear before a timed gate closes through it', () => {
+  it('keeps the gate retracted while a physical lane ball occupies its closing envelope', () => {
     const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
     const positions = new Map([['a', inEntry(0)]]);
     const gate = vec2(0, -20 * 0.0254);
@@ -410,21 +410,18 @@ describe('guided lane physics', () => {
     world.moveRobot(null);
 
     // A 4.9 in ARTIFACT four inches upstream is pressing the GATE, but is
-    // not yet in the return zone.  The closing arm must resolve this overlap
-    // before its collider becomes active again.
+    // not yet in the return zone. The field solver, not a conveyor pose write,
+    // owns that contact, so the arm waits for the ball to roll clear.
     const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
     positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(4)));
     conveyors.update(world.snapshot(10), 10, world);
 
-    const cleared = world.pushedOut.get('a');
-    expect(cleared).toBeDefined();
-    expect(cleared?.x).toBeCloseTo(gateM.x);
-    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
-    expect(world.colliderStates.get('chute-gate')).toBe(true);
-    expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
+    expect(world.pushedOut.get('a')).toBeUndefined();
+    expect(world.colliderStates.get('chute-gate')).toBe(false);
+    expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(true);
   });
 
-  it('ejects a ball still inside an open gate passage before closing', () => {
+  it('does not relocate a ball still inside an open gate passage at timeout', () => {
     const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
     const positions = new Map([['a', inEntry(0)]]);
     const gate = vec2(0, -20 * 0.0254);
@@ -441,16 +438,12 @@ describe('guided lane physics', () => {
     world.moveRobot(null);
     conveyors.update(world.snapshot(12), 12, world);
 
-    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
     expect(conveyors.queued('chute')).toEqual([]);
-    expect(world.pushedOut.get('a')?.y).toBeCloseTo(gateM.y - 0.06223 * 3);
-    // A closing arm clears the authorised outbound ball with its normal
-    // tunnel outflow, rather than leaving it parked below the GATE.
-    expect(world.pushedOutVelocity.get('a')).toEqual(EXIT_VELOCITY_MPS);
-    expect(world.colliderStates.get('chute-gate')).toBe(true);
+    expect(world.pushedOut.get('a')).toBeUndefined();
+    expect(world.colliderStates.get('chute-gate')).toBe(false);
   });
 
-  it('clears a normal lane ball that later overlaps an already-closed gate', () => {
+  it('leaves an already-closed gate overlap to ordinary collision resolution', () => {
     const positions = new Map([['a', inEntry(0)]]);
     const world = new FakeWorld(positions);
     const conveyors = new PieceConveyors([LANE_SPEC], lanePlaces(), DT);
@@ -462,9 +455,7 @@ describe('guided lane physics', () => {
     positions.set('a', vec2(gateM.x, gateM.y + inchesToMeters(2)));
     conveyors.update(world.snapshot(1), 1, world);
 
-    const cleared = world.pushedOut.get('a');
-    expect(cleared).toBeDefined();
-    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
+    expect(world.pushedOut.get('a')).toBeUndefined();
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
@@ -572,16 +563,13 @@ describe('guided lane physics', () => {
     positions.set('a', LANE_EXIT.centerM);
     conveyors.update(world.snapshot(1), 1, world);
 
-    // The piece reached this point under its own real motion. The gate now
-    // supplies the declared outflow velocity at that exact point — it is not
-    // repositioned at the end of the tunnel like a legacy drain would be.
+    // The piece reached this point under its own real motion. It remains at
+    // that exact physical state; the continuing lane guide, rather than a
+    // gate velocity reset, carries it through the return passage.
     expect(conveyors.queued('chute')).toEqual(['b']);
     expect(conveyors.overflowed('chute')).toEqual([]);
     expect(world.guided.has('b')).toBe(true);
-    expect(world.released.get('a')).toEqual({
-      positionM: LANE_EXIT.centerM,
-      velocityM: EXIT_VELOCITY_MPS,
-    });
+    expect(world.released.get('a')).toBeUndefined();
   });
 
   it('rejects a piece rolling backward into a live gate from its public side', () => {
