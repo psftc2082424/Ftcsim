@@ -1172,8 +1172,31 @@ shoot; then Phase 4 (PDF ingestion).
 
 ### Current next task
 
-Manually playtest the GATE from the browser with a loose ARTIFACT pushed from
-the SECRET TUNNEL, verifying it stops at the open or closed arm without a
+Manually playtest the GATE from the browser with a full physical classifier
+batch: verify its leading elevated ARTIFACT rolls through an open GATE, drops
+onto the return/tunnel surface only after clearing the arm, and that a loose
+ground ARTIFACT pushed from the SECRET TUNNEL stops at the arm without a
 coordinate jump. Preserve the guided physical classifier and drivetrain; do
 not reintroduce coordinate-based inbound rejection, upstream reclaim, parked
 slots, or a reverse tunnel entrance.
+
+### Latest handoff — 2026-08-29 (open raised GATE drain)
+
+- **Root cause fixed:** guided physical lanes applied their downhill/centring
+  force but never invoked `drain()`. Therefore an open DECODE GATE had an
+  eligible robot latch and packed physical balls at its arm, but no operation
+  could transfer the leading ball to the existing return path.
+- **Open GATE now releases only the actual leading lane ARTIFACT** once its
+  centre reaches the physical arm envelope. The active ground-level GATE
+  collider is intentionally retained: a raised authorised ball clears it by
+  vertical span, while a loose ground ball remains wall-blocked.
+- **Height handoff is explicit:** after the released ball's complete disc has
+  cleared the arm, the guided return lowers it from the raised classifier
+  support to the normal SECRET TUNNEL/field return surface. There is no inverse
+  ground-to-classifier transition.
+- **Regression coverage:** `conveyor.test.ts` now admits a real guided-lane
+  ball, moves it to the live arm, and proves an open physical GATE drains it
+  without disabling its collider. Existing DECODE physical-lane, nine-ball,
+  overflow, one-way-entry, and single-score regressions remain green.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **993
+  tests across 48 files**.

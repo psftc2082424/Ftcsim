@@ -1673,14 +1673,17 @@ receiving-basin/lane contract, not a positional move through the lane: accepted
 balls remain subject to the same integration, `0.20` restitution, rolling loss,
 and ball/field contacts as every other loose ball.
 
-The live GATE stays a tagged solid collider until its owner latches it open.
-Opening it does not release or animate any ball; it simply retracts that one
-collider, allowing the already-packed physical balls to roll under their normal
-lane guidance. One continuous robot contact is one activation: when the lane
-and receiving basin become empty, the gate closes even if that robot remains in
-the release zone. A later batch requires the robot to leave and make a new
-touch. This preserves the one-way return guard and never changes robot or
-drivetrain collision behaviour.
+The live GATE remains a tagged solid collider at ground level even while its
+owner has latched it open. Opening it authorises only the leading physical
+guided-lane ball to receive the declared return velocity once it reaches the
+arm; it neither animates nor repositions that ball. Its raised support span
+clears the physical arm. After the full ball clears the arm, the same guide
+lowers it onto the ordinary return/tunnel surface, which is a one-way
+raised-to-ground transition unavailable to public field balls. One continuous
+robot contact is one activation: when the lane and receiving basin become
+empty, the gate closes even if that robot remains in the release zone. A later
+batch requires the robot to leave and make a new touch. This preserves the
+one-way return guard and never changes robot or drivetrain collision behaviour.
 
 The lane's inner rail is split only at the GOAL-to-classifier arch (dSim's
 observed hand-off near `y = 57 in`); its outer rail and the inner rail below

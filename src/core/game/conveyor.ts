@@ -409,6 +409,13 @@ export class PieceConveyors {
         this.holdQueue(spec, state, places, world);
       } else {
         this.guideLane(spec, state, places, snapshot, world);
+        // A guided lane is physical rather than indexed, but the open GATE
+        // still needs to hand its leading ball into the return path. Previously
+        // this branch only guided bodies and never called `drain`, so an open
+        // GATE left every packed classifier ball permanently queued.
+        if (spec.gateColliderStaysActiveWhenOpen === true && this.leadingLaneBallAtGate(state, places, snapshot)) {
+          this.drain(spec, state, places, tick, world);
+        }
       }
       const hasQueuedPieces = state.queue.length > 0 || state.basin.size > 0;
       const releasedBallStillInPassage = spec.lane !== undefined && [...state.released].some((pieceId) => {
@@ -821,9 +828,21 @@ export class PieceConveyors {
       if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
       const alongSpeed = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
       const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
+      const gateM = nearEndOf(places.exit, places.queue.centerM);
+      const fromGateX = piece.pose.p.x - gateM.x;
+      const fromGateY = piece.pose.p.y - gateM.y;
+      const hasClearedArm =
+        fromGateX * direction.x + fromGateY * direction.y >
+        piece.radiusM + Math.max(0, lane.gateArmThicknessM ?? 0) / 2;
       world.guidePiece(
         pieceId,
         vec2(direction.x * acceleration, direction.y * acceleration),
+        // An accepted ball remains on the raised classifier surface while it
+        // passes the physical arm. Once its full disc has cleared the arm, it
+        // makes the one-way downward transition to the ordinary return/tunnel
+        // surface. A ground ball never receives this authorised transition.
+        hasClearedArm ? piece.radiusM : undefined,
+        hasClearedArm ? lane.surfaceHeightRateMps : undefined,
       );
     }
   }
@@ -863,6 +882,21 @@ export class PieceConveyors {
       return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <=
         piece.radiusM * CLOSED_GATE_CLEARANCE_RADII;
     });
+  }
+
+  /** The queue's physical way-out ball is the only one a GATE may release. */
+  private leadingLaneBallAtGate(
+    state: ConveyorState,
+    places: ConveyorPlaces,
+    snapshot: WorldSnapshot,
+  ): boolean {
+    const pieceId = state.queue[0];
+    if (pieceId === undefined) return false;
+    const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+    if (piece === undefined || piece.heldByRobotId !== null) return false;
+    const gateM = nearEndOf(places.exit, places.queue.centerM);
+    return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <=
+      piece.radiusM * CLOSED_GATE_CLEARANCE_RADII;
   }
 
   /**
