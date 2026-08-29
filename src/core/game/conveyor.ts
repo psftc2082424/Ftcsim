@@ -663,7 +663,12 @@ export class PieceConveyors {
     world: ConveyorWorld,
   ): void {
     const origin = nearEndOf(places.exit, places.queue.centerM);
-    world.releasePieceMoving(pieceId, origin, spec.exitVelocityMps);
+    // A guided lane ball is already at the raised physical gate. Releasing it
+    // must preserve that support height so it clears the arm by real vertical
+    // span; resetting through `releasePieceMoving` would drop it to the floor
+    // and make the correct static GATE collider trap it.
+    if (spec.lane !== undefined) world.setPieceVelocity(pieceId, spec.exitVelocityMps);
+    else world.releasePieceMoving(pieceId, origin, spec.exitVelocityMps);
     state.released.add(pieceId);
     state.taken.delete(pieceId);
   }

@@ -1158,6 +1158,10 @@ shoot; then Phase 4 (PDF ingestion).
   while open.** Raised authorised classifier/overflow balls clear the arm by
   vertical span; loose ground balls collide with it normally. Do not restore a
   gate-open collider disable or coordinate-based classifier admission.
+- **Raised classifier releases retain their support height.** The lane release
+  now changes only exit velocity; it no longer resets the ball to floor height
+  before the active arm. This is why classifier balls can exit while loose
+  ground balls remain wall-blocked.
 - **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
   close, full open-GATE-envelope rejection, and no-teleport blocking;
   `classifierPhysicalLane.test.ts` proves accepted admission remains centered

@@ -1738,6 +1738,11 @@ clear the `5.5 in` arm by vertical span; ground-level ARTIFACTS collide with the
 same canonical CAD-backed arm as a normal wall. This replaces the prior
 coordinate-based gate admission correction.
 
+When a raised guided-lane ARTIFACT is released, the conveyor changes only its
+velocity; it does not call the floor-level release operation. This retains the
+raised surface height across the active arm, so a legitimate classifier ball
+rolls out while a ground ball sees the wall.
+
 If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
 outward through the return side before re-enabling the arm. Thus a robot cannot
