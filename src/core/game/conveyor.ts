@@ -68,6 +68,13 @@ export interface PieceConveyorSpec {
    * to opt into a simulated lane solely to animate its gate correctly.
    */
   readonly gateColliderTag?: string | undefined;
+  /**
+   * Keep the physical arm collidable while logically open.
+   *
+   * Use when authorised pieces clear it by elevation while floor pieces must
+   * still see a wall; ordinary floor chutes omit this and retract the arm.
+   */
+  readonly gateColliderStaysActiveWhenOpen?: boolean | undefined;
   /** Optional physical lane replacing the legacy parked-slot representation. */
   readonly lane?: GuidedLaneSpec | undefined;
   /**
@@ -428,7 +435,13 @@ export class PieceConveyors {
         this.pushNormalLaneBallsOutOfClosingGate(spec, state, places, snapshot, world, 1);
       }
       const gateColliderTag = spec.gateColliderTag ?? spec.lane?.gateColliderTag;
-      if (gateColliderTag !== undefined) world.setColliderTagActive(gateColliderTag, !state.releaseLatched);
+      // A raised classifier ball clears the real DECODE arm by vertical span;
+      // a loose floor ball does not. Keeping the physical collider active
+      // therefore models the gate as a wall for ground pieces even when its
+      // release state is open, without any coordinate-correction teleport.
+      if (gateColliderTag !== undefined) {
+        world.setColliderTagActive(gateColliderTag, spec.gateColliderStaysActiveWhenOpen === true || !state.releaseLatched);
+      }
     }
   }
 

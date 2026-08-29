@@ -1732,6 +1732,12 @@ equivalent one-way hard stop for a discrete-step or robot-push overlap. It does
 **not** relocate a loose ball down the SECRET TUNNEL or into the human-player
 area. Thus an open GATE only opens the classifier's authorised outbound path.
 
+DECODE's GATE collider remains physically active while its release state is
+open. Classifier and OVERFLOW ARTIFACTS travel on declared raised surfaces and
+clear the `5.5 in` arm by vertical span; ground-level ARTIFACTS collide with the
+same canonical CAD-backed arm as a normal wall. This replaces the prior
+coordinate-based gate admission correction.
+
 If an authorised normal-lane ARTIFACT is still in the retracted GATE passage
 when its one-second quiet window ends, the mechanism pushes it three radii
 outward through the return side before re-enabling the arm. Thus a robot cannot

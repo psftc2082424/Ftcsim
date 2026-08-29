@@ -1154,6 +1154,10 @@ shoot; then Phase 4 (PDF ingestion).
   resolves contact while the semantic guard supplies the same one-way hard
   stop when open, so no loose ball can reverse from the SECRET TUNNEL into the
   classifier or jump toward the human-player area.
+- **DECODE now uses the actual GATE collider as the ground-level boundary even
+  while open.** Raised authorised classifier/overflow balls clear the arm by
+  vertical span; loose ground balls collide with it normally. Do not restore a
+  gate-open collider disable or coordinate-based classifier admission.
 - **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
   close, full open-GATE-envelope rejection, and no-teleport blocking;
   `classifierPhysicalLane.test.ts` proves accepted admission remains centered

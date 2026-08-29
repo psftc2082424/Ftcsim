@@ -148,7 +148,11 @@ describe('classifier storage integration', () => {
     expect(loose.heldByRobotId).toBeNull();
     // The barrier does not relocate the ball; it simply rejects its attempted
     // ground-level classifier entry. It remains loose and unscored.
-    expect(metersToInches(meters(loose.pose.p.x))).toBeCloseTo(69);
+    // The nearby physical arm/rail may resolve a fraction of an inch of
+    // overlap, but the loose ball must stay local rather than being routed to
+    // the GOAL or classifier state.
+    expect(metersToInches(meters(loose.pose.p.x))).toBeLessThan(70);
+    expect(metersToInches(meters(loose.pose.p.x))).toBeGreaterThan(68);
     expect(sim.score.red).toBe(0);
   });
 

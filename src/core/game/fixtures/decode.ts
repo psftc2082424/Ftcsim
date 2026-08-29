@@ -425,6 +425,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
     capacity: RAMP_SLOT_COUNT.value,
     gateColliderTag: `${alliance}-classifier-gate`,
+    gateColliderStaysActiveWhenOpen: true,
     // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
     // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
     // (§9.8.3) and the GATE ZONE is the 2.75 in strip "adjacent to each GATE"
@@ -435,7 +436,6 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     // The opposing ALLIANCE'S, per §9.8.3.
     exitZoneId:
       alliance === 'red' ? DECODE_ZONES.blueSecretTunnel : DECODE_ZONES.redSecretTunnel,
-    blocksInboundExit: true,
     // A scored ball is first retained in the physical GOAL basin. It then
     // rolls to the elevated arch and boards the classifier under the shared
     // lane guide; nothing places it at a classifier position or tunnel exit.
@@ -455,7 +455,6 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       receivingBasinEntryClearanceM: CLASSIFIER_BASIN_ENTRY_CLEARANCE_M.value,
       receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
       receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
-      blocksInboundLane: true,
       travelDirection: vec2(0, -1),
       driveAccelerationMps2: CLASSIFIER_LANE_ACCELERATION_MPS2.value,
       maxDriveSpeedMps: CLASSIFIER_LANE_MAX_SPEED_MPS.value,
