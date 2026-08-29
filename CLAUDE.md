@@ -1141,13 +1141,29 @@ shoot; then Phase 4 (PDF ingestion).
   full lane. The lane guide uses that same canonical throat centre rather than
   a scoring-region rectangle, so rendering, admission, and travel agree.
 - **A GATE never closes through a ball.** A normal released ball still inside
-  the open passage at timeout is restored to the raised classifier side before
-  the arm activates; it waits there if a robot was blocking the return. This
-  reclaim occurs only on an open-to-closed transition, so elevated overflow
-  remains free to use its separate path. Loose balls remain blocked from the
-  elevated lane regardless of GATE state.
+  the open passage at timeout is pushed outward through the return side before
+  the arm activates; it is never pulled back into the classifier. This ejection
+  occurs only on an open-to-closed transition, so elevated overflow remains
+  free to use its separate path. Loose balls remain blocked from the elevated
+  lane regardless of GATE state.
+- **The GATE guard covers the arm itself plus the entire return passage in
+  both states.** Any unauthorised ball is sent beyond the downstream tunnel
+  end, never to a nearest gate-side boundary. The physical closed arm resolves
+  contact while the semantic guard rejects every discrete-step or robot-push
+  overlap, so no loose ball can reverse from the SECRET TUNNEL into the
+  classifier.
 - **Regression coverage:** `conveyor.test.ts` includes an obstructed-return
-  close; `classifierPhysicalLane.test.ts` proves accepted admission remains
-  centered before normal physical packing.
-- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **990
+  close, full open-GATE-envelope rejection, and downstream ejection;
+  `classifierPhysicalLane.test.ts` proves accepted admission remains centered
+  before normal physical packing. The DECODE nine-shot/overflow scenario now
+  deliberately stages sources outside the protected return assembly.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **991
   tests across 48 files**.
+
+### Current next task
+
+Manually playtest the GATE from the browser with a robot holding a released
+ARTIFACT in the return passage, then verify it is expelled downstream when the
+one-second window closes and cannot be pushed back through the open or closed
+assembly. Preserve the guided physical classifier and drivetrain; do not
+reintroduce upstream reclaim, parked slots, or a reverse tunnel entrance.

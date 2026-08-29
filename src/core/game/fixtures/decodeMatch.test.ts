@@ -1067,7 +1067,10 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
    */
   it('stores nine scored shots end-to-end in the closed classifier exactly once', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
-    const standoffIn = 48;
+    // Keep all loose launch sources clear of the elevated GATE/return
+    // assembly. A field ball staged in that protected footprint is correctly
+    // rejected as an unauthorised reverse entrant, not a valid shot source.
+    const standoffIn = 36;
 
     const sim = simulationFromDefinition(DECODE_GAME, {
       field: createDecodeField(),
@@ -1146,7 +1149,9 @@ describe('CLASSIFIER -> SECRET TUNNEL conveyor flow', () => {
 
   it('keeps exactly nine scored ARTIFACTS in the closed single-file classifier, then overflows the tenth', () => {
     const goal = centreOf(DECODE_REGIONS.redGoal);
-    const standoffIn = 48;
+    // See the nine-shot classifier scenario above: sources belong in the
+    // open launch area, never inside the protected return entrance.
+    const standoffIn = 36;
     const pieceIds = Array.from({ length: 10 }, (_, index) => `overflow-${index + 1}`);
     const sim = simulationFromDefinition(DECODE_GAME, {
       field: createDecodeField(),

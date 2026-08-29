@@ -422,7 +422,7 @@ describe('guided lane physics', () => {
     expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
   });
 
-  it('returns a ball still inside an open gate passage to the lane before closing', () => {
+  it('ejects a ball still inside an open gate passage before closing', () => {
     const timedLane: PieceConveyorSpec = { ...LANE_SPEC, releaseOpenWindowSec: 0.05 };
     const positions = new Map([['a', inEntry(0)]]);
     const gate = vec2(0, -20 * 0.0254);
@@ -440,8 +440,8 @@ describe('guided lane physics', () => {
     conveyors.update(world.snapshot(12), 12, world);
 
     const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
-    expect(conveyors.queued('chute')).toEqual(['a']);
-    expect(world.pushedOut.get('a')?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
+    expect(conveyors.queued('chute')).toEqual([]);
+    expect(world.pushedOut.get('a')?.y).toBeCloseTo(gateM.y - 0.06223 * 3);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 
@@ -723,7 +723,7 @@ describe('letting pieces out', () => {
 });
 
 describe('one-way exits', () => {
-  it('rejects a loose piece from every public edge of a declared one-way exit', () => {
+  it('ejects a loose piece beyond the downstream end from every public edge of a one-way exit', () => {
     const oneWay: PieceConveyorSpec = { ...SPEC, blocksInboundExit: true };
     const publicMouth = farEndOf(EXIT, QUEUE.centerM);
     const positions = new Map([['intruder', publicMouth]]);
@@ -736,8 +736,8 @@ describe('one-way exits', () => {
     conveyors.update(snapshot, 0, world);
 
     expect(world.blocked.get('intruder')).toBeDefined();
-    // An unauthorised ball is stopped one whole radius beyond its own edge;
-    // it never gets close enough to touch an open GATE passage.
+    // An unauthorised ball is ejected past the downstream exit; it never gets
+    // placed at the gate-side edge where it could be pushed backward.
     expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
 
     // A ball pushed through the long field-facing wall is blocked too. This
@@ -745,8 +745,23 @@ describe('one-way exits', () => {
     const sideIntruder = new FakeWorld(new Map([['side', vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y)]]));
     conveyors.update(sideIntruder.snapshot(1), 1, sideIntruder);
     expect(sideIntruder.blocked.get('side')).toBeDefined();
-    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity)
-      .toBeGreaterThan(EXIT.centerM.x + inchesToMeters(4) + 0.06223 * 2);
+    expect(sideIntruder.blocked.get('side')?.y ?? Infinity)
+      .toBeLessThan(publicMouth.y - 0.06223 * 2);
+  });
+
+  it('guards the complete open-gate envelope, not only the tunnel rectangle', () => {
+    const oneWayGate: PieceConveyorSpec = { ...LANE_SPEC, blocksInboundExit: true };
+    const gateM = nearEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    // This is just classifier-side of the return-zone boundary, inside the
+    // physical gate arm's clearance envelope but not yet inside the tunnel.
+    const world = new FakeWorld(new Map([['intruder', vec2(gateM.x, gateM.y + inchesToMeters(1))]]), gateM);
+    const conveyors = new PieceConveyors([oneWayGate], lanePlaces(oneWayGate), DT);
+
+    conveyors.update(world.snapshot(0), 0, world);
+
+    const publicMouth = farEndOf(LANE_EXIT, LANE_QUEUE.centerM);
+    expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
+    expect(world.blocked.get('intruder')?.y ?? Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
   });
 
   it('does not block a piece the conveyor itself released', () => {

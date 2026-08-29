@@ -267,6 +267,9 @@ const CLOSED_GATE_CLEARANCE_RADII = 3;
 /** Keep an unauthorised ball a full radius outside a protected exit opening. */
 const INBOUND_EXIT_CLEARANCE_RADII = 2;
 
+/** Cover a live GATE's entire plan-view arm plus a ball-radius safety margin. */
+const GATE_INBOUND_GUARD_RADII = CLOSED_GATE_CLEARANCE_RADII;
+
 /**
  * Runs every conveyor a game declares.
  *
@@ -374,8 +377,8 @@ export class PieceConveyors {
       if (state === undefined || places === undefined) continue;
 
       this.refreshReleased(spec, state, places, snapshot, tick, world);
-      this.blockInboundExit(spec, state, places, snapshot, world);
       const releaseHeldNow = this.releaseHeld(spec, snapshot);
+      this.blockInboundExit(spec, state, places, snapshot, world);
       // A GOAL/basin entry may overlap the physical lane footprint. Admit a
       // legitimate declared entry first, then reject only pieces which still
       // have no authorization. Doing this in the reverse order projects a
@@ -556,9 +559,22 @@ export class PieceConveyors {
   ): void {
     if (spec.blocksInboundExit !== true) return;
     for (const piece of snapshot.pieces) {
-      if (piece.heldByRobotId !== null || state.released.has(piece.pieceId)) continue;
-      if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
-      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.exit, piece.pose.p, piece.radiusM));
+      // The conveyor's own queue, basin, overflow, and released pieces are
+      // authorised users of this elevated path. Every other floor ball is an
+      // intruder, including one a robot pushes against an open gate arm.
+      if (piece.heldByRobotId !== null || state.released.has(piece.pieceId) || state.taken.has(piece.pieceId)) continue;
+      // This semantic boundary deliberately remains active even when the
+      // physical arm is closed. The collider stops motion, while the boundary
+      // rejects a discrete-step or robot-push overlap from every part of the
+      // gate and return assembly before it can become classifier access.
+      const insideReturnPassage = regionContains(places.exit, piece.pose.p, piece.heightM);
+      const insideGateEnvelope = inGateEnvelope(spec, places, piece.pose.p, piece.radiusM);
+      if (!insideReturnPassage && !insideGateEnvelope) continue;
+      // A one-way exit must never choose the gate-side edge as its correction:
+      // that would put an intruder directly beside the open arm and let a
+      // robot push it backwards into the classifier. Always eject down the
+      // declared flow direction, beyond the entire return passage instead.
+      world.blockPiece(piece.pieceId, beyondExitOutflow(spec, places, piece.radiusM));
     }
   }
 
@@ -840,7 +856,7 @@ export class PieceConveyors {
     snapshot: WorldSnapshot,
     world: ConveyorWorld,
     clearanceRadii = CLOSED_GATE_CLEARANCE_RADII,
-    reclaimReleasedInPassage = false,
+    ejectReleasedInPassage = false,
   ): void {
     const lane = spec.lane;
     if (lane === undefined) return;
@@ -849,11 +865,10 @@ export class PieceConveyors {
     const direction = vec2(lane.travelDirection.x / magnitude, lane.travelDirection.y / magnitude);
     const gateM = nearEndOf(places.exit, places.queue.centerM);
     // A piece that has crossed the open arm remains physically in the exit
-    // passage until it rolls clear.  If the quiet window expires while a robot
-    // is blocking it, put it back on the raised lane before the arm returns;
-    // otherwise the arm would be recreated through an already-released ball.
-    // It can then wait harmlessly in the classifier until the robot leaves.
-    const candidates = reclaimReleasedInPassage ? [...state.queue, ...state.released] : state.queue;
+    // passage until it rolls clear. If the quiet window expires while a robot
+    // is blocking it, push it *outward* through the return side before the arm
+    // returns. The classifier never pulls an already-released ball back in.
+    const candidates = ejectReleasedInPassage ? [...state.queue, ...state.released] : state.queue;
     for (const pieceId of candidates) {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) continue;
@@ -863,17 +878,12 @@ export class PieceConveyors {
       // the clearance envelope.
       const crossedClosedGate = regionContains(places.exit, piece.pose.p, piece.heightM);
       if (!crossedClosedGate && distance > piece.radiusM * clearanceRadii) continue;
-      if (state.released.delete(pieceId)) {
-        state.taken.add(pieceId);
-        // The returned ball is the leading physical lane body.  The existing
-        // guide and ordinary contacts determine all later packing/motion.
-        state.queue.unshift(pieceId);
-      }
+      const releasedThroughGate = state.released.has(pieceId);
       world.pushPieceOutOfGate(
         pieceId,
         vec2(
-          gateM.x - direction.x * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII,
-          gateM.y - direction.y * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII,
+          gateM.x + direction.x * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII * (releasedThroughGate ? 1 : -1),
+          gateM.y + direction.y * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII * (releasedThroughGate ? 1 : -1),
         ),
       );
     }
@@ -985,6 +995,40 @@ function contactsMayResume(
     (piece.pose.p.x - origin.x) * direction.x +
     (piece.pose.p.y - origin.y) * direction.y;
   return travelledM >= activationDistanceM;
+}
+
+/** Direction from a conveyor's gate-side end toward its public return exit. */
+function exitOutflowDirection(spec: PieceConveyorSpec, places: ConveyorPlaces): Vec2 {
+  const laneDirection = spec.lane?.travelDirection;
+  const x = laneDirection?.x ?? farEndOf(places.exit, places.queue.centerM).x - nearEndOf(places.exit, places.queue.centerM).x;
+  const y = laneDirection?.y ?? farEndOf(places.exit, places.queue.centerM).y - nearEndOf(places.exit, places.queue.centerM).y;
+  const magnitude = Math.hypot(x, y);
+  return magnitude > 1e-9 ? vec2(x / magnitude, y / magnitude) : vec2(0, -1);
+}
+
+/** True inside the physical GATE's semantic collision envelope, even while open. */
+function inGateEnvelope(spec: PieceConveyorSpec, places: ConveyorPlaces, positionM: Vec2, radiusM: number): boolean {
+  if (spec.lane === undefined) return false;
+  const gateM = nearEndOf(places.exit, places.queue.centerM);
+  const clearanceM = Math.max(0, radiusM) * GATE_INBOUND_GUARD_RADII;
+  const outflow = exitOutflowDirection(spec, places);
+  const fromGateX = positionM.x - gateM.x;
+  const fromGateY = positionM.y - gateM.y;
+  const alongM = fromGateX * outflow.x + fromGateY * outflow.y;
+  // The arm must guard its entire width and downstream opening, but it must
+  // not claim a several-ball-radius patch *upstream* of the physical arm:
+  // those are ordinary field locations from which a valid shot can originate.
+  const upstreamReachM = Math.max(0, radiusM) * 1.1;
+  return alongM >= -upstreamReachM && alongM <= clearanceM &&
+    Math.hypot(fromGateX, fromGateY) <= clearanceM;
+}
+
+/** Put an unauthorised ball beyond the public, downstream end of a one-way exit. */
+function beyondExitOutflow(spec: PieceConveyorSpec, places: ConveyorPlaces, radiusM: number): Vec2 {
+  const outflow = exitOutflowDirection(spec, places);
+  const farEnd = farEndOf(places.exit, places.queue.centerM);
+  const clearanceM = Math.max(0, radiusM) * INBOUND_EXIT_CLEARANCE_RADII + 1e-6;
+  return vec2(farEnd.x + outflow.x * clearanceM, farEnd.y + outflow.y * clearanceM);
 }
 
 function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {
