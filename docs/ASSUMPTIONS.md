@@ -1709,6 +1709,13 @@ remains under basin guidance until its centre reaches the throat (one-radius
 clearance), then boards the physical rail. This is an **inferred** placement
 from dSim's observable geometry, not a new fixed storage position.
 
+An accepted shot remains collision-isolated for one explicit ARTIFACT diameter
+after it boards the single-file lane. This protects only the GOAL/classifier
+throat: the guided ball still moves normally, and ordinary ball↔ball and
+ball↔field contacts resume as soon as its centre is fully inside the channel.
+This is a general `GuidedLaneSpec.contactActivationDistanceM` boundary, not a
+fixed DECODE storage coordinate.
+
 The simplified deterministic shooter clamps its final integration segment at
 the declared GOAL target before capture. This prevents a fixed 200 Hz step from
 skipping a perfect-accuracy destination; it is not a score shortcut or a
@@ -2000,6 +2007,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Replaced the per-contact 65% robot-push velocity reduction with a `1.20×` active-robot speed cap. Ordinary robot pushes now retain momentum and coast after release; only excess solver-induced push speed is limited. |
 | 2026-08-28 | Tied GATE outflow to the governed `36 in/s` classifier-lane speed. A released ARTIFACT now continues at normal lane speed rather than receiving a separate return-speed burst. |
 | 2026-08-28 | Expanded generic closed-GATE clearance to three ARTIFACT radii. Normal lane balls are now held with a full-radius gap before the arm, and a closed-gate traversal is ejected even after a discrete-step crossing. |
+| 2026-08-28 | Extended protected deterministic-shot transfer one ARTIFACT diameter past the GOAL/classifier throat. Contacts resume only once the active ball is fully inside the guided lane, preventing entry-rail clipping without parking or teleporting it. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |

@@ -141,6 +141,12 @@ export interface GuidedLaneSpec {
   /** Extra clearance required before the next physical ball boards the lane. */
   readonly receivingBasinEntryClearanceM?: number | undefined;
   /**
+   * Down-lane distance a protected accepted piece must travel before ordinary
+   * collision contacts resume. The origin is the basin throat (or the direct
+   * lane entry when no basin exists). Omit to resume contacts at entry.
+   */
+  readonly contactActivationDistanceM?: number | undefined;
+  /**
    * Reject a loose body from the physical footprint of this elevated lane.
    *
    * The generic guard returns an unauthorised body immediately beyond the
@@ -679,10 +685,9 @@ export class PieceConveyors {
         state.queue.push(pieceId);
         // The deterministic GOAL funnel is deliberately collision-free so
         // consecutive shots cannot knock each other into the basin walls.
-        // It ends at the physical classifier throat: from this point the
-        // ARTIFACT rejoins ordinary ball-to-ball and field contacts to pack
-        // against the real lane, gate, and preceding balls.
-        world.completePieceTransfer(pieceId);
+        // A lane may extend that protection a short distance past its throat,
+        // until the ball has fully cleared its narrow entry geometry.
+        if (lane.contactActivationDistanceM === undefined) world.completePieceTransfer(pieceId);
         continue;
       }
       // A full single-file throat can legitimately make a basin ball wait at
@@ -738,6 +743,10 @@ export class PieceConveyors {
         overflow ? lane.overflowHeightRateMps : lane.surfaceHeightRateMps,
         lane.laneVelocityDampingPerSec,
       );
+
+      if (!overflow && piece.transferring === true && contactsMayResume(lane, piece)) {
+        world.completePieceTransfer(pieceId);
+      }
     };
 
     for (const pieceId of state.queue) guide(pieceId, false);
@@ -930,6 +939,24 @@ export function farEndOf(place: Shaped, referenceM: Vec2): Vec2 {
  * declared one-way exit. Unlike a velocity-only test, this also blocks a ball
  * pushed through a tunnel's long field-facing side while its gate is open.
  */
+/** Restore contacts only after a protected shot has cleared a narrow lane throat. */
+function contactsMayResume(
+  lane: GuidedLaneSpec,
+  piece: WorldSnapshot['pieces'][number],
+): boolean {
+  const origin = lane.receivingBasinTargetM ?? lane.entryPointM;
+  const activationDistanceM = lane.contactActivationDistanceM;
+  if (origin === undefined || activationDistanceM === undefined) return true;
+
+  const magnitude = Math.hypot(lane.travelDirection.x, lane.travelDirection.y);
+  if (magnitude < 1e-9) return true;
+  const direction = vec2(lane.travelDirection.x / magnitude, lane.travelDirection.y / magnitude);
+  const travelledM =
+    (piece.pose.p.x - origin.x) * direction.x +
+    (piece.pose.p.y - origin.y) * direction.y;
+  return travelledM >= activationDistanceM;
+}
+
 function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {
   const clearanceM = Math.max(0, radiusM) + 1e-6;
   if (place.shape.kind === 'circle') {

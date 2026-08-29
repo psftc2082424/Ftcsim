@@ -59,6 +59,7 @@ describe('classifier storage integration', () => {
     let sawCapturedBasin = false;
     let sawRollingDownClassifier = false;
     let sawProtectedFunnel = false;
+    let sawProtectedClassifierEntry = false;
     let sawPhysicalClassifier = false;
     for (let i = 0; i < 700; i++) {
       sim.step();
@@ -74,10 +75,11 @@ describe('classifier storage integration', () => {
         sawProtectedFunnel = true;
       }
       if (sim.conveyors.queued('red-classifier').includes('a1')) {
-        // The classifier itself remains physical: collision isolation ends at
-        // the throat, before the ball packs against the lane/gate.
-        expect(a1.transferring).toBe(false);
-        sawPhysicalClassifier = true;
+        // The protected shot must clear the narrow throat before it becomes a
+        // normal colliding classifier ball. This prevents a trailing launch
+        // from clipping it sideways through the entrance rails.
+        if (a1.transferring) sawProtectedClassifierEntry = true;
+        else sawPhysicalClassifier = true;
       }
       const yIn = metersToInches(meters(a1.pose.p.y));
       const speedInPerSec = metersToInches(meters(Math.hypot(a1.vel.v.x, a1.vel.v.y)));
@@ -98,6 +100,7 @@ describe('classifier storage integration', () => {
     expect(sim.score.deltas.filter((delta) => delta.ruleId.includes('classified'))).toHaveLength(launches.length);
     expect(sawCapturedBasin).toBe(true);
     expect(sawProtectedFunnel).toBe(true);
+    expect(sawProtectedClassifierEntry).toBe(true);
     expect(sawPhysicalClassifier).toBe(true);
     expect(sim.world.snapshot().pieces.some((piece) => piece.heldByRobotId === null)).toBe(true);
     expect(sawRollingDownClassifier).toBe(true);

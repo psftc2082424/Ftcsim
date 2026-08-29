@@ -246,6 +246,13 @@ export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
   72,
 );
 
+/** Distance a shot ball rolls inside the classifier before contacts resume. */
+export const CLASSIFIER_CONTACT_ACTIVATION_DISTANCE_M = inferred(
+  inchesToMeters(ARTIFACT.specifiedDiameterIn.value),
+  'A protected accepted ARTIFACT travels one explicit ARTIFACT diameter past the GOAL/classifier throat before normal contacts resume. This keeps the narrow entrance clear without parking or repositioning the ball.',
+  72,
+);
+
 // ---------------------------------------------------------------- regions ---
 
 /**
@@ -416,6 +423,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       ),
       receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
+      contactActivationDistanceM: CLASSIFIER_CONTACT_ACTIVATION_DISTANCE_M.value,
       receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
       receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
       blocksInboundLane: true,

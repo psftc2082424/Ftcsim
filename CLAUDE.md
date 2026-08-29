@@ -1105,3 +1105,15 @@ shoot; then Phase 4 (PDF ingestion).
   OVERFLOW remains unaffected because it rides above the arm.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
   tests across 48 files**.
+
+### Latest handoff — 2026-08-28 (protected classifier entry)
+
+- **Accepted shots remain collision-isolated through the classifier throat.**
+  The generic guided-lane contact boundary holds contacts off for one explicit
+  ARTIFACT diameter after the ball boards the lane. The ball remains active and
+  guided, never parked or repositioned; normal ball and field collisions resume
+  only after it is fully within the single-file channel.
+- **Regression coverage:** `classifierPhysicalLane.test.ts` observes both the
+  protected entry state and the later physical classifier state for one shot.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
+  tests across 48 files**.

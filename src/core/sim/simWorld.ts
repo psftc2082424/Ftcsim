@@ -689,7 +689,7 @@ export class SimWorld {
     this.cachedSnapshot = null;
   }
 
-  /** End the protected GOAL funnel at the physical classifier-lane entrance. */
+  /** End a protected GOAL/lane transfer once the field mechanism says it is safe. */
   completePieceTransfer(pieceId: string): void {
     const piece = this.pieceNamed(pieceId);
     if (piece.parked || piece.carriedBy !== null) return;
