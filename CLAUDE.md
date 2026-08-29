@@ -1093,3 +1093,15 @@ shoot; then Phase 4 (PDF ingestion).
   classifier cruise values remain identical.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
   tests across 48 files**.
+
+### Latest handoff — 2026-08-28 (closed GATE air gap)
+
+- **A closed live GATE keeps every normal lane ARTIFACT fully clear.** The
+  generic clearance is now three ball radii upstream of the arm, leaving one
+  complete ball radius between the ball edge and the gate. A discrete-step
+  crossing of the exit is also ejected to that same position.
+- **GATE opening arms at the same envelope,** so an eligible robot opens the
+  path before its leading ball can touch the still-active collider. Elevated
+  OVERFLOW remains unaffected because it rides above the arm.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
+  tests across 48 files**.

@@ -246,6 +246,14 @@ interface ConveyorState {
 }
 
 /**
+ * Keep an ordinary lane ball one full radius clear of the live GATE arm in
+ * addition to its own radius. This is a semantic field-clearance boundary,
+ * not a DECODE coordinate: any round game piece is kept completely away from
+ * a closing gate instead of being allowed to touch and settle in its collider.
+ */
+const CLOSED_GATE_CLEARANCE_RADII = 3;
+
+/**
  * Runs every conveyor a game declares.
  *
  * Owned by the match simulation beside the possession tracker: both are stateful
@@ -770,7 +778,7 @@ export class PieceConveyors {
    * Whether the leading ordinary lane body has reached the physical GATE arm.
    *
    * This uses the body's own radius rather than a DECODE coordinate: once its
-   * centre is within two radii of the exit-side lane end, reopening the arm
+   * centre is within the closed-gate clearance envelope, reopening the arm
    * gives the still-physical body enough clearance to continue its normal
    * downslope motion. Overflow deliberately remains excluded because it rides
    * over the gate rather than pressing on it.
@@ -784,17 +792,20 @@ export class PieceConveyors {
     return state.queue.some((pieceId) => {
       const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
       if (piece === undefined || piece.heldByRobotId !== null) return false;
-      return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <= piece.radiusM * 2;
+      return Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y) <=
+        piece.radiusM * CLOSED_GATE_CLEARANCE_RADII;
     });
   }
 
   /**
    * Keep a closing gate from materialising through a normal lane ball.
    *
-   * The correction is the same minimal separation a contact solver would make:
-   * put the centre two radii back up the lane and stop it. The next ordinary
-   * lane guide/contact step owns all subsequent movement. Overflow is above the
-   * arm and is intentionally not included.
+   * The correction leaves a full ball-radius air gap after the ball's own
+   * radius: place its centre three radii upstream and stop it. That prevents
+   * even an edge from resting against the arm, so a gate can never close with a
+   * normal lane ball trapped in its collider. The next ordinary lane
+   * guide/contact step owns all subsequent movement. Overflow is above the arm
+   * and is intentionally not included.
    */
   private pushNormalLaneBallsOutOfClosingGate(
     spec: PieceConveyorSpec,
@@ -802,7 +813,7 @@ export class PieceConveyors {
     places: ConveyorPlaces,
     snapshot: WorldSnapshot,
     world: ConveyorWorld,
-    overlapRadii = 2,
+    clearanceRadii = CLOSED_GATE_CLEARANCE_RADII,
   ): void {
     const lane = spec.lane;
     if (lane === undefined) return;
@@ -815,15 +826,15 @@ export class PieceConveyors {
       if (piece === undefined || piece.heldByRobotId !== null) continue;
       const distance = Math.hypot(piece.pose.p.x - gateM.x, piece.pose.p.y - gateM.y);
       // On ordinary closed ticks, also recover a body that crossed the gate
-      // volume in one step. A closing transition uses the wider two-radius
-      // envelope; the routine continuous check stays narrow around the arm.
-      const crossedClosedGate = overlapRadii <= 1 && regionContains(places.exit, piece.pose.p, piece.heightM);
-      if (!crossedClosedGate && distance > piece.radiusM * overlapRadii) continue;
+      // volume in one step, even if that step carried its centre farther than
+      // the clearance envelope.
+      const crossedClosedGate = regionContains(places.exit, piece.pose.p, piece.heightM);
+      if (!crossedClosedGate && distance > piece.radiusM * clearanceRadii) continue;
       world.pushPieceOutOfGate(
         pieceId,
         vec2(
-          gateM.x - direction.x * piece.radiusM * 2,
-          gateM.y - direction.y * piece.radiusM * 2,
+          gateM.x - direction.x * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII,
+          gateM.y - direction.y * piece.radiusM * CLOSED_GATE_CLEARANCE_RADII,
         ),
       );
     }

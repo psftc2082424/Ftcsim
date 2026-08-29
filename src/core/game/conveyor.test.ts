@@ -412,7 +412,7 @@ describe('guided lane physics', () => {
     const cleared = world.pushedOut.get('a');
     expect(cleared).toBeDefined();
     expect(cleared?.x).toBeCloseTo(gateM.x);
-    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 2);
+    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
     expect(conveyors.isOpen('chute', world.snapshot(11))).toBe(false);
   });
@@ -431,7 +431,7 @@ describe('guided lane physics', () => {
 
     const cleared = world.pushedOut.get('a');
     expect(cleared).toBeDefined();
-    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 2);
+    expect(cleared?.y).toBeCloseTo(gateM.y + 0.06223 * 3);
     expect(world.colliderStates.get('chute-gate')).toBe(true);
   });
 

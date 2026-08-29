@@ -1791,6 +1791,16 @@ height-gated GOAL and protected-lane rejection path, so a robot cannot push one
 into the classifier. The membership detector and rules engine remain the only
 scoring path.
 
+### 10.20.1 Closed GATE clearance
+
+An ordinary classifier ARTIFACT is never allowed to rest against a closed live
+GATE. The generic conveyor keeps its centre three ball radii upstream of the
+gate plane: one radius for the ball itself and one additional full-radius gap.
+The same clearance arms an eligible GATE before a ball reaches the collider.
+This is an inferred discrete-simulation safety margin which prevents a contact
+from becoming a permanent arm overlap; it does not apply to elevated OVERFLOW,
+which travels above the GATE.
+
 ### 10.21 Single-file rail clearance and G416 launch-zone foul
 
 | | |
@@ -1989,6 +1999,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Reduced loose ARTIFACT rolling loss from 30 to 24 in/s² to increase general field rolling speed while retaining 65% robot-contact velocity retention. Retuned GATE outflow from 62 to 56 in/s, preserving roughly 65 in of SECRET TUNNEL coast. |
 | 2026-08-28 | Replaced the per-contact 65% robot-push velocity reduction with a `1.20×` active-robot speed cap. Ordinary robot pushes now retain momentum and coast after release; only excess solver-induced push speed is limited. |
 | 2026-08-28 | Tied GATE outflow to the governed `36 in/s` classifier-lane speed. A released ARTIFACT now continues at normal lane speed rather than receiving a separate return-speed burst. |
+| 2026-08-28 | Expanded generic closed-GATE clearance to three ARTIFACT radii. Normal lane balls are now held with a full-radius gap before the arm, and a closed-gate traversal is ejected even after a discrete-step crossing. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
