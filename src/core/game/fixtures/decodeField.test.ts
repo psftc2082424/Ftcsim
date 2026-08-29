@@ -17,7 +17,13 @@ import {
   DECODE_LAUNCH_ZONE_SHAPE,
   layoutFitsField,
 } from './decodeField.js';
-import { DECODE_REGIONS, DECODE_ZONES, spikeMarkIds } from './decode.js';
+import {
+  CLASSIFIER_LANE_MAX_SPEED_MPS,
+  DECODE_REGIONS,
+  DECODE_ZONES,
+  TUNNEL_EXIT_SPEED_MPS,
+  spikeMarkIds,
+} from './decode.js';
 import { CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 import {
   horizontalSeamYIn,
@@ -51,6 +57,12 @@ const supportOf = (zone: FieldZone, xIn: number, yIn: number): number =>
     vec2(inchesToMeters(xIn), inchesToMeters(yIn)),
     0,
   );
+
+describe('classifier and GATE preserve ARTIFACT roll speed', () => {
+  it('uses the governed classifier speed as the GATE exit speed', () => {
+    expect(TUNNEL_EXIT_SPEED_MPS.value).toBe(CLASSIFIER_LANE_MAX_SPEED_MPS.value);
+  });
+});
 
 /** Outlines are authored in inches; `createPolyZone` converts on the way in. */
 const spanOf = (vertices: readonly Vec2[], axis: 'x' | 'y'): { min: number; max: number } => {

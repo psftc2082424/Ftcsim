@@ -1080,3 +1080,16 @@ shoot; then Phase 4 (PDF ingestion).
   bounded and that a released pushed ball keeps rolling independently.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **988
   tests across 48 files**.
+
+### Latest handoff — 2026-08-28 (continuous classifier-to-tunnel rolling)
+
+- **GATE release no longer accelerates ARTIFACTs.** `TUNNEL_EXIT_SPEED_MPS` is
+  tied directly to the governed classifier cruise speed (`36 in/s`). A ball
+  crossing an open GATE therefore continues at the same rolling speed it had
+  in the classifier. The declared return passage is the same governed lane
+  continuation, counteracting floor rolling loss only while the ball is inside;
+  tunnel collisions still apply.
+- **Regression coverage:** `decodeField.test.ts` asserts the gate exit and
+  classifier cruise values remain identical.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
+  tests across 48 files**.

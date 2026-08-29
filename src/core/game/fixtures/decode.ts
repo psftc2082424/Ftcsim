@@ -144,22 +144,6 @@ export const RAMP_DRAIN_INTERVAL_SEC = inferred(
   72,
 );
 
-/**
- * Exit speed for a released ARTIFACT, m/s.
- *
- * The returned ARTIFACT has to coast from the GATE through the SECRET TUNNEL
- * to the human-player LOADING ZONE. With the documented 24 in/s² rolling
- * loss and the CAD-derived return length, 56 in/s has a 65 in stopping
- * distance, which carries it to that zone without a hidden conveyor force.
- * The manual supplies the tunnel geometry but no release speed, so this is
- * explicitly inferred rather than pretending this is a sourced fact.
- */
-export const TUNNEL_EXIT_SPEED_MPS = inferred(
-  inchesToMeters(56),
-  'Visible return momentum recalibrated with the 24 in/s² game-piece rolling loss, preserving a roughly 65 in coast through the CAD-derived SECRET TUNNEL; the manual specifies no release rate.',
-  72,
-);
-
 /** Time a pushed GATE stays open without a normal classifier ball passing it. */
 export const RAMP_GATE_OPEN_WINDOW_SEC = inferred(
   1,
@@ -178,6 +162,19 @@ export const CLASSIFIER_LANE_ACCELERATION_MPS2 = inferred(
 export const CLASSIFIER_LANE_MAX_SPEED_MPS = inferred(
   inchesToMeters(36),
   'Requested gameplay calibration: 36 in/s visibly shortens classifier travel without allowing an unbounded lane acceleration or bypassing the live GATE.',
+  72,
+);
+
+/**
+ * Exit speed for a released ARTIFACT, m/s.
+ *
+ * A GATE only removes the physical barrier; it must not add a second velocity
+ * burst. Keeping this tied to the governed classifier speed makes a released
+ * ball continue rolling at the same observable speed it had in the lane.
+ */
+export const TUNNEL_EXIT_SPEED_MPS = inferred(
+  CLASSIFIER_LANE_MAX_SPEED_MPS.value,
+  'Matches the declared 36 in/s classifier cruise speed so opening the GATE preserves normal rolling momentum instead of adding a separate return launch; the manual specifies no release rate.',
   72,
 );
 

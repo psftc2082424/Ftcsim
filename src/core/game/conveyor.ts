@@ -734,6 +734,22 @@ export class PieceConveyors {
 
     for (const pieceId of state.queue) guide(pieceId, false);
     for (const pieceId of state.overflow) guide(pieceId, true);
+
+    // The exit is the continuation of the same physical lane, not a second
+    // launcher. Keep a released body at the lane's governed roll speed while
+    // it remains inside the declared return passage. This counters only the
+    // ordinary floor rolling loss; the ball stays active and still collides
+    // with tunnel walls and other balls.
+    for (const pieceId of state.released) {
+      const piece = snapshot.pieces.find((candidate) => candidate.pieceId === pieceId);
+      if (piece === undefined || !regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      const alongSpeed = piece.vel.v.x * direction.x + piece.vel.v.y * direction.y;
+      const acceleration = alongSpeed < lane.maxDriveSpeedMps ? lane.driveAccelerationMps2 : 0;
+      world.guidePiece(
+        pieceId,
+        vec2(direction.x * acceleration, direction.y * acceleration),
+      );
+    }
   }
 
   private releaseHeld(spec: PieceConveyorSpec, snapshot: WorldSnapshot): boolean {

@@ -1763,7 +1763,7 @@ storage never awards score directly.
 
 | | |
 |---|---|
-| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; `120 in/s²` guide; governed `36 in/s` lane speed; `56 in/s` gate outflow |
+| **Values** | classifier intake `y = 54 in`; `8 in/s` initial downhill speed; `120 in/s²` guide; governed `36 in/s` lane speed and gate outflow |
 | **Confidence** | **INFERRED** top-down projection from dSim/CAD-observed GOAL arch plus requested gameplay calibration; ARTIFACT diameter and RAMP capacity remain **EXPLICIT** |
 | **Location** | `src/core/game/conveyor.ts`, `src/core/game/fixtures/decode.ts`, `src/core/sim/simWorld.ts` |
 
@@ -1778,9 +1778,12 @@ From that intake onward, the ARTIFACT is an active, collidable body. The lane's
 bounded downhill guide and the existing ball contacts carry it to the live
 GATE; a closed gate retains it and other arriving ARTIFACTS pack normally. At
 the moment a ball physically crosses into the return zone, the GATE applies its
-declared `56 in/s` outflow velocity **without changing its position**. The ball
+same declared `36 in/s` lane speed **without changing its position**. The ball
 then rolls through the SECRET TUNNEL under normal rolling loss, restitution and
-field collision. No direct classifier exit placement is permitted.
+field collision. The return passage continues the same governed lane guidance
+while the ball remains inside it, counteracting only floor rolling loss rather
+than adding a separate GATE launch. No direct classifier exit placement is
+permitted.
 
 The tenth accepted piece follows the declared elevated overflow lane rather
 than becoming a fixed tenth slot. Unaccepted ground pieces retain the existing
@@ -1985,6 +1988,7 @@ ordinary ball state; it is not a drivetrain or generic robot-collision change.
 | 2026-08-28 | Increased loose ARTIFACT rolling loss to 30 in/s² and retain 65% of a ball's velocity after robot contact, while raising GATE outflow to 62 in/s to preserve SECRET TUNNEL return distance. A closed live GATE now also clears any lane ball that later intrudes into its arm. |
 | 2026-08-28 | Reduced loose ARTIFACT rolling loss from 30 to 24 in/s² to increase general field rolling speed while retaining 65% robot-contact velocity retention. Retuned GATE outflow from 62 to 56 in/s, preserving roughly 65 in of SECRET TUNNEL coast. |
 | 2026-08-28 | Replaced the per-contact 65% robot-push velocity reduction with a `1.20×` active-robot speed cap. Ordinary robot pushes now retain momentum and coast after release; only excess solver-induced push speed is limited. |
+| 2026-08-28 | Tied GATE outflow to the governed `36 in/s` classifier-lane speed. A released ARTIFACT now continues at normal lane speed rather than receiving a separate return-speed burst. |
 | 2026-08-28 | Increased the declared classifier guide from 80 to 120 in/s² and its governed lane speed from 22 to 36 in/s at the user's request, so accepted ARTIFACTs roll down the visible classifier faster while the live GATE still controls their release. |
 | 2026-08-28 | Made declared SECRET TUNNEL exits truly one-way from every public edge, removed the non-CAD short GOAL-throat snag panel, and restored DECODE tape/material presentation in normal Play while retaining debug-only geometry diagnostics. |
 | 2026-08-27 | Replaced collider-thickness and rule-region-driven DECODE drawing with two mirrored canonical STEP-CAD assembly projections. Every fixture collider derives from its matching assembly part, while normal Play hides regions/diagnostics behind Debug field geometry. |
