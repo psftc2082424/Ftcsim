@@ -425,10 +425,9 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
     queueRegionId: alliance === 'red' ? DECODE_REGIONS.redRamp : DECODE_REGIONS.blueRamp,
     capacity: RAMP_SLOT_COUNT.value,
     gateColliderTag: `${alliance}-classifier-gate`,
-    // The physical arm retracts when a GATE opens.  The conveyor's existing
-    // gate-envelope guard remains active for unauthorised ground-level balls,
-    // so this is a one-way raised-platform exit rather than a two-way hole.
-    blocksInboundExit: true,
+    // The physical arm retracts when a GATE opens. A separate low static
+    // threshold in the canonical assembly blocks ordinary ground-level balls,
+    // so DECODE never uses the conveyor's coordinate-correction guard here.
     // G417: a ROBOT may not contact the opposing ALLIANCE'S GATE, so only the
     // owner opens it. The GATE is "a ROBOT-activated, push to open mechanism"
     // (§9.8.3) and the GATE ZONE is the 2.75 in strip "adjacent to each GATE"
@@ -473,6 +472,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       overflowHeightM: CLASSIFIER_OVERFLOW_HEIGHT_M.value,
       overflowHeightRateMps: inchesToMeters(30),
       entryVelocityRetention: 0.05,
+      requiresTransferForEntry: true,
     },
     // Every SECRET TUNNEL runs the same way regardless of which side of the
     // field it is mirrored to: audience-side tiles are the lower seam numbers

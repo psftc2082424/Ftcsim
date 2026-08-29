@@ -32,6 +32,8 @@ const CLASSIFIER_ARCH_CENTRE_Y_IN = 57;
 const CLASSIFIER_ARCH_OPENING_LENGTH_IN = 14;
 const CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN = 10;
 const CLASSIFIER_GATE_BLOCKING_TOP_IN = CLASSIFIER_RAIL_BALL_CENTRE_HEIGHT_IN + 2.5;
+/** Raised classifier balls clear this low threshold; ground balls cannot. */
+const GATE_GROUND_GUARD_TOP_IN = 6.5;
 /**
  * Ground-level Goal Archway blocker. Its top is deliberately below the
  * 10-in classifier-ball surface minus an ARTIFACT radius, so a contained
@@ -226,6 +228,19 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
         collider: collider(bodyIds[7]!, 0, Math.max(CLASSIFIER.gateClosedMaxHeightIn.value, CLASSIFIER_GATE_BLOCKING_TOP_IN), `${alliance}-classifier-gate`),
         semanticIds: [`${alliance}-gate-zone`],
       },
+      // The GATE arm itself retracts. The raised ramp still has a low physical
+      // threshold at its mouth, so an ordinary floor ball cannot enter the
+      // classifier when that arm is open. This is a real collision body, not
+      // a coordinate rollback: its top stays below an elevated classifier
+      // ARTIFACT's bottom, while it blocks a ground-level ARTIFACT or robot.
+      {
+        id: `${goalPrefix}-gate-ground-guard`,
+        geometry: obb(channel + wall, 1, channelCentreX, 0.5),
+        material: 'metal',
+        elevation: { bottom: 0, top: inchesToMeters(GATE_GROUND_GUARD_TOP_IN) },
+        collider: collider(bodyIds[9]!, 0, GATE_GROUND_GUARD_TOP_IN),
+        semanticIds: [`${alliance}-gate-zone`],
+      },
       // The SECRET TUNNEL is tape on the field, not a solid corridor.  It is
       // still part of the one visual assembly and carries the semantic route.
       {
@@ -249,7 +264,8 @@ function goalClassifierAssembly(alliance: DecodeAssemblyAlliance, bodyIds: reado
 /**
  * Build both mirrored STEP-CAD assembly projections.  IDs deliberately match
  * the historic collision fixture (2100–2113) and append the two archway
- * guards (2114–2115) and two full-front low guards (2116–2117), so save/replay determinism and
+ * guards (2114–2115), two full-front low guards (2116–2117), and two low
+ * GATE thresholds (2118–2119), so save/replay determinism and
  * existing field-mechanism tags remain stable through this presentation pass.
  */
 export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BASE): readonly FieldAssembly[] {
@@ -267,6 +283,7 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 14,
       firstBodyId + 12,
       firstBodyId + 16,
+      firstBodyId + 18,
     ]),
     goalClassifierAssembly('blue', [
       firstBodyId + 3,
@@ -278,6 +295,7 @@ export function createDecodeAssemblies(firstBodyId = DECODE_ASSEMBLY_BODY_ID_BAS
       firstBodyId + 15,
       firstBodyId + 13,
       firstBodyId + 17,
+      firstBodyId + 19,
     ]),
   ];
 }

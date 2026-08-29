@@ -198,6 +198,8 @@ export interface GuidedLaneSpec {
   readonly overflowHeightRateMps: number;
   /** Fraction of incoming horizontal speed the lane's basin retains on entry. */
   readonly entryVelocityRetention: number;
+  /** Require an explicit in-flight transfer before this raised lane can admit a body. */
+  readonly requiresTransferForEntry?: boolean | undefined;
 }
 
 /** The narrow slice of the world a conveyor writes to. */
@@ -457,6 +459,12 @@ export class PieceConveyors {
       // A piece a robot is carrying is not arriving anywhere on its own.
       if (piece.heldByRobotId !== null) continue;
       if (!regionContains(places.entry, piece.pose.p, piece.heightM)) continue;
+      // A raised receiving lane is not a general-purpose spatial trigger.
+      // It may capture only the explicit, in-flight GOAL transfer created by
+      // a legitimate mechanism action. This keeps an arbitrary loose body
+      // from becoming classifier-authorised merely by overlapping the same
+      // top-down entry footprint at a matching height.
+      if (spec.lane?.requiresTransferForEntry === true && piece.transferring !== true) continue;
 
       state.taken.add(piece.pieceId);
 

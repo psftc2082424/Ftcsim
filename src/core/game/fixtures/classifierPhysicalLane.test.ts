@@ -156,6 +156,56 @@ describe('classifier storage integration', () => {
     expect(sim.score.red).toBe(0);
   });
 
+  it('keeps a loose ball physically outside an open raised GATE without a pose snap', () => {
+    const gate = centreOf(DECODE_ZONES.redGateZone);
+    const lane = centreOf(DECODE_REGIONS.redRamp);
+    const sim = simulationFromDefinition(DECODE_GAME, {
+      field: createDecodeField(),
+      robots: [{
+        config: DEFAULT_ROBOT_CONFIG,
+        alliance: 'red',
+        controller: constantController(NEUTRAL_INPUT),
+        // Touch the release tape from its field side rather than spawning the
+        // robot through the physical gate mouth.
+        startPose: { p: vec2(inchesToMeters(gate[0] - 4.5), inchesToMeters(gate[1])), theta: 0 },
+      }],
+      pieces: [{
+        pieceId: 'pushed-loose',
+        pieceType: 'P',
+        diameterIn: ARTIFACT.specifiedDiameterIn.value,
+        massLb: 0.3,
+        startPositionM: vec2(inchesToMeters(lane[0]), inchesToMeters(-12)),
+      }],
+    });
+
+    // This is the same inbound motion a robot push supplies, isolated from
+    // drivetrain tuning: a normal floor ball travels toward the open mouth.
+    sim.world.releasePieceMoving('pushed-loose', vec2(inchesToMeters(lane[0]), inchesToMeters(-12)), vec2(0, inchesToMeters(48)));
+
+    let previousY: number = inchesToMeters(-12);
+    let largestStepM = 0;
+    let furthestInM: number = previousY;
+    for (let tick = 0; tick < 150; tick++) {
+      sim.step();
+      const piece = sim.world.snapshot().pieces.find((candidate) => candidate.pieceId === 'pushed-loose');
+      if (piece === undefined) throw new Error('loose artifact missing');
+      largestStepM = Math.max(largestStepM, Math.abs(piece.pose.p.y - previousY));
+      previousY = piece.pose.p.y;
+      furthestInM = Math.max(furthestInM, piece.pose.p.y);
+      expect(piece.transferring).toBe(false);
+      expect(piece.heightM).toBeCloseTo(piece.radiusM, 12);
+    }
+
+    expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
+    expect(sim.conveyors.queued('red-classifier')).toEqual([]);
+    expect(sim.conveyors.inBasin('red-classifier')).toEqual([]);
+    // The low physical threshold is at y=0.5 in. The ball never reaches the
+    // elevated classifier side of that plane, and no step may resemble the
+    // old coordinate rollback into the lane or human-player return.
+    expect(furthestInM).toBeLessThan(inchesToMeters(0));
+    expect(largestStepM).toBeLessThan(inchesToMeters(1));
+  });
+
   it('keeps an open GATE one-way at the field-facing SECRET TUNNEL edge', () => {
     const gate = centreOf(DECODE_ZONES.redGateZone);
     const tunnel = DECODE_FIELD_ZONES.find((zone) => zone.id === DECODE_ZONES.blueSecretTunnel);

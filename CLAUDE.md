@@ -1173,12 +1173,12 @@ shoot; then Phase 4 (PDF ingestion).
 ### Current next task
 
 Manually playtest the GATE from the browser with a full physical classifier
-batch: verify its leading elevated ARTIFACT rolls through an open GATE, drops
-onto the return/tunnel surface only after clearing the arm, and that a loose
-ground ARTIFACT pushed from the SECRET TUNNEL stops at the arm without a
-coordinate jump. Preserve the guided physical classifier and drivetrain; do
-not reintroduce coordinate-based inbound rejection, upstream reclaim, parked
-slots, or a reverse tunnel entrance.
+batch: verify its leading elevated ARTIFACT rolls through an open GATE and
+drops onto the return/tunnel surface only after clearing the arm. Then push a
+loose ground ARTIFACT from the SECRET TUNNEL toward the open mouth: it must
+stop at the low physical threshold with continuous contact motion. Preserve the
+guided physical classifier and drivetrain; do not reintroduce coordinate-based
+inbound rejection, upstream reclaim, parked slots, or a reverse tunnel entrance.
 
 ### Latest handoff — 2026-08-29 (physical open-GATE drain)
 
@@ -1192,15 +1192,34 @@ slots, or a reverse tunnel entrance.
   exit under its own downhill acceleration, and only then lets the existing
   exit logic mark it released and continue its return velocity. No ball is
   dequeued, repositioned, or teleported at the arm.
-- **One-way access is preserved:** DECODE enables the existing compact
-  `blocksInboundExit` gate-envelope guard. It blocks loose ground balls at the
-  open or closed arm without making the authorised elevated outbound route a
-  two-way doorway. The released ball descends to the return surface only after
-  it has cleared the arm.
+- **Superseded in the next handoff:** this release's `blocksInboundExit`
+  coordinate guard was removed for DECODE after it was shown to roll a loose
+  field ball back to a cached pose. Do not restore it for this field.
 - **Regression coverage:** `decodeMatch.test.ts` now proves one real shot
   physically crosses an open GATE exit and three actual shots exit in arrival
   order. `conveyor.test.ts` proves the retracted collider leaves the lane's
   downhill guide active. Existing nine-ball packing, overflow, reverse-entry,
   and single-score regressions remain green.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **995
+  tests across 48 files**.
+
+### Latest handoff — 2026-08-29 (non-teleporting raised GATE boundary)
+
+- **Teleport root cause:** DECODE opted into generic `blocksInboundExit`.
+  `PieceConveyors.blockInboundExit()` called `SimWorld.blockPiece()` for an
+  unauthorised loose ball; that method replaces its position with a cached
+  public-side pose. That is a coordinate rollback, not collision response.
+- **Fix:** the DECODE canonical field assembly now has a `0–6.5 in` low GATE
+  threshold with the same physical mouth footprint as the retractable arm.
+  It remains a regular static collider while the full arm retracts. Ground
+  balls and robots are physically blocked; elevated classifier balls clear it
+  and drain through the open arm. DECODE no longer enables `blocksInboundExit`.
+- **Admission hardening:** a guided lane requires an active `transferring`
+  flag before it may take a ball. Only a valid GOAL shot obtains this flag;
+  plan-view overlap can never add a loose ball to the basin, queue, or overflow.
+- **Regression coverage:** `classifierPhysicalLane.test.ts` now drives a loose
+  `48 in/s` ground ball into an open GATE, verifies continuous positions,
+  ground height, and zero classifier membership. Existing real-shot exit and
+  three-ball ordered-drain tests remain the outbound proof.
+- **Verification:** `npm run verify` passed: TypeScript, ESLint, and **996
   tests across 48 files**.
