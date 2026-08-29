@@ -563,18 +563,21 @@ export class PieceConveyors {
       // authorised users of this elevated path. Every other floor ball is an
       // intruder, including one a robot pushes against an open gate arm.
       if (piece.heldByRobotId !== null || state.released.has(piece.pieceId) || state.taken.has(piece.pieceId)) continue;
-      // This semantic boundary deliberately remains active even when the
-      // physical arm is closed. The collider stops motion, while the boundary
-      // rejects a discrete-step or robot-push overlap from every part of the
-      // gate and return assembly before it can become classifier access.
-      const insideReturnPassage = regionContains(places.exit, piece.pose.p, piece.heightM);
-      const insideGateEnvelope = inGateEnvelope(spec, places, piece.pose.p, piece.radiusM);
-      if (!insideReturnPassage && !insideGateEnvelope) continue;
-      // A one-way exit must never choose the gate-side edge as its correction:
-      // that would put an intruder directly beside the open arm and let a
-      // robot push it backwards into the classifier. Always eject down the
-      // declared flow direction, beyond the entire return passage instead.
-      world.blockPiece(piece.pieceId, beyondExitOutflow(spec, places, piece.radiusM));
+      // A live lane has a physical GATE at its upstream end. Keep a loose
+      // ball on that gate's public side rather than relocating it down the
+      // whole return/tunnel path. It remains a normal field ball and can roll
+      // away, but cannot cross the arm into the classifier while open or
+      // closed.
+      if (spec.lane !== undefined) {
+        if (!inGateEnvelope(spec, places, piece.pose.p, piece.radiusM)) continue;
+        world.blockPiece(piece.pieceId, publicSideOfGate(spec, places, piece.radiusM));
+        continue;
+      }
+      // Generic one-way exits have no separate arm geometry. Preserve their
+      // existing full-passage rejection behavior for seasons that declare a
+      // chute without a live GATE.
+      if (!regionContains(places.exit, piece.pose.p, piece.heightM)) continue;
+      world.blockPiece(piece.pieceId, outsideNearestBoundary(places.exit, piece.pose.p, piece.radiusM));
     }
   }
 
@@ -1023,12 +1026,18 @@ function inGateEnvelope(spec: PieceConveyorSpec, places: ConveyorPlaces, positio
     Math.hypot(fromGateX, fromGateY) <= clearanceM;
 }
 
-/** Put an unauthorised ball beyond the public, downstream end of a one-way exit. */
-function beyondExitOutflow(spec: PieceConveyorSpec, places: ConveyorPlaces, radiusM: number): Vec2 {
+/**
+ * Keep an unauthorised ball just beyond the GATE's public side.
+ *
+ * This is a local hard stop, not an ejection through the SECRET TUNNEL: the
+ * ball stays in ordinary field play immediately downstream of the arm and is
+ * free to roll away after the invalid inward transition is rejected.
+ */
+function publicSideOfGate(spec: PieceConveyorSpec, places: ConveyorPlaces, radiusM: number): Vec2 {
   const outflow = exitOutflowDirection(spec, places);
-  const farEnd = farEndOf(places.exit, places.queue.centerM);
-  const clearanceM = Math.max(0, radiusM) * INBOUND_EXIT_CLEARANCE_RADII + 1e-6;
-  return vec2(farEnd.x + outflow.x * clearanceM, farEnd.y + outflow.y * clearanceM);
+  const gateM = nearEndOf(places.exit, places.queue.centerM);
+  const clearanceM = Math.max(0, radiusM) * GATE_INBOUND_GUARD_RADII + 1e-6;
+  return vec2(gateM.x + outflow.x * clearanceM, gateM.y + outflow.y * clearanceM);
 }
 
 function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {

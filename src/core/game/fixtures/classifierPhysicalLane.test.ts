@@ -159,6 +159,7 @@ describe('classifier storage integration', () => {
     const minX = Math.min(...tunnel.shape.vertices.map((vertex) => vertex.x));
     const maxX = Math.max(...tunnel.shape.vertices.map((vertex) => vertex.x));
     const downstreamY = Math.min(...tunnel.shape.vertices.map((vertex) => vertex.y));
+    const gateSideY = Math.max(...tunnel.shape.vertices.map((vertex) => vertex.y));
     const fieldFacingX = Math.abs(minX) < Math.abs(maxX) ? minX : maxX;
     const fieldDirection = Math.sign(fieldFacingX);
 
@@ -185,9 +186,10 @@ describe('classifier storage integration', () => {
     const intruder = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'intruder');
     if (intruder === undefined) throw new Error('intruder missing');
     expect(sim.conveyors.isOpen('red-classifier', sim.world.snapshot())).toBe(true);
-    // It is ejected beyond the downstream tunnel exit rather than being put
-    // near the GATE-side edge where a robot could push it backwards.
-    expect(intruder.pose.p.y).toBeLessThan(downstreamY - intruder.radiusM * 2);
+    // It is held locally on the public side of the GATE—not teleported to the
+    // human-player end of the SECRET TUNNEL—and cannot reverse into the lane.
+    expect(intruder.pose.p.y).toBeLessThan(gateSideY - intruder.radiusM * 2);
+    expect(intruder.pose.p.y).toBeGreaterThan(downstreamY + intruder.radiusM * 2);
     expect(sim.score.red).toBe(0);
   });
 });

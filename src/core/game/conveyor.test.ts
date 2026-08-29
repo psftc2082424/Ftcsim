@@ -558,10 +558,10 @@ describe('guided lane physics', () => {
     });
   });
 
-  it('still rejects a piece rolling backward into a one-way lane exit', () => {
+  it('rejects a piece rolling backward into a live gate from its public side', () => {
     const oneWayLane: PieceConveyorSpec = { ...GUIDED_SPEC, blocksInboundExit: true };
-    const publicMouth = farEndOf(EXIT, QUEUE.centerM);
-    const positions = new Map([['intruder', publicMouth]]);
+    const gateM = nearEndOf(EXIT, QUEUE.centerM);
+    const positions = new Map([['intruder', vec2(gateM.x, gateM.y - inchesToMeters(1))]]);
     const world = new FakeWorld(positions);
     const conveyors = new PieceConveyors([oneWayLane], places(oneWayLane), DT);
 
@@ -723,7 +723,7 @@ describe('letting pieces out', () => {
 });
 
 describe('one-way exits', () => {
-  it('ejects a loose piece beyond the downstream end from every public edge of a one-way exit', () => {
+  it('rejects a loose piece from every public edge of a declared one-way exit', () => {
     const oneWay: PieceConveyorSpec = { ...SPEC, blocksInboundExit: true };
     const publicMouth = farEndOf(EXIT, QUEUE.centerM);
     const positions = new Map([['intruder', publicMouth]]);
@@ -736,8 +736,8 @@ describe('one-way exits', () => {
     conveyors.update(snapshot, 0, world);
 
     expect(world.blocked.get('intruder')).toBeDefined();
-    // An unauthorised ball is ejected past the downstream exit; it never gets
-    // placed at the gate-side edge where it could be pushed backward.
+    // An unauthorised ball is stopped one whole radius beyond its own edge;
+    // it never gets close enough to use a one-way opening.
     expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
 
     // A ball pushed through the long field-facing wall is blocked too. This
@@ -745,8 +745,8 @@ describe('one-way exits', () => {
     const sideIntruder = new FakeWorld(new Map([['side', vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y)]]));
     conveyors.update(sideIntruder.snapshot(1), 1, sideIntruder);
     expect(sideIntruder.blocked.get('side')).toBeDefined();
-    expect(sideIntruder.blocked.get('side')?.y ?? Infinity)
-      .toBeLessThan(publicMouth.y - 0.06223 * 2);
+    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity)
+      .toBeGreaterThan(EXIT.centerM.x + inchesToMeters(4) + 0.06223 * 2);
   });
 
   it('guards the complete open-gate envelope, not only the tunnel rectangle', () => {
@@ -759,9 +759,10 @@ describe('one-way exits', () => {
 
     conveyors.update(world.snapshot(0), 0, world);
 
-    const publicMouth = farEndOf(LANE_EXIT, LANE_QUEUE.centerM);
     expect(conveyors.isOpen('chute', world.snapshot(1))).toBe(true);
-    expect(world.blocked.get('intruder')?.y ?? Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
+    // The local gate boundary holds it just outside the arm rather than
+    // relocating it through the entire return path.
+    expect(world.blocked.get('intruder')?.y).toBeCloseTo(gateM.y - 0.06223 * 3);
   });
 
   it('does not block a piece the conveyor itself released', () => {
