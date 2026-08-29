@@ -248,8 +248,20 @@ export const CLASSIFIER_BASIN_HANDOFF_DISTANCE_M = inferred(
 
 /** Distance a shot ball rolls inside the classifier before contacts resume. */
 export const CLASSIFIER_CONTACT_ACTIVATION_DISTANCE_M = inferred(
-  inchesToMeters(ARTIFACT.specifiedDiameterIn.value),
-  'A protected accepted ARTIFACT travels one explicit ARTIFACT diameter past the GOAL/classifier throat before normal contacts resume. This keeps the narrow entrance clear without parking or repositioning the ball.',
+  inchesToMeters(12),
+  'A protected accepted ARTIFACT travels 12 in down the single-file classifier before normal contacts resume. This serialises GOAL arrivals through the narrow entry without parking or repositioning the ball.',
+  72,
+);
+
+/**
+ * Empty distance required at the classifier throat before the next GOAL ball
+ * may board. This is intentionally independent of collision protection: the
+ * throat needs only one ball plus a little running space, while the preceding
+ * ball stays protected farther down the rail.
+ */
+export const CLASSIFIER_BASIN_ENTRY_CLEARANCE_M = inferred(
+  inchesToMeters(6),
+  'A 6 in throat clearance keeps successive accepted ARTIFACTS visibly single-file without making a later GOAL arrival wait for the entire protected 12 in entry run.',
   72,
 );
 
@@ -424,6 +436,7 @@ export const DECODE_CONVEYORS: readonly PieceConveyorSpec[] = (['red', 'blue'] a
       receivingBasinHeightM: CLASSIFIER_BASIN_HEIGHT_M.value,
       receivingBasinHandoffDistanceM: CLASSIFIER_BASIN_HANDOFF_DISTANCE_M.value,
       contactActivationDistanceM: CLASSIFIER_CONTACT_ACTIVATION_DISTANCE_M.value,
+      receivingBasinEntryClearanceM: CLASSIFIER_BASIN_ENTRY_CLEARANCE_M.value,
       receivingBasinAccelerationMps2: GOAL_BASIN_FUNNEL_ACCELERATION_MPS2.value,
       receivingBasinVelocityDampingPerSec: CLASSIFIER_BASIN_DAMPING_PER_SEC.value,
       blocksInboundLane: true,

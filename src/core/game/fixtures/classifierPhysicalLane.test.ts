@@ -75,9 +75,9 @@ describe('classifier storage integration', () => {
         sawProtectedFunnel = true;
       }
       if (sim.conveyors.queued('red-classifier').includes('a1')) {
-        // The protected shot must clear the narrow throat before it becomes a
-        // normal colliding classifier ball. This prevents a trailing launch
-        // from clipping it sideways through the entrance rails.
+        // The protected shot must clear the ordered entry run before it
+        // becomes a normal colliding classifier ball. This prevents a trailing
+        // launch from clipping it sideways through the entrance rails.
         if (a1.transferring) sawProtectedClassifierEntry = true;
         else sawPhysicalClassifier = true;
       }

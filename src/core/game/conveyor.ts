@@ -259,6 +259,9 @@ interface ConveyorState {
  */
 const CLOSED_GATE_CLEARANCE_RADII = 3;
 
+/** Keep an unauthorised ball a full radius outside a protected exit opening. */
+const INBOUND_EXIT_CLEARANCE_RADII = 2;
+
 /**
  * Runs every conveyor a game declares.
  *
@@ -567,9 +570,9 @@ export class PieceConveyors {
     if (spec.lane?.blocksInboundLane !== true) return;
     for (const piece of snapshot.pieces) {
       // The top-down lane footprint can overlap the incoming path of a
-      // legitimate high shot. Its `transferring` state ends at the normal GOAL
-      // membership boundary; only after that point can it be admitted or
-      // rejected as an ordinary physical ball.
+      // legitimate high shot. Its `transferring` state remains active until
+      // the ball has cleared the configured lane throat; only then can it be
+      // admitted or rejected as an ordinary physical ball.
       if (piece.heldByRobotId !== null || piece.transferring === true || state.taken.has(piece.pieceId)) continue;
       if (!regionContains(places.queue, piece.pose.p, piece.heightM)) continue;
       world.blockPiece(piece.pieceId, outsideNearestBoundary(places.queue, piece.pose.p, piece.radiusM));
@@ -958,7 +961,10 @@ function contactsMayResume(
 }
 
 function outsideNearestBoundary(place: Shaped, positionM: Vec2, radiusM: number): Vec2 {
-  const clearanceM = Math.max(0, radiusM) + 1e-6;
+  // The first radius places the ball's edge outside the opening; the second
+  // leaves a full-radius air gap so an open gate is still a hard stop for an
+  // unauthorised ball rather than a correction after it has reached the arm.
+  const clearanceM = Math.max(0, radiusM) * INBOUND_EXIT_CLEARANCE_RADII + 1e-6;
   if (place.shape.kind === 'circle') {
     const dx = positionM.x - place.centerM.x;
     const dy = positionM.y - place.centerM.y;

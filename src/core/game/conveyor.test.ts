@@ -708,14 +708,17 @@ describe('one-way exits', () => {
     conveyors.update(snapshot, 0, world);
 
     expect(world.blocked.get('intruder')).toBeDefined();
-    expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y);
+    // An unauthorised ball is stopped one whole radius beyond its own edge;
+    // it never gets close enough to touch an open GATE passage.
+    expect(world.blocked.get('intruder')?.y ?? -Infinity).toBeLessThan(publicMouth.y - 0.06223 * 2);
 
     // A ball pushed through the long field-facing wall is blocked too. This
     // is the path a velocity-only check missed when a live gate was open.
     const sideIntruder = new FakeWorld(new Map([['side', vec2(EXIT.centerM.x + inchesToMeters(1), EXIT.centerM.y)]]));
     conveyors.update(sideIntruder.snapshot(1), 1, sideIntruder);
     expect(sideIntruder.blocked.get('side')).toBeDefined();
-    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity).toBeGreaterThan(EXIT.centerM.x);
+    expect(sideIntruder.blocked.get('side')?.x ?? -Infinity)
+      .toBeGreaterThan(EXIT.centerM.x + inchesToMeters(4) + 0.06223 * 2);
   });
 
   it('does not block a piece the conveyor itself released', () => {

@@ -1117,3 +1117,18 @@ shoot; then Phase 4 (PDF ingestion).
   protected entry state and the later physical classifier state for one shot.
 - **Verification:** `npm run verify` passed: TypeScript, ESLint, and **989
   tests across 48 files**.
+
+### Latest handoff — 2026-08-28 (ordered classifier admission and hard open GATE)
+
+- **GOAL arrivals now enter the classifier in order.** Each accepted shot stays
+  centered and collision-protected for the first `12 in` of the one-ball-wide
+  lane. A separate `6 in` throat-clearance rule admits the next basin ball
+  without making it wait for the whole protected run; contacts then resume for
+  ordinary physical packing at the lower classifier.
+- **An open GATE remains a hard stop for unauthorised balls.** The generic
+  one-way exit guard now places an inbound loose ball a full radius beyond the
+  opening, while authorised classifier releases still pass normally.
+- **Verification:** focused conveyor/lane tests and `npm run verify` pass:
+  TypeScript, ESLint, and **989 tests across 48 files**. The DECODE regression
+  explicitly proves nine real shots pack in the closed classifier and the
+  tenth takes overflow.
