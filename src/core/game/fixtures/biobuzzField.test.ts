@@ -186,6 +186,53 @@ describe('BIOBUZZ field containment', () => {
     }
   });
 
+  it('lets a robot drive straight through the middle of the HIVE structure', () => {
+    // The HIVE's own CELLs float well above ROBOT height, and only the
+    // Frame's four corner legs touch the floor (`biobuzzAssemblies.ts`), so a
+    // ROBOT parked at the field centre — squarely inside the Frame's
+    // footprint, between the red and blue HIVEs — must not be in collision
+    // with anything, and must be free to drive out the far side.
+    const sim = simulationFromDefinition(BIOBUZZ_GAME, {
+      robots: [
+        {
+          config: entry().defaultRobotConfig,
+          controller: new NeutralController(),
+          alliance: 'red',
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      pieces: stageBiobuzzPieces(),
+      field: createBiobuzzField(),
+    });
+
+    for (let tick = 0; tick < 50; tick++) sim.step();
+    const settled = sim.world.snapshot().robots[0]!;
+    // A robot wedged against a leg would have been shoved off-centre by the
+    // collision resolver; sitting quietly is proof the middle is clear.
+    expect(Math.abs(inOf(settled.pose.p.x))).toBeLessThan(1);
+    expect(Math.abs(inOf(settled.pose.p.y))).toBeLessThan(1);
+
+    const controller = new LatchedController();
+    const crossing = simulationFromDefinition(BIOBUZZ_GAME, {
+      robots: [
+        {
+          config: entry().defaultRobotConfig,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      pieces: stageBiobuzzPieces(),
+      field: createBiobuzzField(),
+    });
+    controller.set({ drive: { x: 1, y: 0, turn: 0 }, buttons: {}, axes: {} });
+    for (let tick = 0; tick < 400; tick++) crossing.step();
+
+    // Drove clean across the whole HIVE footprint (49.46 in wide) to the far
+    // side, not stopped partway by a leg or basket in its path.
+    expect(inOf(crossing.world.snapshot().robots[0]!.pose.p.x)).toBeGreaterThan(30);
+  });
+
   it('leaves no staged piece outside the FIELD once the world settles', () => {
     // The FLOWER posts used to sit on top of their own staged POLLEN and eject
     // them through the perimeter (see `biobuzzCollision.ts`).

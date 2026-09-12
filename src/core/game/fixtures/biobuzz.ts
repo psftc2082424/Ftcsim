@@ -48,14 +48,14 @@ import type {
 import type { TippingStructureSpec } from '../tipper.js';
 import type { ReserveFeedSpec } from '../reserveFeed.js';
 import type { ElevatedRegionSpec } from '../elevatedRegion.js';
-import { inchesToMeters, poundsToKilograms } from '../../units/convert.js';
+import { gramsToPounds, inchesToMeters, poundsToKilograms } from '../../units/convert.js';
 import {
+  BIOBUZZ_HIVE_TIP_LOAD_GRAMS,
   EXPANSION_DEPTH_IN,
   EXPANSION_HEIGHT_IN,
   EXPANSION_WIDTH_IN,
   FLOWER,
   HIVE_FRAME,
-  HIVE_TIP_LOAD_POLLEN_COUNT,
   NECTAR_COUNT_PER_ALLIANCE,
   NECTAR_DIAMETER_IN,
   NECTAR_MASS_LB,
@@ -174,31 +174,17 @@ export const BIOBUZZ_EXPANSION_DEPTH_IN = EXPANSION_DEPTH_IN;
 // -------------------------------------------------------- tipping (HIVE) ---
 
 /**
- * What one CELL must be carrying before its HIVE tips.
- *
- * The Competition Manual publishes no threshold — §9.6.2 describes a real
- * bistable mechanism and §10.5.1 says referees are not expected to watch for
- * the literal instant. The **Event FIELD Setup Guide** publishes it anyway,
- * from the other end: every HIVE at every event is *calibrated* to tip on
- * "[8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar" (§12), with §12.3's
- * table pinning 7 POLLEN as "No Tip Necessary" and the 8th as "Tip Necessary".
- *
- * So the threshold is the weight of 8 POLLEN, and it is a weight rather than a
- * count because the guide's own two loads hold different numbers of balls.
- * That is what makes the staged kickoff load work out on its own terms: 3
- * NECTAR is 5 POLLEN-equivalents, so a HIVE starts 3 POLLEN short of tipping,
- * exactly the margin §12.3 calibrates against.
+ * What one CELL must be carrying before its HIVE tips: 200 g, as calibrated on
+ * the built field (`BIOBUZZ_HIVE_TIP_LOAD_GRAMS`). The Competition Manual
+ * publishes no threshold at all — §9.6.2 describes a real bistable mechanism
+ * and §10.5.1 says referees are not expected to watch for the literal instant
+ * — so a weighed number from the actual HIVE is the best available authority,
+ * ahead of inferring one from the setup guide's rounded ball-count examples.
  */
-export const BIOBUZZ_HIVE_TIP_LOAD_LB: Sourced<number> = explicit(
-  HIVE_TIP_LOAD_POLLEN_COUNT.value * POLLEN_MASS_LB.value,
-  26,
-  'Each Hive should be calibrated to tip when [2] combinations of scoring elements are ' +
-    'placed in an upward facing Cell: [8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar.',
-  'Event FIELD Setup Guide S12. The ball *count* is the guide\'s; converting it to a mass ' +
-    'goes through POLLEN_MASS_LB, which is still an estimate — but both of the guide\'s ' +
-    'calibration loads weigh the same under NECTAR_TO_POLLEN_MASS_RATIO, so the threshold ' +
-    'stays exact against either one however that estimate is later corrected.',
-);
+export const BIOBUZZ_HIVE_TIP_LOAD_LB: Sourced<number> = {
+  ...BIOBUZZ_HIVE_TIP_LOAD_GRAMS,
+  value: gramsToPounds(BIOBUZZ_HIVE_TIP_LOAD_GRAMS.value),
+};
 
 export const HIVE_CELL_REST_HEIGHT_IN = HIVE_FRAME.pivotHeightIn.value - 6;
 

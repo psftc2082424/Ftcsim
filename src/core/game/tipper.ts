@@ -28,7 +28,8 @@
  */
 
 import { regionContains, type FieldRegion } from './regions.js';
-import { vec2, type Vec2 } from '../math/vec2.js';
+import { length, normalize, rotate, scale, sub, vec2, type Vec2 } from '../math/vec2.js';
+import { SubStream, type Pcg32, type SubStreamId } from '../math/rng.js';
 import type { WorldSnapshot } from '../sim/snapshot.js';
 import type { Alliance, StructureTippedEvent } from './events.js';
 import type { Sourced } from './sourced.js';
@@ -51,8 +52,41 @@ export interface TippingStructureSpec {
   readonly cellRestHeightM: number;
   /** Vertical approach rate toward `cellRestHeightM`, m/s. */
   readonly cellHeightRateMps: number;
-  /** Horizontal speed a dumped piece leaves with when its cell flips down. */
+  /**
+   * Nominal horizontal speed a dumped piece leaves with when its cell flips
+   * down. Each piece draws its own speed and direction around this nominal
+   * value and the cell's own dump axis (`dumpScatter`), so a multi-piece dump
+   * scatters rather than flying off as one uniform block.
+   */
   readonly dumpSpeedMps: number;
+}
+
+/**
+ * How far a dumped piece's exit velocity is allowed to wander from the
+ * nominal `dumpSpeedMps` and the cell's own dump direction.
+ *
+ * Not a rule — real balls tumbling out of a tipped cell do not all leave on
+ * the same line at the same speed, and a uniform push reads as an obviously
+ * synthetic "slide" rather than a dump. The direction itself still comes from
+ * the cells' real geometry (`dumpDirection` below), so this only adds the
+ * per-piece variety.
+ */
+const DUMP_SPEED_JITTER = 0.35;
+const DUMP_ANGLE_SPREAD_RAD = (35 * Math.PI) / 180;
+
+/**
+ * The direction dumped pieces travel: continuing outward, past the cell that
+ * just went down, along the real axis between the two cells.
+ *
+ * Deriving this from the cells' own positions — rather than a fixed world
+ * axis — is what makes a dump travel along whichever way the structure's two
+ * cells are actually arranged. A HIVE whose CELLs sit front-to-back dumps
+ * front-to-back; one arranged side-to-side would dump side-to-side. Nothing
+ * here assumes which.
+ */
+function dumpDirection(nowDownCenterM: Vec2, nowUpCenterM: Vec2): Vec2 {
+  const axis = sub(nowDownCenterM, nowUpCenterM);
+  return length(axis) > 1e-9 ? normalize(axis) : vec2(1, 0);
 }
 
 /** The narrow slice of the world a tipping structure writes to. */
@@ -74,6 +108,8 @@ export interface TippingWorld {
    * without conveyors ever clears the flag.
    */
   completePieceTransfer(pieceId: string): void;
+  /** A seeded sub-stream, so a dump's scatter is replayable rather than ambient entropy. */
+  rng(stream: SubStreamId): Pcg32;
 }
 
 interface StructureState {
@@ -157,15 +193,24 @@ export class TippingStructures {
 
       // Tip: the held cell flips down and dumps whatever it was holding, and
       // the other cell becomes the new up-facing (and now empty) destination.
+      const nowDownCenterM = upRegion.centerM;
       state.upIndex = state.upIndex === 0 ? 1 : 0;
       state.tipCount += 1;
 
+      const nowUpRegion = regions.get(spec.cellRegionIds[state.upIndex]);
+      const baseDirection = dumpDirection(nowDownCenterM, nowUpRegion?.centerM ?? nowDownCenterM);
+      const rng = world.rng(SubStream.GamePiece);
+
       for (const pieceId of restingInUpCell) {
-        // A small, fixed outward push scatters dumped pieces instead of
-        // stacking them exactly where the cell held them; it is cosmetic, not
-        // a rule, so it does not need a seeded draw. Nothing holds their
-        // height after this tick, so they fall out of the cell under gravity.
-        world.setPieceVelocity(pieceId, vec2(spec.dumpSpeedMps, 0));
+        // Each piece gets its own direction and speed around the cell's real
+        // dump axis, so a multi-piece dump scatters instead of sliding off as
+        // one uniform block. Nothing holds their height after this tick, so
+        // they fall from the cell's own resting height under ordinary gravity
+        // once this velocity carries them clear of it.
+        const angle = (rng.nextFloat() * 2 - 1) * DUMP_ANGLE_SPREAD_RAD;
+        const speedFactor = 1 + (rng.nextFloat() * 2 - 1) * DUMP_SPEED_JITTER;
+        const velocity = scale(rotate(baseDirection, angle), spec.dumpSpeedMps * speedFactor);
+        world.setPieceVelocity(pieceId, velocity);
       }
 
       events.push({

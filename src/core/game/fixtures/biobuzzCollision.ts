@@ -1,14 +1,22 @@
 /**
  * BIOBUZZ physical-collision fixture.
  *
- * Reuses the season-stable perimeter (`createStandardField`) and adds the one
- * structure BIOBUZZ puts in a ROBOT's path: the central HIVE Structure. It is
- * a real, solid assembly the manual describes (§9.6) but does not give a CAD
- * footprint for, so its collision body is a deliberately simple, `assumed`
- * full-footprint block rather than invented sub-part geometry. This is the
- * same "classify honestly, approximate visibly" position DECODE's own
- * collision fixture took before its CAD-backed pass, and it needs the same
- * follow-up once the CAD is available.
+ * Reuses the season-stable perimeter (`createStandardField`) and adds static
+ * bodies for every collider `biobuzzAssemblies.ts` declares — the HIVE
+ * Frame's own four corner legs. The renderer draws the same assembly parts
+ * directly, so the visual structure and its collision footprint can never
+ * drift apart, the same split DECODE's `decodeCollision.ts` uses.
+ *
+ * ── Why the HIVE is four leg posts, not a floor-level block ─────────────────
+ *
+ * The HIVE's own CELLs sit high off the tiles — their resting band starts at
+ * `HIVE_FRAME.pivotHeightIn - HIVE_CELL.openingHeightIn` (`biobuzzField.ts`),
+ * comfortably above a ROBOT's own height limit — so the structure is
+ * genuinely elevated *above* the field rather than sitting on it. What
+ * actually touches the tiles is the Frame's own four legs, at the corners of
+ * its footprint (§9.6.1's 49.46 x 38.95 in). A ROBOT can legally drive under
+ * the raised CELLs anywhere between those corners, including straight through
+ * the middle, so only the corners get a collision body.
  *
  * ── Why the FLOWERs have no collision body ─────────────────────────────────
  *
@@ -31,23 +39,10 @@
  * its GOAL opening passable while the GOAL shell around it is solid.
  */
 
-import { createStandardField, type FieldTemplate } from '../../field/fieldTemplate.js';
-import { createStaticBody, type EntityId, type VerticalSpan } from '../../physics/body.js';
+import { createStandardField, type FieldAssembly, type FieldTemplate } from '../../field/fieldTemplate.js';
+import { createStaticBody, type EntityId, type RigidBody } from '../../physics/body.js';
 import { createObb } from '../../physics/shapes.js';
-import { vec2 } from '../../math/vec2.js';
-import { inchesToMeters } from '../../units/convert.js';
-import { HIVE_FRAME } from './biobuzzDimensions.js';
-
-/**
- * Assumed collision height for the HIVE frame — capped *below* a CELL's own
- * resting band (which starts at `HIVE_FRAME.pivotHeightIn -
- * HIVE_CELL.openingHeightIn`, see `biobuzzField.ts`). The obstacle exists to
- * block a ROBOT from driving through the frame's base, not to fill the hollow
- * CELL a real ROBOT never contacts at floor level — a taller block would
- * physically trap a piece this fixture holds up there (`tipper.ts`) inside
- * solid matter.
- */
-const LOW_STRUCTURE_HEIGHT_IN = 12;
+import { createBiobuzzAssemblies } from './biobuzzAssemblies.js';
 
 /**
  * Where this fixture's own bodies start, measured from the id the perimeter
@@ -58,22 +53,33 @@ const LOW_STRUCTURE_HEIGHT_IN = 12;
  */
 const STRUCTURE_ID_OFFSET = 100;
 
+/** Convert canonical OBB assembly parts into the static body model. */
+function assemblyBodies(assemblies: readonly FieldAssembly[]): readonly RigidBody[] {
+  return assemblies.flatMap((assembly) =>
+    assembly.parts.flatMap((part) => {
+      if (part.collider === undefined || part.geometry.kind !== 'obb') return [];
+      return [
+        createStaticBody({
+          id: part.collider.id,
+          shape: createObb(part.geometry.widthM, part.geometry.lengthM),
+          span: part.collider.span,
+          pose: part.geometry.pose,
+        }),
+      ];
+    }),
+  );
+}
+
 export function createBiobuzzField(firstEntityId: EntityId = 1000): FieldTemplate {
   const base = createStandardField(firstEntityId);
-  const structureId = firstEntityId + STRUCTURE_ID_OFFSET;
-
-  const hiveSpan: VerticalSpan = { bottom: 0, top: inchesToMeters(LOW_STRUCTURE_HEIGHT_IN) };
-  const hiveBody = createStaticBody({
-    id: structureId,
-    shape: createObb(inchesToMeters(HIVE_FRAME.widthIn.value), inchesToMeters(HIVE_FRAME.depthIn.value)),
-    span: hiveSpan,
-    pose: { p: vec2(0, 0), theta: 0 },
-  });
+  const assemblies = createBiobuzzAssemblies(firstEntityId + STRUCTURE_ID_OFFSET);
+  const bodies = assemblyBodies(assemblies);
 
   return {
     ...base,
     id: 'biobuzz-2026',
     name: 'BIOBUZZ Field',
-    bodies: [...base.bodies, hiveBody],
+    bodies: [...base.bodies, ...bodies],
+    assemblies,
   };
 }

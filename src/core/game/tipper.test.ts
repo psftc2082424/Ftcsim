@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { TippingStructures, resolveTippingRegions, type TippingStructureSpec, type TippingWorld } from './tipper.js';
 import { createRectRegion } from './regions.js';
 import { vec2, type Vec2 } from '../math/vec2.js';
+import { Pcg32, type SubStreamId } from '../math/rng.js';
 import type { WorldSnapshot } from '../sim/snapshot.js';
 import { explicit } from './sourced.js';
 
@@ -45,6 +46,10 @@ class FakeWorld implements TippingWorld {
 
   completePieceTransfer(pieceId: string): void {
     this.completedTransfers.push(pieceId);
+  }
+
+  rng(stream: SubStreamId): Pcg32 {
+    return new Pcg32(1, stream);
   }
 }
 
@@ -201,15 +206,35 @@ describe('TippingStructures', () => {
     expect(world.completedTransfers).toEqual([]);
   });
 
-  it('dumps the pieces that were in the cell that just went down', () => {
+  it('dumps pieces along the real axis between the two cells, not a fixed world axis', () => {
+    // CELL_A and CELL_B differ only in Y (20 in apart), so a dump must send
+    // pieces along Y — the bug this guards sent everything along +X instead,
+    // regardless of how the two cells were actually arranged.
     const structures = new TippingStructures([SPEC]);
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
 
     structures.update(regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), 5, 5 * DT, world);
 
-    expect(world.velocities.get('a')).toEqual(vec2(0.5, 0));
-    expect(world.velocities.get('b')).toEqual(vec2(0.5, 0));
+    for (const pieceId of ['a', 'b']) {
+      const v = world.velocities.get(pieceId);
+      expect(v).toBeDefined();
+      // CELL_A (the one dumping) is in the +Y direction from CELL_B, so the
+      // dump continues outward along +Y.
+      expect(v!.y).toBeGreaterThan(0);
+      expect(Math.hypot(v!.x, v!.y)).toBeGreaterThan(0.3);
+      expect(Math.hypot(v!.x, v!.y)).toBeLessThan(0.7);
+    }
+  });
+
+  it('scatters a multi-piece dump instead of sending every piece on the same line', () => {
+    const structures = new TippingStructures([SPEC]);
+    const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
+    const world = new FakeWorld();
+
+    structures.update(regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), 5, 5 * DT, world);
+
+    expect(world.velocities.get('a')).not.toEqual(world.velocities.get('b'));
   });
 
   it('does not tip again on the very next tick just because a dumped piece has not moved yet', () => {

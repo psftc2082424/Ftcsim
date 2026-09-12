@@ -8,7 +8,8 @@
  * Citations are to the PDF's own page numbers (footer "N of 173").
  */
 
-import { assumed, explicitRule, inferred, type Sourced } from '../sourced.js';
+import { assumed, explicitRule, type Sourced } from '../sourced.js';
+import { gramsToPounds } from '../../units/convert.js';
 
 /** The FTC field interior is 144 in on a side (§9.2, p.64) — same as every season. */
 export const FIELD_SIZE_IN = 144;
@@ -108,62 +109,41 @@ export const NECTAR_COUNT_PER_ALLIANCE = explicitRule(
 );
 
 /**
- * POLLEN's mass is not published. AndyMark's am-5851 product page is the
- * DECODE-style route to a real number, but this pass has no fetched figure to
- * cite, so it stays an engineering estimate rather than a transcription — the
- * same honesty DECODE's `ARTIFACT_MASS_LB` uses.
+ * POLLEN's and NECTAR's masses, and the HIVE tip threshold, as measured by the
+ * team rather than estimated from the manual.
+ *
+ * The Event FIELD Setup Guide only calibrates a HIVE by ball count ("[8]
+ * Pollen + [0] Nectar, and [3] Pollen + [3] Nectar"), which is how the
+ * previous pass here derived a mass ratio by assuming the two loads must
+ * balance exactly. Weighed values replace that derivation: POLLEN is 25 g,
+ * NECTAR is 40 g, and the built HIVE has been calibrated to 200 g. These do
+ * not reproduce the guide's own two combinations exactly (3 NECTAR + 3 POLLEN
+ * comes to 195 g, 5 g under threshold) — recorded honestly rather than
+ * smoothed away, since a real calibrated field is the better authority on its
+ * own tipping point than an inference from the guide's rounded ball counts.
  */
 export const POLLEN_MASS_LB = assumed(
-  0.09,
-  'No published mass. Estimated from a hollow polyethylene ball at this diameter, ' +
-    'the same weight class as DECODE\'s ARTIFACT. Needs the AndyMark am-5851 spec sheet to confirm.',
-);
-
-/**
- * NECTAR's mass, relative to POLLEN's, is *derived* rather than estimated.
- *
- * The Event FIELD Setup Guide calibrates every HIVE to tip on two specific
- * loads (§12): "[8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar". A
- * bistable cell tips at one torque, and both loads sit at the same lever arm,
- * so the two combinations must weigh the same:
- *
- *     8 * POLLEN = 3 * POLLEN + 3 * NECTAR   ->   NECTAR = 5/3 * POLLEN
- *
- * That ratio is a fact about the real balls, published in the only place FIRST
- * publishes it. Only the absolute scale is still assumed, and it comes from
- * POLLEN above, so `BIOBUZZ_HIVE_TIP_LOAD_LB` stays exact against either
- * calibration load however POLLEN's estimate is later corrected.
- */
-export const NECTAR_TO_POLLEN_MASS_RATIO: Sourced<number> = inferred(
-  5 / 3,
-  'Solved from the Event FIELD Setup Guide\'s two calibration loads (S12: "[8] Pollen + ' +
-    '[0] Nectar, and [3] Pollen + [3] Nectar"), which must balance the same cell at the ' +
-    'same tipping torque. Confirmed against S12.3\'s requirement table: 3 NECTAR + 2 ' +
-    'POLLEN must not tip (7 POLLEN-equivalents) and the 3rd POLLEN must (8).',
-  26,
+  gramsToPounds(25),
+  'Team-measured: POLLEN weighs 25 g. Supersedes the earlier estimate drawn from a hollow ' +
+    'polyethylene ball at this diameter.',
 );
 
 export const NECTAR_MASS_LB = assumed(
-  POLLEN_MASS_LB.value * NECTAR_TO_POLLEN_MASS_RATIO.value,
-  'Derived from POLLEN\'s estimated mass and the setup guide\'s calibrated 5:3 NECTAR-to-' +
-    'POLLEN ratio (NECTAR_TO_POLLEN_MASS_RATIO), so it inherits POLLEN\'s "assumed" ' +
-    'confidence. Needs the AndyMark am-5852 spec sheet to become a transcription.',
+  gramsToPounds(40),
+  'Team-measured: NECTAR weighs 40 g. Supersedes the earlier value derived from the setup ' +
+    'guide\'s calibration-load ratio.',
 );
 
 /**
- * The load one CELL must carry before its HIVE tips.
- *
- * Stated by the setup guide as a pair of ball counts rather than a mass, so
- * the mass is the guide's own 8-POLLEN load converted through POLLEN's mass.
- * §12.3's requirement table pins both sides of it: 7 POLLEN "No Tip
- * Necessary", the 8th "Tip Necessary".
+ * The load one CELL must carry before its HIVE tips: 200 g, as calibrated on
+ * the built field. Not derived from a ball count — see the file banner for
+ * why it does not land exactly on either of the setup guide's two example
+ * loads once POLLEN and NECTAR are weighed individually.
  */
-export const HIVE_TIP_LOAD_POLLEN_COUNT: Sourced<number> = explicitRule(
-  8,
-  'Setup Guide S12',
-  'Each Hive should be calibrated to tip when [2] combinations of scoring elements are ' +
-    'placed in an upward facing Cell: [8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar.',
-  26,
+export const BIOBUZZ_HIVE_TIP_LOAD_GRAMS: Sourced<number> = assumed(
+  200,
+  'Team-calibrated tipping load, measured directly rather than inferred from the setup ' +
+    'guide\'s ball-count examples (S12).',
 );
 
 /** ROBOT construction limits (§12.1, pp.121-122). */
