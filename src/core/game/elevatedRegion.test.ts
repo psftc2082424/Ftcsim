@@ -13,7 +13,7 @@ const POCKET = createRectRegion({ id: 'pocket', centerXIn: 0, centerYIn: 0, widt
 const SPEC: ElevatedRegionSpec = { id: 'pocket-hold', regionId: 'pocket', restHeightM: 0.4, heightRateMps: 5 };
 
 class FakeWorld implements ElevatedRegionWorld {
-  readonly guided = new Map<string, { targetHeightM?: number }>();
+  readonly guided = new Map<string, { targetHeightM: number | undefined }>();
   guidePiece(pieceId: string, _accelerationMps2: Vec2, targetHeightM?: number): void {
     this.guided.set(pieceId, { targetHeightM });
   }

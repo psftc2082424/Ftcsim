@@ -48,7 +48,7 @@ function nectar(pieceId: string, alliance: 'red' | 'blue', xIn: number, yIn: num
     diameterIn: NECTAR_D,
     massLb: NECTAR_MASS_LB.value,
     startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn)),
-    heightM: heightIn === undefined ? undefined : inchesToMeters(heightIn),
+    ...(heightIn === undefined ? {} : { heightM: inchesToMeters(heightIn) }),
   };
 }
 

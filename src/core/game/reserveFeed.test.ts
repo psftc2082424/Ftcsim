@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { ReserveFeeds, resolveReserveFeedPlaces, type ReserveFeedSpec, type ReserveFeedWorld } from './reserveFeed.js';
 import { createRectZone } from './regions.js';
-import { vec2, type Vec2 } from '../math/vec2.js';
+import type { Vec2 } from '../math/vec2.js';
 
 const SPAWN = createRectZone({ id: 'spawn', centerXIn: 10, centerYIn: 0, widthIn: 10, lengthIn: 10 });
 

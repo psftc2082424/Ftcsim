@@ -27,7 +27,7 @@ const SPEC: TippingStructureSpec = {
 };
 
 class FakeWorld implements TippingWorld {
-  readonly guided = new Map<string, { accelerationMps2: Vec2; targetHeightM?: number }>();
+  readonly guided = new Map<string, { accelerationMps2: Vec2; targetHeightM: number | undefined }>();
   readonly velocities = new Map<string, Vec2>();
 
   guidePiece(pieceId: string, accelerationMps2: Vec2, targetHeightM?: number): void {
