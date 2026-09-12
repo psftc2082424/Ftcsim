@@ -91,6 +91,12 @@ export interface PieceSnapshot {
   readonly vel: Velocity;
 
   readonly radiusM: number;
+  /**
+   * The piece's mass. A physical fact like `radiusM`, published because a
+   * field structure that balances on real weight — a bistable tipper — has to
+   * weigh what is resting in it without knowing what season's ball it is.
+   */
+  readonly massKg: number;
   /** Height of the piece's centre above the floor. */
   readonly heightM: number;
   /** Height at the end of the previous tick, for render interpolation. */

@@ -2,25 +2,30 @@
  * BIOBUZZ field layout.
  *
  * ═══════════════════════════════════════════════════════════════════════════
- *  SIZES ARE SOURCED (`biobuzzDimensions.ts`). POSITIONS ARE INFERRED OR
- *  ASSUMED — THE MANUAL PUBLISHES THEM ONLY AS FIGURES THIS PASS CANNOT READ.
+ *  SIZES ARE SOURCED (`biobuzzDimensions.ts`). POSITIONS ARE NOW SOURCED TOO,
+ *  FROM THE EVENT FIELD SETUP GUIDE'S TILE COORDINATES (`biobuzzTiles.ts`).
  *
- *  Unlike DECODE, this manual gives no TILE-coordinate table for BIOBUZZ's
- *  field elements — Figures 9-4/9-5 (TILE grid) and 10-2 (staging) are the
- *  only source, and they are diagrams, not text. Every position below is
- *  therefore `inferred` (reasoned from the manual's own descriptive language:
- *  "located in the center of the FIELD", "attached to the perimeter wall",
- *  "opposite corners") or `assumed` (an engineering placement where the text
- *  gives no directional hint at all). None is `explicit`.
+ *  The Competition Manual places BIOBUZZ's field elements only in figures, so
+ *  everything here used to be `inferred` or `assumed` from descriptive
+ *  language. The **Event FIELD Setup Guide (V1.0)** gives the same placements
+ *  against a published TILE grid, which is what an event actually builds to:
  *
- *  To finish: audit every position here against the official 3D CAD model
- *  once it is available, the same next step DECODE's own layout still has
- *  open. Region/zone ids are the contract with `biobuzz.ts` and must not
- *  change.
+ *    - LOADING ZONES: "[1] Red (on tile A5) and [1] Blue (on tile F2)" (S8.3)
+ *    - GARDENS: "[1] Red Garden (on Tile A1) and [1] Blue Garden (on Tile F6)"
+ *      (S8.4)
+ *    - ALLIANCE AREAS: 54 in deep, "width is set based on Tile Seam 1 and Tile
+ *      Seam 5" (S8.5)
+ *    - HIVE frame: installed on the four centre TILES (S9.1-9.2)
+ *
+ *  What remains unsourced is called out where it sits: the FLOWER positions
+ *  are read off Figure 6-2's plan view rather than named in text, and the CELL
+ *  height band is still reasoned from the frame's pivot height.
+ *
+ *  Region/zone ids are the contract with `biobuzz.ts` and must not change.
  * ═══════════════════════════════════════════════════════════════════════════
  */
 
-import { inferred, type Sourced } from '../sourced.js';
+import { explicitRule, inferred, type Sourced } from '../sourced.js';
 import {
   createCircleRegion,
   createRectRegion,
@@ -31,17 +36,36 @@ import {
 import { vec2 } from '../../math/vec2.js';
 import { inchesToMeters } from '../../units/convert.js';
 import type { Pose } from '../../physics/body.js';
-import { FIELD_SIZE_IN, FLOWER, GARDEN, HIVE_CELL, HIVE_FRAME, LOADING_ZONE } from './biobuzzDimensions.js';
+import {
+  FIELD_SIZE_IN,
+  FLOWER,
+  GARDEN,
+  HIVE_CELL,
+  HIVE_FRAME,
+  LOADING_ZONE,
+  POLLEN_DIAMETER_IN,
+} from './biobuzzDimensions.js';
+import {
+  horizontalSeamYIn,
+  rowCenterYIn,
+  tileBounds,
+  verticalSeamXIn,
+  type TileColumn,
+  type TileRow,
+} from './biobuzzTiles.js';
 
 const HALF = FIELD_SIZE_IN / 2;
 
 /** Provenance note for the layout as a whole — see the file banner. */
-export const BIOBUZZ_LAYOUT_PROVENANCE: Sourced<string> = inferred(
-  'BIOBUZZ field element positions (HIVE, FLOWERs, GARDENs, LOADING ZONEs) are ' +
-    'reasoned from the manual\'s descriptive language, not read from a TILE grid ' +
-    'or CAD model — neither is available to this pass.',
-  'Section 9 ARENA gives sizes throughout but places elements only in Figures ' +
-    '9-2 through 9-13, none of which render as extractable text.',
+export const BIOBUZZ_LAYOUT_PROVENANCE: Sourced<string> = explicitRule(
+  'BIOBUZZ field element positions are transcribed from the Event FIELD Setup ' +
+    'Guide\'s TILE coordinates; only the FLOWER positions are read from its plan ' +
+    'view rather than named in text.',
+  'Setup Guide S6, S8, S9',
+  'Tile coordinates are used to assist with field setup ... There are [2] Loading Zones: ' +
+    '[1] Red (on tile A5) and [1] Blue (on tile F2) ... [1] Red Garden (on Tile A1) and ' +
+    '[1] Blue Garden (on Tile F6).',
+  8,
 );
 
 export const BIOBUZZ_REGIONS = {
@@ -103,87 +127,125 @@ function cellRegion(id: string, centerXIn: number, centerYIn: number): FieldRegi
   });
 }
 
+/**
+ * Where each FLOWER meets the perimeter, read from Figure 6-2's plan view.
+ *
+ * The manual only says FLOWERs attach to the perimeter wall (§9.7) and the
+ * setup guide only says they go "in [4] locations around the Field Perimeter"
+ * (§10.1) — neither names the TILES. Figure 6-2 draws all four, each centred on
+ * a TILE seam one seam off the middle of its own wall, in the 180-degree
+ * rotationally symmetric arrangement every FTC field uses. Read against the
+ * grid that is seam W on the far wall, seam Y on the audience wall, seam 4 on
+ * blue's wall and seam 2 on red's.
+ *
+ * `inferred`, not `explicit`: a figure is being measured, not a sentence
+ * transcribed.
+ */
+export const BIOBUZZ_FLOWER_PLACEMENT: Sourced<string> = inferred(
+  'one FLOWER per perimeter wall, each on the TILE seam one seam off centre, ' +
+    'rotationally symmetric about the field centre',
+  'Read from the Event FIELD Setup Guide Figure 6-2, which draws the four FLOWERs at the ' +
+    'perimeter on seams W (far wall), Y (audience wall), 4 (blue wall) and 2 (red wall). ' +
+    'Neither the manual nor the guide states the TILES in text.',
+  8,
+);
+
+/**
+ * How far a FLOWER's centre sits inside the wall face.
+ *
+ * §10.1-10.3 installs a FLOWER with its Base Bracket passing *under* the
+ * perimeter and its Bottom Ring resting on the tiles, so the ring is up
+ * against the inner wall face. Its own 4 in top opening then puts the centre
+ * one radius in.
+ */
+const FLOWER_INSET_IN = FLOWER.topOpeningDiameterIn.value / 2;
+
+const FLOWER_PLACEMENTS: readonly { id: string; xIn: number; yIn: number }[] = [
+  { id: BIOBUZZ_REGIONS.flowerNorth, xIn: verticalSeamXIn('W'), yIn: HALF - FLOWER_INSET_IN },
+  { id: BIOBUZZ_REGIONS.flowerSouth, xIn: verticalSeamXIn('Y'), yIn: -(HALF - FLOWER_INSET_IN) },
+  { id: BIOBUZZ_REGIONS.flowerEast, xIn: HALF - FLOWER_INSET_IN, yIn: horizontalSeamYIn(4) },
+  { id: BIOBUZZ_REGIONS.flowerWest, xIn: -(HALF - FLOWER_INSET_IN), yIn: horizontalSeamYIn(2) },
+];
+
+/**
+ * A GARDEN: the strip its tape encloses against the two corner walls.
+ *
+ * The guide tapes a GARDEN as a single line across one corner TILE, "Tape
+ * Starts and Ends at inside edge of Tile A1 seams" (§8.4), and then stages
+ * "[4] Pollen ... placed in a line such that they contact the Tape Lines of the
+ * Garden, are approximately adjacent to both nearby Field Perimeter Walls"
+ * (§11.3). Four POLLEN touching both the wall and the tape is what fixes the
+ * tape's offset: one POLLEN diameter out from the wall, plus the tape's own
+ * width. That strip is the scoring area, and it is deep enough to contain a
+ * resting POLLEN's centre, which a 2 in tape line alone would not be.
+ */
+const GARDEN_DEPTH_IN = POLLEN_DIAMETER_IN.value + GARDEN.depthIn.value;
+
+function gardenRegion(id: string, column: TileColumn, row: TileRow): FieldRegion {
+  const bounds = tileBounds(column, row);
+  // The GARDEN hugs whichever long wall its TILE touches: row 1 is the
+  // audience wall, row 6 the far wall.
+  const wallYIn = row === 1 ? -HALF : HALF;
+  const inward = row === 1 ? 1 : -1;
+
+  return createRectRegion({
+    id,
+    centerXIn: (bounds.minXIn + bounds.maxXIn) / 2,
+    centerYIn: wallYIn + (inward * GARDEN_DEPTH_IN) / 2,
+    widthIn: GARDEN.widthIn.value,
+    lengthIn: GARDEN_DEPTH_IN,
+  });
+}
+
 export const BIOBUZZ_FIELD_REGIONS: readonly FieldRegion[] = [
   cellRegion(BIOBUZZ_REGIONS.redCellNear, -HIVE_HALF_SEPARATION_IN, -CELL_HALF_SEPARATION_IN),
   cellRegion(BIOBUZZ_REGIONS.redCellFar, -HIVE_HALF_SEPARATION_IN, CELL_HALF_SEPARATION_IN),
   cellRegion(BIOBUZZ_REGIONS.blueCellNear, HIVE_HALF_SEPARATION_IN, -CELL_HALF_SEPARATION_IN),
   cellRegion(BIOBUZZ_REGIONS.blueCellFar, HIVE_HALF_SEPARATION_IN, CELL_HALF_SEPARATION_IN),
 
-  // Four FLOWERS "attached to the perimeter wall" (§9.7, p.72) with no count
-  // per side stated: `assumed` one per wall, for maximum symmetry absent any
-  // other hint.
-  createCircleRegion({
-    id: BIOBUZZ_REGIONS.flowerNorth,
-    centerXIn: 0,
-    centerYIn: HALF - 2,
-    radiusIn: FLOWER.topOpeningDiameterIn.value / 2,
-    bottomIn: FLOWER.topOpeningHeightIn.value - 8,
-    topIn: FLOWER.topOpeningHeightIn.value,
-  }),
-  createCircleRegion({
-    id: BIOBUZZ_REGIONS.flowerSouth,
-    centerXIn: 0,
-    centerYIn: -(HALF - 2),
-    radiusIn: FLOWER.topOpeningDiameterIn.value / 2,
-    bottomIn: FLOWER.topOpeningHeightIn.value - 8,
-    topIn: FLOWER.topOpeningHeightIn.value,
-  }),
-  createCircleRegion({
-    id: BIOBUZZ_REGIONS.flowerEast,
-    centerXIn: HALF - 2,
-    centerYIn: 0,
-    radiusIn: FLOWER.topOpeningDiameterIn.value / 2,
-    bottomIn: FLOWER.topOpeningHeightIn.value - 8,
-    topIn: FLOWER.topOpeningHeightIn.value,
-  }),
-  createCircleRegion({
-    id: BIOBUZZ_REGIONS.flowerWest,
-    centerXIn: -(HALF - 2),
-    centerYIn: 0,
-    radiusIn: FLOWER.topOpeningDiameterIn.value / 2,
-    bottomIn: FLOWER.topOpeningHeightIn.value - 8,
-    topIn: FLOWER.topOpeningHeightIn.value,
-  }),
+  ...FLOWER_PLACEMENTS.map(({ id, xIn, yIn }) =>
+    createCircleRegion({
+      id,
+      centerXIn: xIn,
+      centerYIn: yIn,
+      radiusIn: FLOWER.topOpeningDiameterIn.value / 2,
+      bottomIn: FLOWER.topOpeningHeightIn.value - 8,
+      topIn: FLOWER.topOpeningHeightIn.value,
+    }),
+  ),
 
-  // GARDENs: "opposite corners of the FIELD", each "contacting the audience
-  // or rear perimeter wall" (§9.3, p.66) and, per staging (§10.3.1, p.83),
-  // "the corner closest to the ALLIANCE AREA". Read as: red's GARDEN in the
-  // audience-side corner of red's own half, blue's in the diagonally opposite
-  // (far-side) corner of blue's half.
-  createRectRegion({
-    id: BIOBUZZ_REGIONS.redGarden,
-    centerXIn: -(HALF - GARDEN.widthIn.value / 2),
-    centerYIn: -(HALF - GARDEN.depthIn.value / 2),
-    widthIn: GARDEN.widthIn.value,
-    lengthIn: GARDEN.depthIn.value,
-  }),
-  createRectRegion({
-    id: BIOBUZZ_REGIONS.blueGarden,
-    centerXIn: HALF - GARDEN.widthIn.value / 2,
-    centerYIn: HALF - GARDEN.depthIn.value / 2,
-    widthIn: GARDEN.widthIn.value,
-    lengthIn: GARDEN.depthIn.value,
-  }),
+  gardenRegion(BIOBUZZ_REGIONS.redGarden, 'A', 1),
+  gardenRegion(BIOBUZZ_REGIONS.blueGarden, 'F', 6),
 ];
 
+/**
+ * A LOADING ZONE: 11 in out from its own side wall, one TILE wide along it.
+ *
+ * "Installation begins by installing [2] segments that are each 11 in.
+ * (27.95 cm) long along the tile side seams. Then connect them with a third
+ * segment that spans between them" (§8.3) — so the depth runs perpendicular to
+ * the wall and the width is the TILE's own span, matching §9.3's 23 x 11 in.
+ */
+function loadingZone(id: string, column: TileColumn, row: TileRow): FieldZone {
+  // Column A is the -X wall, F the +X wall.
+  const wallXIn = column === 'A' ? -HALF : HALF;
+  const inward = column === 'A' ? 1 : -1;
+
+  return createRectZone({
+    id,
+    centerXIn: wallXIn + (inward * LOADING_ZONE.depthIn.value) / 2,
+    centerYIn: rowCenterYIn(row),
+    widthIn: LOADING_ZONE.depthIn.value,
+    lengthIn: LOADING_ZONE.widthIn.value,
+  });
+}
+
 export const BIOBUZZ_FIELD_ZONES: readonly FieldZone[] = [
-  // LOADING ZONE: "bounded by red or blue tape and the adjoining FIELD
-  // perimeters" (§9.3, p.65-66), "belonging to the ALLIANCE with the adjacent
-  // ALLIANCE AREA" — read as centred on each alliance's own perimeter wall.
-  createRectZone({
-    id: BIOBUZZ_ZONES.redLoadingZone,
-    centerXIn: -(HALF - LOADING_ZONE.depthIn.value / 2),
-    centerYIn: 0,
-    widthIn: LOADING_ZONE.depthIn.value,
-    lengthIn: LOADING_ZONE.widthIn.value,
-  }),
-  createRectZone({
-    id: BIOBUZZ_ZONES.blueLoadingZone,
-    centerXIn: HALF - LOADING_ZONE.depthIn.value / 2,
-    centerYIn: 0,
-    widthIn: LOADING_ZONE.depthIn.value,
-    lengthIn: LOADING_ZONE.widthIn.value,
-  }),
+  // LOADING ZONE: the guide tapes it on one named TILE against that
+  // alliance's own side wall — 11 in out from the perimeter, spanning the
+  // TILE between its two side seams (§8.3). Red is A5, blue is F2.
+  loadingZone(BIOBUZZ_ZONES.redLoadingZone, 'A', 5),
+  loadingZone(BIOBUZZ_ZONES.blueLoadingZone, 'F', 2),
 
   // Thin bands hugging the inside of each perimeter wall, `assumed` rather
   // than read from any rule: LEAVE (§10.5.4) asks whether a ROBOT is
@@ -203,11 +265,25 @@ export const BIOBUZZ_FIELD_ZONES: readonly FieldZone[] = [
  * FIELD, touching the perimeter wall, not in the LOADING ZONE or a FLOWER.
  * `assumed`: the manual states the legality constraints but not a specific
  * starting pose, the same gap DECODE's own start poses filled.
+ *
+ * Each alliance's own side wall carries two obstructions it has to start clear
+ * of, and they are not mirrored: red's LOADING ZONE is on A5 with its FLOWER
+ * down on seam 2, blue's on F2 with its FLOWER up on seam 4. Backing onto the
+ * TILE row furthest from both — row 4 for red, row 3 for blue — leaves an 18
+ * in robot clear of each by more than a robot's own half-width, where the
+ * other row would leave barely an inch beside the FLOWER.
  */
 export const BIOBUZZ_LEGAL_START_POSES: Readonly<Record<'red' | 'blue', Pose>> = {
   // Heading 0 is +X (fieldTemplate.ts): red starts at the west wall facing
   // into the field (toward +X); blue starts at the east wall facing the
-  // opposite way (toward -X).
-  red: { p: vec2(inchesToMeters(-(HALF - 9)), inchesToMeters(0)), theta: 0 },
-  blue: { p: vec2(inchesToMeters(HALF - 9), inchesToMeters(0)), theta: Math.PI },
+  // opposite way (toward -X). Half an 18 in robot off the wall puts its
+  // bumper against it.
+  red: {
+    p: vec2(inchesToMeters(-(HALF - 9)), inchesToMeters(rowCenterYIn(4))),
+    theta: 0,
+  },
+  blue: {
+    p: vec2(inchesToMeters(HALF - 9), inchesToMeters(rowCenterYIn(3))),
+    theta: Math.PI,
+  },
 };

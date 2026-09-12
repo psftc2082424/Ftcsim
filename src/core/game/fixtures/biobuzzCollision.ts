@@ -1,16 +1,30 @@
 /**
  * BIOBUZZ physical-collision fixture.
  *
- * Reuses the season-stable perimeter (`createStandardField`) and adds the two
- * kinds of physical structure BIOBUZZ has: the central HIVE Structure and the
- * four wall-mounted FLOWERs. Both are real, solid assemblies the manual
- * describes (§9.6, §9.7) but does not give a CAD footprint for, so their
- * collision bodies here are a deliberately simple, `assumed` approximation —
- * a full-footprint block for the HIVE frame and a small post for each
- * FLOWER — rather than an invented sub-part geometry. This is the same
- * "classify honestly, approximate visibly" position DECODE's own collision
- * fixture took before its CAD-backed pass, and it needs the same follow-up:
- * replace these with real sub-part footprints once the CAD is available.
+ * Reuses the season-stable perimeter (`createStandardField`) and adds the one
+ * structure BIOBUZZ puts in a ROBOT's path: the central HIVE Structure. It is
+ * a real, solid assembly the manual describes (§9.6) but does not give a CAD
+ * footprint for, so its collision body is a deliberately simple, `assumed`
+ * full-footprint block rather than invented sub-part geometry. This is the
+ * same "classify honestly, approximate visibly" position DECODE's own
+ * collision fixture took before its CAD-backed pass, and it needs the same
+ * follow-up once the CAD is available.
+ *
+ * ── Why the FLOWERs have no collision body ─────────────────────────────────
+ *
+ * A FLOWER is a hollow tube mounted on the perimeter wall, and its own staged
+ * POLLEN live *inside* it — "the bottom most Pollen sitting on the tiles
+ * inside the Flower Bottom Ring" (Setup Guide §11.2). A 2D collision shape is
+ * convex, so it has no inside: a post drawn over the ring is solid matter
+ * exactly where those four POLLEN rest, and the resolver ejects them — through
+ * the perimeter and out of the FIELD, which is what it did before this was
+ * removed. Since a FLOWER sits flush against a wall that already stops a
+ * ROBOT there, a solid post buys almost nothing and costs the staging.
+ *
+ * The fidelity actually lost is retention: nothing stops a ROBOT bulldozing a
+ * FLOWER's POLLEN sideways out of the ring the real tube would hold them in.
+ * Fixing that needs an annulus or a ring of small bodies, which is worth doing
+ * from the CAD rather than from a guess.
  *
  * The CELLs and FLOWER scoring volumes themselves have no collision body —
  * they are `GameDefinition` regions, not obstacles, exactly as DECODE keeps
@@ -20,64 +34,46 @@
 import { createStandardField, type FieldTemplate } from '../../field/fieldTemplate.js';
 import { createStaticBody, type EntityId, type VerticalSpan } from '../../physics/body.js';
 import { createObb } from '../../physics/shapes.js';
-import { vec2, type Vec2 } from '../../math/vec2.js';
+import { vec2 } from '../../math/vec2.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { HIVE_FRAME } from './biobuzzDimensions.js';
-import { BIOBUZZ_FIELD_REGIONS, BIOBUZZ_REGIONS } from './biobuzzField.js';
-
-/** Assumed footprint for a FLOWER's own wall-mounted post structure. */
-const FLOWER_POST_FOOTPRINT_IN = 6;
 
 /**
- * Assumed collision height for a FLOWER post and the HIVE frame — capped
- * *below* each structure's own scoring/resting band (FLOWER's scoring volume
- * starts at `FLOWER.topOpeningHeightIn - 8`; a CELL's resting band starts at
- * `HIVE_FRAME.pivotHeightIn - HIVE_CELL.openingHeightIn`, see
- * `biobuzzField.ts`). Both obstacles exist to block a ROBOT from driving
- * through the structure's base, not to fill the hollow scoring pocket a real
- * ROBOT or ARTIFACT never contacts at floor level — a taller block would
- * physically trap a piece this fixture holds up there (`tipper.ts`,
- * `elevatedRegion.ts`) inside solid matter.
+ * Assumed collision height for the HIVE frame — capped *below* a CELL's own
+ * resting band (which starts at `HIVE_FRAME.pivotHeightIn -
+ * HIVE_CELL.openingHeightIn`, see `biobuzzField.ts`). The obstacle exists to
+ * block a ROBOT from driving through the frame's base, not to fill the hollow
+ * CELL a real ROBOT never contacts at floor level — a taller block would
+ * physically trap a piece this fixture holds up there (`tipper.ts`) inside
+ * solid matter.
  */
 const LOW_STRUCTURE_HEIGHT_IN = 12;
 
-function flowerCenterM(regionId: string): Vec2 {
-  const region = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === regionId);
-  if (region === undefined) throw new Error(`No FLOWER region "${regionId}".`);
-  return region.centerM;
-}
+/**
+ * Where this fixture's own bodies start, measured from the id the perimeter
+ * gets. `createStandardField` numbers four walls from its own first id, so
+ * anything added here has to begin past them: sharing an id silently replaces
+ * a wall in `SimWorld`'s body map, and a robot drives straight out of the
+ * field through the gap.
+ */
+const STRUCTURE_ID_OFFSET = 100;
 
 export function createBiobuzzField(firstEntityId: EntityId = 1000): FieldTemplate {
-  const base = createStandardField();
+  const base = createStandardField(firstEntityId);
+  const structureId = firstEntityId + STRUCTURE_ID_OFFSET;
 
   const hiveSpan: VerticalSpan = { bottom: 0, top: inchesToMeters(LOW_STRUCTURE_HEIGHT_IN) };
   const hiveBody = createStaticBody({
-    id: firstEntityId,
+    id: structureId,
     shape: createObb(inchesToMeters(HIVE_FRAME.widthIn.value), inchesToMeters(HIVE_FRAME.depthIn.value)),
     span: hiveSpan,
     pose: { p: vec2(0, 0), theta: 0 },
   });
 
-  const flowerSpan: VerticalSpan = { bottom: 0, top: inchesToMeters(LOW_STRUCTURE_HEIGHT_IN) };
-  const flowerRegionIds = [
-    BIOBUZZ_REGIONS.flowerNorth,
-    BIOBUZZ_REGIONS.flowerSouth,
-    BIOBUZZ_REGIONS.flowerEast,
-    BIOBUZZ_REGIONS.flowerWest,
-  ];
-  const flowerBodies = flowerRegionIds.map((regionId, index) =>
-    createStaticBody({
-      id: firstEntityId + 1 + index,
-      shape: createObb(inchesToMeters(FLOWER_POST_FOOTPRINT_IN), inchesToMeters(FLOWER_POST_FOOTPRINT_IN)),
-      span: flowerSpan,
-      pose: { p: flowerCenterM(regionId), theta: 0 },
-    }),
-  );
-
   return {
     ...base,
     id: 'biobuzz-2026',
     name: 'BIOBUZZ Field',
-    bodies: [...base.bodies, hiveBody, ...flowerBodies],
+    bodies: [...base.bodies, hiveBody],
   };
 }

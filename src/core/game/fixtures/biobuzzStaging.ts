@@ -24,9 +24,16 @@
 import type { GamePieceSpec } from '../../sim/simWorld.js';
 import { vec2 } from '../../math/vec2.js';
 import { inchesToMeters } from '../../units/convert.js';
-import { NECTAR_DIAMETER_IN, NECTAR_MASS_LB, POLLEN_DIAMETER_IN, POLLEN_MASS_LB } from './biobuzzDimensions.js';
+import {
+  NECTAR_DIAMETER_IN,
+  NECTAR_MASS_LB,
+  POLLEN_DIAMETER_IN,
+  POLLEN_MASS_LB,
+  STARTING_CUBE_IN,
+} from './biobuzzDimensions.js';
 import { BIOBUZZ_FIELD_REGIONS, BIOBUZZ_LEGAL_START_POSES, BIOBUZZ_REGIONS, BIOBUZZ_ZONES, BIOBUZZ_FIELD_ZONES } from './biobuzzField.js';
-import { HIVE_CELL_REST_HEIGHT_IN, reserveNectarIds } from './biobuzz.js';
+import { tileBounds } from './biobuzzTiles.js';
+import { BIOBUZZ_TIPPING_STRUCTURES, HIVE_CELL_REST_HEIGHT_IN, reserveNectarIds } from './biobuzz.js';
 
 const POLLEN_D = POLLEN_DIAMETER_IN.value;
 const NECTAR_D = NECTAR_DIAMETER_IN.value;
@@ -37,8 +44,15 @@ function centerOf(id: string): { xIn: number; yIn: number } {
   return { xIn: place.centerM.x / inchesToMeters(1), yIn: place.centerM.y / inchesToMeters(1) };
 }
 
-function pollen(pieceId: string, xIn: number, yIn: number): GamePieceSpec {
-  return { pieceId, pieceType: 'pollen', diameterIn: POLLEN_D, massLb: POLLEN_MASS_LB.value, startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn)) };
+function pollen(pieceId: string, xIn: number, yIn: number, heightIn?: number): GamePieceSpec {
+  return {
+    pieceId,
+    pieceType: 'pollen',
+    diameterIn: POLLEN_D,
+    massLb: POLLEN_MASS_LB.value,
+    startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn)),
+    ...(heightIn === undefined ? {} : { heightM: inchesToMeters(heightIn) }),
+  };
 }
 
 function nectar(pieceId: string, alliance: 'red' | 'blue', xIn: number, yIn: number, heightIn?: number): GamePieceSpec {
@@ -52,14 +66,6 @@ function nectar(pieceId: string, alliance: 'red' | 'blue', xIn: number, yIn: num
   };
 }
 
-/** Small, deterministic offsets so 4 same-spot pieces do not spawn stacked. */
-const CLUSTER_OFFSETS_IN: readonly [number, number][] = [
-  [-1.5, -1.5],
-  [1.5, -1.5],
-  [-1.5, 1.5],
-  [1.5, 1.5],
-];
-
 /**
  * Stages 4 practice-robot POLLEN at *each* alliance's own legal start, since
  * this solo-practice simulator lets the driver switch alliance after the
@@ -71,6 +77,17 @@ const CLUSTER_OFFSETS_IN: readonly [number, number][] = [
 export function stageBiobuzzPieces(): readonly GamePieceSpec[] {
   const staged: GamePieceSpec[] = [];
 
+  // "[4] Pollen placed in it, with the bottom most Pollen sitting on the tiles
+  // inside the Flower Bottom Ring and each subsequent Pollen resting on the one
+  // below" (Setup Guide §11.2) — a column inside a vertical tube.
+  //
+  // This engine cannot hold that column: loose pieces have a height but no
+  // resting-on-each-other contact (see `BIOBUZZ_ELEVATED_REGIONS`), so four
+  // POLLEN stacked on one spot simply overlap, shove each other apart and
+  // scatter. They are staged spread along the wall at the FLOWER's mouth
+  // instead: the same four POLLEN, at the same FLOWER, reachable by the same
+  // ROBOT, just lying in a row rather than a stack. Restore the column when
+  // piece-on-piece stacking exists.
   const flowerIds = [
     BIOBUZZ_REGIONS.flowerNorth,
     BIOBUZZ_REGIONS.flowerSouth,
@@ -79,44 +96,91 @@ export function stageBiobuzzPieces(): readonly GamePieceSpec[] {
   ];
   for (const flowerId of flowerIds) {
     const { xIn, yIn } = centerOf(flowerId);
-    CLUSTER_OFFSETS_IN.forEach(([dx, dy], index) => {
-      staged.push(pollen(`pollen-${flowerId}-${index}`, xIn + dx, yIn + dy));
-    });
-  }
-
-  for (const gardenId of [BIOBUZZ_REGIONS.redGarden, BIOBUZZ_REGIONS.blueGarden]) {
-    const { xIn, yIn } = centerOf(gardenId);
+    // Spread along whichever wall the FLOWER is mounted on, so the row runs
+    // beside the perimeter rather than out into the driving lane.
+    const alongWall = Math.abs(xIn) > Math.abs(yIn) ? { x: 0, y: 1 } : { x: 1, y: 0 };
     for (let index = 0; index < 4; index++) {
-      staged.push(pollen(`pollen-${gardenId}-${index}`, xIn + (index - 1.5) * POLLEN_D, yIn));
+      const offsetIn = (index - 1.5) * POLLEN_D;
+      staged.push(
+        pollen(
+          `pollen-${flowerId}-${index}`,
+          xIn + alongWall.x * offsetIn,
+          yIn + alongWall.y * offsetIn,
+        ),
+      );
     }
   }
 
-  // 4 pre-loaded POLLEN at each alliance's own legal start — see the export's
-  // doc comment for why both are staged rather than just one.
+  // "[4] Pollen in each Garden are placed in a line such that they contact the
+  // Tape Lines of the Garden, are approximately adjacent to both nearby Field
+  // Perimeter Walls and are approximately adjacent to each other" (§11.3): a
+  // row running out of the corner along the wall, each ball touching the next.
+  const gardenTiles = [
+    { id: BIOBUZZ_REGIONS.redGarden, column: 'A' as const, row: 1 as const },
+    { id: BIOBUZZ_REGIONS.blueGarden, column: 'F' as const, row: 6 as const },
+  ];
+  for (const { id, column, row } of gardenTiles) {
+    const bounds = tileBounds(column, row);
+    const yIn = centerOf(id).yIn;
+    // Each row starts from the corner its own GARDEN TILE makes with the side
+    // wall — A1's is at -X, F6's at +X — and runs along the wall from there.
+    const fromXIn = column === 'A' ? bounds.minXIn : bounds.maxXIn;
+    const along = column === 'A' ? 1 : -1;
+    for (let index = 0; index < 4; index++) {
+      staged.push(
+        pollen(`pollen-${id}-${index}`, fromXIn + along * (POLLEN_D / 2 + index * POLLEN_D), yIn),
+      );
+    }
+  }
+
+  // "ROBOTS must start the MATCH contacting 4 pre-loaded POLLEN" (§10.3.4).
+  // Laid in a row across the front bumper, just touching it: a piece staged at
+  // the robot's own centre would be inside its chassis, where it is both in
+  // permanent collision and out of reach of a front-mounted intake — so the
+  // driver could never actually collect the preload the rule requires.
+  // Staged for *both* alliances because this solo-practice simulator lets the
+  // driver switch alliance after the world is built (`App.tsx`'s Team
+  // selector) without re-staging; only one set is ever against a robot.
   for (const startAlliance of ['red', 'blue'] as const) {
     const start = BIOBUZZ_LEGAL_START_POSES[startAlliance];
     const startXIn = start.p.x / inchesToMeters(1);
     const startYIn = start.p.y / inchesToMeters(1);
-    CLUSTER_OFFSETS_IN.forEach(([dx, dy], index) => {
-      staged.push(pollen(`pollen-robot-${startAlliance}-${index}`, startXIn + dx, startYIn + dy));
-    });
+    // Along the robot's heading, clear of a half-robot plus one ball radius.
+    const aheadIn = STARTING_CUBE_IN.value / 2 + POLLEN_D / 2;
+    const forward = { x: Math.cos(start.theta), y: Math.sin(start.theta) };
+    for (let index = 0; index < 4; index++) {
+      const acrossIn = (index - 1.5) * POLLEN_D;
+      staged.push(
+        pollen(
+          `pollen-robot-${startAlliance}-${index}`,
+          startXIn + forward.x * aheadIn - forward.y * acrossIn,
+          startYIn + forward.y * aheadIn + forward.x * acrossIn,
+        ),
+      );
+    }
   }
 
-  // 3 NECTAR of each alliance's own colour, pre-loaded in its own initially
-  // up-facing CELL (index 0 — see BIOBUZZ_TIPPING_STRUCTURES), at the CELL's
-  // resting height so they read as already inside it, not sitting on the
-  // floor below.
-  const redCell = centerOf(BIOBUZZ_REGIONS.redCellNear);
-  for (let index = 0; index < 3; index++) {
-    staged.push(
-      nectar(`nectar-red-${index + 1}`, 'red', redCell.xIn + (index - 1) * NECTAR_D, redCell.yIn, HIVE_CELL_REST_HEIGHT_IN),
-    );
-  }
-  const blueCell = centerOf(BIOBUZZ_REGIONS.blueCellNear);
-  for (let index = 0; index < 3; index++) {
-    staged.push(
-      nectar(`nectar-blue-${index + 1}`, 'blue', blueCell.xIn + (index - 1) * NECTAR_D, blueCell.yIn, HIVE_CELL_REST_HEIGHT_IN),
-    );
+  // "Each upward tilted Cell has [3] Nectar in it" (§11.1), of that HIVE's own
+  // colour — and which CELL is up is the guide's own per-alliance setup
+  // (`BIOBUZZ_INITIAL_UP_CELL`: red on the audience side, blue on the scoring
+  // side), so this reads the structure rather than assuming both are mirrored.
+  // They sit at the CELL's resting height so they read as already inside it,
+  // not on the floor below.
+  for (const alliance of ['red', 'blue'] as const) {
+    const structure = BIOBUZZ_TIPPING_STRUCTURES.find((s) => s.alliance === alliance);
+    if (structure === undefined) throw new Error(`BIOBUZZ staging needs a ${alliance} HIVE.`);
+    const cell = centerOf(structure.cellRegionIds[structure.initialUpIndex]);
+    for (let index = 0; index < 3; index++) {
+      staged.push(
+        nectar(
+          `nectar-${alliance}-${index + 1}`,
+          alliance,
+          cell.xIn + (index - 1) * NECTAR_D,
+          cell.yIn,
+          HIVE_CELL_REST_HEIGHT_IN,
+        ),
+      );
+    }
   }
 
   // The reserve 5-per-alliance NECTAR: staged as real bodies so the declared

@@ -27,12 +27,13 @@ import { stageBiobuzzPieces } from './biobuzzStaging.js';
 import { BIOBUZZ_REGIONS, BIOBUZZ_FIELD_REGIONS, BIOBUZZ_LEGAL_START_POSES } from './biobuzzField.js';
 import {
   HIVE_CELL_REST_HEIGHT_IN,
-  BIOBUZZ_HIVE_TIP_THRESHOLD,
+  BIOBUZZ_HIVE_TIP_LOAD_LB,
+  BIOBUZZ_TIPPING_STRUCTURES,
   BIOBUZZ_RULE_SET,
   BIOBUZZ_SETUP,
   BIOBUZZ_PIECES,
 } from './biobuzz.js';
-import { NECTAR_DIAMETER_IN } from './biobuzzDimensions.js';
+import { NECTAR_MASS_LB, POLLEN_DIAMETER_IN, POLLEN_MASS_LB } from './biobuzzDimensions.js';
 
 const cellCenterIn = (regionId: string): { xIn: number; yIn: number } => {
   const region = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === regionId);
@@ -81,36 +82,58 @@ describe('BIOBUZZ end-to-end scenarios', () => {
       field: createBiobuzzField(),
     });
 
-  it('tips the red HIVE once enough NECTAR rests in its up-facing CELL, scores the tip, and feeds a reserve piece', () => {
-    // 3 red NECTAR are already pre-loaded (biobuzzStaging.ts). The threshold
-    // is 5 (BIOBUZZ_HIVE_TIP_THRESHOLD), so 2 more physically resting there
-    // should tip it — modelling "2 more shots landed" without needing a full
-    // intake-and-fire cycle, which `matchSimulation.test.ts`'s generic
-    // tipping-structure tests already cover.
-    const { xIn, yIn } = cellCenterIn(BIOBUZZ_REGIONS.redCellNear);
-    const extra = [
-      {
-        pieceId: 'extra-nectar-red-1',
-        pieceType: 'nectar-red',
-        diameterIn: NECTAR_DIAMETER_IN.value,
-        massLb: 0.16,
-        startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn - 2)),
-        heightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
-      },
-      {
-        pieceId: 'extra-nectar-red-2',
-        pieceType: 'nectar-red',
-        diameterIn: NECTAR_DIAMETER_IN.value,
-        massLb: 0.16,
-        startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn + 2)),
-        heightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
-      },
-    ];
+  /**
+   * POLLEN resting in a named CELL, at the height the CELL holds them.
+   *
+   * The setup guide's calibration is stated in POLLEN "gently placed" into a
+   * CELL that already holds the staged 3 NECTAR, so that is what these build.
+   */
+  const pollenInCell = (regionId: string, count: number) => {
+    const { xIn, yIn } = cellCenterIn(regionId);
+    const d = POLLEN_DIAMETER_IN.value;
+    // Laid out as a grid rather than one row: the CELL opening is 20 x 12 in,
+    // and eight POLLEN in a single row would reach past its edge and stop
+    // counting as inside it.
+    const perRow = 4;
+    return Array.from({ length: count }, (_unused, index) => ({
+      pieceId: `extra-pollen-${index}`,
+      pieceType: 'pollen',
+      diameterIn: d,
+      massLb: POLLEN_MASS_LB.value,
+      startPositionM: vec2(
+        inchesToMeters(xIn + ((index % perRow) - (perRow - 1) / 2) * d),
+        inchesToMeters(yIn + (Math.floor(index / perRow) - 0.5) * d),
+      ),
+      heightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
+    }));
+  };
 
-    const sim = build(extra);
+  const redUpCell = () => {
+    const structure = BIOBUZZ_TIPPING_STRUCTURES.find((s) => s.alliance === 'red')!;
+    return structure.cellRegionIds[structure.initialUpIndex];
+  };
+
+  /**
+   * The setup guide's own calibration requirement (§12.3), run as gameplay.
+   *
+   * "[3] Nectar + [2] Pollen ... No Tip Necessary" and "[3] Nectar + [2] Pollen,
+   * 3rd Pollen is Gently Placed ... Tip". The 3 NECTAR are the staged kickoff
+   * load, so this is exactly the field-calibration test a volunteer performs.
+   */
+  it('does not tip the red HIVE on the staged 3 NECTAR plus 2 POLLEN (Setup Guide §12.3)', () => {
+    const sim = build(pollenInCell(redUpCell(), 2));
+
+    for (let i = 0; i < 40; i++) sim.step();
+
+    expect(sim.tippers.tipCount('red-hive')).toBe(0);
+    expect(sim.score.red).toBe(0);
+  });
+
+  it('tips the red HIVE on the 3rd POLLEN, scores the tip, and feeds a reserve piece', () => {
+    const sim = build(pollenInCell(redUpCell(), 3));
     expect(sim.tippers.tipCount('red-hive')).toBe(0);
 
-    for (let i = 0; i < 20 && sim.tippers.tipCount('red-hive') === 0; i++) sim.step();
+    for (let i = 0; i < 40 && sim.tippers.tipCount('red-hive') === 0; i++) sim.step();
 
     expect(sim.tippers.tipCount('red-hive')).toBe(1);
     expect(sim.tippers.currentUpRegionId('red-hive')).toBe(BIOBUZZ_REGIONS.redCellFar);
@@ -119,9 +142,28 @@ describe('BIOBUZZ end-to-end scenarios', () => {
     expect(sim.reserves.remaining('red-nectar-reserve')).toHaveLength(4);
   });
 
+  it('tips on 8 POLLEN with no NECTAR, the guide\'s other calibration load', () => {
+    // Only the up-facing CELL is weighed, and red's starts with the staged 3
+    // NECTAR in it — so reaching the "[8] Pollen + [0] Nectar" case means
+    // tipping once to bring the empty far CELL up, with 8 POLLEN waiting in it.
+    const sim = build([
+      ...pollenInCell(redUpCell(), 3),
+      ...pollenInCell(BIOBUZZ_REGIONS.redCellFar, 8).map((piece, index) => ({
+        ...piece,
+        pieceId: `far-pollen-${index}`,
+      })),
+    ]);
+
+    for (let i = 0; i < 40 && sim.tippers.tipCount('red-hive') < 2; i++) sim.step();
+
+    // Two tips: 3 NECTAR + 3 POLLEN, then 8 POLLEN alone.
+    expect(sim.tippers.tipCount('red-hive')).toBe(2);
+    expect(sim.tippers.currentUpRegionId('red-hive')).toBe(redUpCell());
+  });
+
   it('scores nothing at kickoff merely from the pre-staged layout', () => {
     // Priming makes the starting layout a baseline. In particular the 3
-    // pre-loaded NECTAR are below BIOBUZZ_HIVE_TIP_THRESHOLD, so no tip fires
+    // pre-loaded NECTAR weigh less than BIOBUZZ_HIVE_TIP_LOAD_LB, so no tip fires
     // on tick 1 either.
     const sim = build();
     sim.step();
@@ -220,8 +262,14 @@ describe('BIOBUZZ end-to-end scenarios', () => {
   });
 });
 
-it('records BIOBUZZ_HIVE_TIP_THRESHOLD as an assumed value, not an explicit one', () => {
-  // Documents the honesty this fixture's file banner promises: the manual
-  // gives no piece count, so this must never silently read as sourced.
-  expect(BIOBUZZ_HIVE_TIP_THRESHOLD.confidence).toBe('assumed');
+it('keeps the HIVE tip load equal for both of the setup guide\'s calibration combinations', () => {
+  // The whole point of weighing the load rather than counting it: the guide
+  // calibrates every HIVE to tip on "[8] Pollen + [0] Nectar, AND [3] Pollen +
+  // [3] Nectar", which are different counts of the same weight. If these ever
+  // diverge, one of the two documented calibrations would stop working.
+  const eightPollen = 8 * POLLEN_MASS_LB.value;
+  const threeAndThree = 3 * POLLEN_MASS_LB.value + 3 * NECTAR_MASS_LB.value;
+
+  expect(threeAndThree).toBeCloseTo(eightPollen, 10);
+  expect(BIOBUZZ_HIVE_TIP_LOAD_LB.value).toBeCloseTo(eightPollen, 10);
 });

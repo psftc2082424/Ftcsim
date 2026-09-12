@@ -207,6 +207,7 @@ class FakeWorld implements ConveyorWorld {
         previousPose: { p, theta: 0 },
         vel: { v: this.velocities.get(pieceId) ?? vec2(0, 0), omega: 0 },
         radiusM: 0.06223,
+        massKg: 0.0748,
         heightM: 0.06223,
         previousHeightM: 0.06223,
         verticalVelocityMps: 0,
