@@ -43,6 +43,8 @@ import {
 } from '../regions.js';
 import { DECODE_REGIONS, DECODE_ZONES, RAMP_SLOT_COUNT, spikeMarkId } from './decode.js';
 import { vec2, type Vec2 } from '../../math/vec2.js';
+import { inchesToMeters } from '../../units/convert.js';
+import type { Pose } from '../../physics/body.js';
 import { ARTIFACT, CLASSIFIER, CLASSIFIER_SINGLE_FILE_CLEAR_WIDTH_IN, FIELD, GOAL, LAUNCH_ZONES, ZONES } from './decodeDimensions.js';
 import {
   rowCenterYIn,
@@ -514,6 +516,17 @@ export const DECODE_FIELD_ZONES: readonly FieldZone[] = [
 export const DECODE_SLOTTED_REGIONS: Readonly<Record<string, number>> = {
   [DECODE_REGIONS.redRamp]: RAMP_SLOT_COUNT.value,
   [DECODE_REGIONS.blueRamp]: RAMP_SLOT_COUNT.value,
+};
+
+/**
+ * Where a DECODE robot legally starts (G304, p.102): over a LAUNCH LINE,
+ * touching the FIELD perimeter, and fully on its own side. The GOAL-side LAUNCH
+ * ZONE's base is the whole GOAL-side wall, so this puts an 18 in robot against
+ * that wall inside red's half.
+ */
+export const DECODE_LEGAL_START_POSES: Readonly<Record<'red' | 'blue', Pose>> = {
+  red: { p: vec2(inchesToMeters(-30), inchesToMeters(63)), theta: 0 },
+  blue: { p: vec2(inchesToMeters(30), inchesToMeters(63)), theta: 0 },
 };
 
 /**

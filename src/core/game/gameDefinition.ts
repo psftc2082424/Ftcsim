@@ -27,6 +27,9 @@ import { validateRuleSet } from './rulesEngine.js';
 import { validateRegions, type FieldRegion, type FieldZone } from './regions.js';
 import { totalMatchDurationSec, type MatchStructure } from './matchStructure.js';
 import type { PieceConveyorSpec } from './conveyor.js';
+import type { TippingStructureSpec } from './tipper.js';
+import type { ReserveFeedSpec } from './reserveFeed.js';
+import type { ElevatedRegionSpec } from './elevatedRegion.js';
 import type { PredicateRegistry } from './predicates.js';
 import type { Objective, ScoringRule, FilterValue } from './scoring.js';
 import type { ScoreState } from './effects.js';
@@ -193,7 +196,20 @@ export interface RobotConstraints {
 export interface MechanismActionRoute {
   readonly id: string;
   readonly action: 'launch';
-  readonly destinationRegionByAlliance: Readonly<Record<'red' | 'blue', string>>;
+  /**
+   * Fixed destination per alliance, for a season whose scoring target does
+   * not move — DECODE's GOAL. Exactly one of this and
+   * `dynamicDestinationStructureByAlliance` must be set.
+   */
+  readonly destinationRegionByAlliance?: Readonly<Record<'red' | 'blue', string>> | undefined;
+  /**
+   * A bistable structure (`game/tipper.ts`) per alliance whose *currently
+   * up-facing* region is the live destination — BIOBUZZ's HIVE, which
+   * alternates which CELL accepts a shot as it tips. Resolved at the moment
+   * a launch fires, never cached, because the up-facing cell can change
+   * between one shot and the next.
+   */
+  readonly dynamicDestinationStructureByAlliance?: Readonly<Record<'red' | 'blue', string>> | undefined;
   /**
    * Apex height of the piece's real flight toward the destination, metres.
    *
@@ -230,6 +246,22 @@ export interface GameDefinition {
   readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
   /** Deterministic destinations for mechanism actions, when a game has them. */
   readonly mechanismActionRoutes?: readonly MechanismActionRoute[] | undefined;
+  /**
+   * Bistable field structures that flip when enough pieces accumulate
+   * (`game/tipper.ts`), when a game has them.
+   */
+  readonly tippingStructures?: readonly TippingStructureSpec[] | undefined;
+  /**
+   * Held reserves released on a counted trigger or match phase
+   * (`game/reserveFeed.ts`), when a game has them.
+   */
+  readonly reserveFeeds?: readonly ReserveFeedSpec[] | undefined;
+  /**
+   * Regions that hold a resting piece at a declared height
+   * (`game/elevatedRegion.ts`), for a scoring pocket this engine's 2D contact
+   * solver cannot support on its own.
+   */
+  readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
 
   readonly rules: readonly ScoringRule[];
   readonly objectives: readonly Objective[];
@@ -450,19 +482,90 @@ export function validateGameDefinition(
   }
 
   // --- mechanism action routes -------------------------------------------
+  const structureIds = new Set((definition.tippingStructures ?? []).map((s) => s.id));
   const routeIds = new Set<string>();
+  const routeActionKinds = new Set<string>();
   for (const route of definition.mechanismActionRoutes ?? []) {
     if (routeIds.has(route.id)) error('mechanismActionRoutes', `Duplicate route "${route.id}".`);
     routeIds.add(route.id);
 
+    // `MatchSimulation.routeMechanismActions` resolves a fired action by
+    // matching the first route with this action kind — a second route for the
+    // same kind would never be reached, so both alliances must be encoded in
+    // one route's alliance-keyed destination map instead.
+    if (routeActionKinds.has(route.action)) {
+      error(
+        'mechanismActionRoutes',
+        `More than one route declares action "${route.action}" — only the first is ever used. ` +
+          'Encode both alliances\' destinations in one route instead.',
+      );
+    }
+    routeActionKinds.add(route.action);
+
+    const hasFixed = route.destinationRegionByAlliance !== undefined;
+    const hasDynamic = route.dynamicDestinationStructureByAlliance !== undefined;
+    if (hasFixed === hasDynamic) {
+      error(
+        `mechanismActionRoutes.${route.id}`,
+        'Must declare exactly one of destinationRegionByAlliance or dynamicDestinationStructureByAlliance.',
+      );
+      continue;
+    }
+
     for (const alliance of ['red', 'blue'] as const) {
-      const regionId = route.destinationRegionByAlliance[alliance];
-      if (!placedRegions.has(regionId)) {
-        error(
-          `mechanismActionRoutes.${route.id}`,
-          `Destination region "${regionId}" for ${alliance} has no geometry.`,
-        );
+      if (hasFixed) {
+        const regionId = (route.destinationRegionByAlliance as Record<'red' | 'blue', string>)[alliance];
+        if (!placedRegions.has(regionId)) {
+          error(
+            `mechanismActionRoutes.${route.id}`,
+            `Destination region "${regionId}" for ${alliance} has no geometry.`,
+          );
+        }
+      } else {
+        const structureId =
+          (route.dynamicDestinationStructureByAlliance as Record<'red' | 'blue', string>)[alliance];
+        if (!structureIds.has(structureId)) {
+          error(
+            `mechanismActionRoutes.${route.id}`,
+            `Destination structure "${structureId}" for ${alliance} is not a declared tipping structure.`,
+          );
+        }
       }
+    }
+  }
+
+  // --- tipping structures ---------------------------------------------------
+  for (const structure of definition.tippingStructures ?? []) {
+    for (const regionId of structure.cellRegionIds) {
+      if (!placedRegions.has(regionId)) {
+        error(`tippingStructures.${structure.id}`, `Cell region "${regionId}" has no geometry.`);
+      }
+    }
+    if (structure.tipThresholdCount.value <= 0) {
+      error(`tippingStructures.${structure.id}`, 'Tip threshold must be positive.');
+    }
+  }
+
+  // --- elevated regions -------------------------------------------------------
+  for (const spec of definition.elevatedRegions ?? []) {
+    if (!placedRegions.has(spec.regionId)) {
+      error(`elevatedRegions.${spec.id}`, `Region "${spec.regionId}" has no geometry.`);
+    }
+  }
+
+  // --- reserve feeds ----------------------------------------------------------
+  for (const feed of definition.reserveFeeds ?? []) {
+    if (!placedZones.has(feed.spawnZoneId)) {
+      error(`reserveFeeds.${feed.id}`, `Spawn zone "${feed.spawnZoneId}" has no geometry.`);
+    }
+    if (!structureIds.has(feed.triggerStructureId)) {
+      error(
+        `reserveFeeds.${feed.id}`,
+        `Trigger structure "${feed.triggerStructureId}" is not a declared tipping structure.`,
+      );
+    }
+    if (feed.perTriggerCount <= 0) {
+      error(`reserveFeeds.${feed.id}`, 'Per-trigger release count must be positive.');
     }
   }
 

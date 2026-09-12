@@ -40,6 +40,9 @@ import {
   resolveConveyorPlaces,
   type PieceConveyorSpec,
 } from './conveyor.js';
+import { TippingStructures, resolveTippingRegions, type TippingStructureSpec } from './tipper.js';
+import { ReserveFeeds, resolveReserveFeedPlaces, type ReserveFeedSpec } from './reserveFeed.js';
+import { ElevatedRegions, resolveElevatedRegions, type ElevatedRegionSpec } from './elevatedRegion.js';
 import { createDefaultRegistry, type PredicateRegistry } from './predicates.js';
 import type { FieldRegion, FieldZone } from './regions.js';
 import type { ScoringRule, FilterValue } from './scoring.js';
@@ -68,6 +71,12 @@ export interface MatchSimulationOptions {
   readonly conveyors?: readonly PieceConveyorSpec[] | undefined;
   /** Deterministic destinations for actions emitted by robot mechanisms. */
   readonly mechanismActionRoutes?: readonly MechanismActionRoute[] | undefined;
+  /** Bistable field structures that flip when enough pieces accumulate (`tipper.ts`). */
+  readonly tippingStructures?: readonly TippingStructureSpec[] | undefined;
+  /** Held reserves released on a counted trigger or match phase (`reserveFeed.ts`). */
+  readonly reserveFeeds?: readonly ReserveFeedSpec[] | undefined;
+  /** Regions that hold a resting piece at a declared height (`elevatedRegion.ts`). */
+  readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
 
   readonly robots: readonly RobotSpec[];
   readonly pieces?: readonly GamePieceSpec[] | undefined;
@@ -107,11 +116,16 @@ export class MatchSimulation {
   readonly detector: RegionMembershipDetector;
   readonly possession: PossessionTracker;
   readonly conveyors: PieceConveyors;
+  readonly tippers: TippingStructures;
+  readonly reserves: ReserveFeeds;
+  readonly elevated: ElevatedRegions;
 
   private readonly options: MatchSimulationOptions;
   private readonly attribution: PieceAttribution;
   private readonly structure: MatchStructure;
   private readonly eventLog: SimEvent[] = [];
+  private readonly tippingRegions: ReadonlyMap<string, FieldRegion>;
+  private readonly elevatedRegionMap: ReadonlyMap<string, FieldRegion>;
 
   constructor(options: MatchSimulationOptions) {
     this.options = options;
@@ -133,6 +147,26 @@ export class MatchSimulation {
       resolveConveyorPlaces(conveyorSpecs, options.regions, options.zones),
       DT_SECONDS,
     );
+
+    const tippingSpecs = options.tippingStructures ?? [];
+    this.tippers = new TippingStructures(tippingSpecs);
+    this.tippingRegions = resolveTippingRegions(tippingSpecs, options.regions);
+
+    const elevatedSpecs = options.elevatedRegions ?? [];
+    this.elevated = new ElevatedRegions(elevatedSpecs);
+    this.elevatedRegionMap = resolveElevatedRegions(elevatedSpecs, options.regions);
+
+    const reserveSpecs = options.reserveFeeds ?? [];
+    const reservePlaces = resolveReserveFeedPlaces(reserveSpecs, options.zones);
+    this.reserves = new ReserveFeeds(reserveSpecs, reservePlaces);
+    // A reserve piece is a real body from tick zero (it must already appear in
+    // the declared piece counts), parked until its feed releases it — the same
+    // held state a conveyor keeps a queued piece in.
+    for (const feed of reserveSpecs) {
+      const zone = reservePlaces.get(feed.spawnZoneId);
+      if (zone === undefined) continue;
+      for (const pieceId of feed.pieceIds) this.world.holdPiece(pieceId, zone.centerM);
+    }
 
     this.detector = new RegionMembershipDetector({
       regions: options.regions,
@@ -225,6 +259,22 @@ export class MatchSimulation {
 
     this.conveyors.update(routedSnapshot, this.world.tick, this.world);
 
+    this.ingestAll(
+      this.tippers.update(
+        this.tippingRegions,
+        routedSnapshot,
+        this.world.tick,
+        routedSnapshot.timeSec,
+        this.world,
+      ),
+    );
+    this.reserves.update(
+      (structureId) => this.tippers.tipCount(structureId),
+      matchStateAt(this.structure, this.world.tick * DT_SECONDS),
+      this.world,
+    );
+    this.elevated.update(this.elevatedRegionMap, routedSnapshot, this.world);
+
     if (this.endsAPeriod(this.world.tick)) {
       this.ingestAll(this.detector.restateRestingPieces(this.world.tick, this.options.slotAssignment));
       this.ingestAll(this.detector.restateOccupancy(this.world.tick));
@@ -295,8 +345,18 @@ export class MatchSimulation {
         continue;
       }
 
-      const destinationId = route.destinationRegionByAlliance[action.alliance];
-      const destination = this.options.regions.find((region) => region.id === destinationId);
+      const destinationId =
+        route.destinationRegionByAlliance !== undefined
+          ? route.destinationRegionByAlliance[action.alliance]
+          : this.tippers.currentUpRegionId(
+              (route.dynamicDestinationStructureByAlliance as Record<'red' | 'blue', string>)[
+                action.alliance
+              ],
+            );
+      const destination =
+        destinationId === undefined
+          ? undefined
+          : this.options.regions.find((region) => region.id === destinationId);
       if (destination === undefined) {
         // Definition validation catches this before a normal match begins; the
         // guard keeps direct MatchSimulation construction fail-safe as well.
@@ -397,6 +457,9 @@ export function simulationFromDefinition(
 
     conveyors: definition.conveyors,
     mechanismActionRoutes: definition.mechanismActionRoutes,
+    tippingStructures: definition.tippingStructures,
+    reserveFeeds: definition.reserveFeeds,
+    elevatedRegions: definition.elevatedRegions,
 
     robots: setup.robots,
     pieces: setup.pieces,

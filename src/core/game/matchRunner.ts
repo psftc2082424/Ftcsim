@@ -50,6 +50,16 @@ interface WorldBookkeeping {
   robotsFullyInZone: Record<string, string[]>;
   robotsPartiallyInZone: Record<string, string[]>;
   variables: Record<string, FilterValue>;
+  /**
+   * Every piece type ever seen on an event, by piece id.
+   *
+   * `regionContents` orders pieces by arrival and is otherwise silent about
+   * what each one is. A rule asking "is the piece that arrived *first* still
+   * here, and is it this alliance's" — BIOBUZZ's FLOWER ownership — needs a
+   * type for an id it did not just receive on the current event, so this is
+   * recorded generically rather than threaded through region bookkeeping.
+   */
+  pieceTypeById: Record<string, string>;
 }
 
 export class MatchRunner {
@@ -66,6 +76,7 @@ export class MatchRunner {
       robotsFullyInZone: {},
       robotsPartiallyInZone: {},
       variables: { ...(options.variables ?? {}) },
+      pieceTypeById: {},
     };
   }
 
@@ -217,10 +228,15 @@ export class MatchRunner {
       variables: this.world.variables,
       robotsFullyInZone: this.world.robotsFullyInZone,
       robotsPartiallyInZone: this.world.robotsPartiallyInZone,
+      pieceTypeById: this.world.pieceTypeById,
     };
   }
 
   private applyEventToWorld(event: SimEvent): void {
+    if ('pieceId' in event && 'pieceType' in event) {
+      this.world.pieceTypeById[event.pieceId] = event.pieceType;
+    }
+
     switch (event.kind) {
       case 'PieceEnteredRegion':
         this.addToRegion(event.regionId, event.pieceId);

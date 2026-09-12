@@ -53,6 +53,8 @@ export interface PredicateContext {
   readonly robotsFullyInZone: Readonly<Record<string, readonly string[]>>;
   /** Robots partially inside the named zone. */
   readonly robotsPartiallyInZone: Readonly<Record<string, readonly string[]>>;
+  /** Piece type of every piece id seen on any event so far, by piece id. */
+  readonly pieceTypeById: Readonly<Record<string, string>>;
 }
 
 export type PredicateParams = Readonly<Record<string, FilterValue>>;
@@ -270,6 +272,59 @@ export function createDefaultRegistry(): PredicateRegistry {
     return !inAnyZone(context, robotId, readList(params, 'zoneIds'));
   });
 
+  /**
+   * The earliest-arrived piece still present in a region has a given type.
+   *
+   * `regionContents` is arrival-ordered and shrinks as pieces leave, so index 0
+   * is always "whichever present piece has been there longest" — no separate
+   * bookkeeping needed. BIOBUZZ's "Bottom NECTAR Bonus" (§10.5.2) is this: a
+   * narrow FLOWER channel cannot reorder what is dropped into it, so arrival
+   * order **is** stacking order.
+   */
+  registry.register('regionFirstArrivalHasType', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const pieceType = readString(params, 'pieceType');
+    const first = context.regionContents[regionId]?.[0];
+    return first !== undefined && context.pieceTypeById[first] === pieceType;
+  });
+
+  /** The most-recently-arrived piece still present in a region has a given type. */
+  registry.register('regionLastArrivalHasType', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const pieceType = readString(params, 'pieceType');
+    const contents = context.regionContents[regionId];
+    const last = contents === undefined || contents.length === 0 ? undefined : contents[contents.length - 1];
+    return last !== undefined && context.pieceTypeById[last] === pieceType;
+  });
+
+  /**
+   * The event's own piece is the earliest-arrived, still-present piece in a
+   * region.
+   *
+   * Distinct from `regionFirstArrivalHasType`, and needed for a different
+   * shape of rule: an ownership-style award ("every piece here scores for
+   * whoever owns the region") is meant to fire once per piece and is
+   * correctly type-based. A flat, once-per-region award — BIOBUZZ's "Bottom
+   * NECTAR Bonus" (§10.5.2), a single credit for whichever alliance's NECTAR
+   * is lowest — must fire for exactly one piece's event, not once per
+   * same-type piece the region happens to also hold, so it gates on this
+   * event's own piece identity rather than on the region's type alone.
+   */
+  registry.register('pieceIsRegionFirstArrival', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const pieceId = pieceIdOf(context.event);
+    return pieceId !== null && context.regionContents[regionId]?.[0] === pieceId;
+  });
+
+  /** The event's own piece is the most-recently-arrived, still-present piece in a region. */
+  registry.register('pieceIsRegionLastArrival', (context, params) => {
+    const regionId = readString(params, 'regionId');
+    const pieceId = pieceIdOf(context.event);
+    if (pieceId === null) return false;
+    const contents = context.regionContents[regionId];
+    return contents !== undefined && contents.length > 0 && contents[contents.length - 1] === pieceId;
+  });
+
   /** A named match variable equals a given value. */
   registry.register('variableEquals', (context, params) => {
     const name = readString(params, 'name');
@@ -277,6 +332,10 @@ export function createDefaultRegistry(): PredicateRegistry {
   });
 
   return registry;
+}
+
+function pieceIdOf(event: SimEvent): string | null {
+  return 'pieceId' in event && typeof event.pieceId === 'string' ? event.pieceId : null;
 }
 
 function robotIdOf(event: SimEvent): string | null {

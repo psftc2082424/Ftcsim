@@ -460,3 +460,109 @@ describe('observation bridge', () => {
     expect(observationFrom(world.snapshot()).pieces?.[0]?.byAlliance).toBeUndefined();
   });
 });
+
+describe('tipping structures, dynamic mechanism routes and reserve feeds', () => {
+  const cellA = createRectRegion({ id: 'cell-a', centerXIn: 40, centerYIn: 20, widthIn: 20, lengthIn: 20 });
+  const cellB = createRectRegion({ id: 'cell-b', centerXIn: 40, centerYIn: -20, widthIn: 20, lengthIn: 20 });
+  const reserveSpawn = createRectZone({ id: 'spawn', centerXIn: -40, centerYIn: 0, widthIn: 20, lengthIn: 20 });
+
+  const seesaw = {
+    id: 'seesaw',
+    alliance: 'red' as const,
+    cellRegionIds: ['cell-a', 'cell-b'] as const,
+    initialUpIndex: 0 as const,
+    tipThresholdCount: explicit(2),
+    cellRestHeightM: inchesToMeters(2.5),
+    cellHeightRateMps: 10,
+    dumpSpeedMps: 0.3,
+  };
+
+  const dynamicRoute = {
+    id: 'dynamic-launch',
+    action: 'launch' as const,
+    dynamicDestinationStructureByAlliance: { red: 'seesaw', blue: 'seesaw' },
+    arcApexHeightM: 0.9,
+  };
+
+  const tipRule: ScoringRule = {
+    id: 'tip',
+    label: 'Seesaw tipped',
+    phase: 'ANY',
+    trigger: { event: 'StructureTipped', filters: [{ field: 'structureId', equals: 'seesaw' }] },
+    award: { points: explicit(20), alliance: 'owner' },
+  };
+
+  it('sends a functional launch to the currently up-facing cell', () => {
+    const controller = new ScriptedController(
+      createInputTrace('intake then score', [
+        { tick: 0, input: createControlInput(0, 0, 0, { [INTAKE_BUTTON]: true }) },
+        { tick: 1, input: createControlInput(0, 0, 0, { [LAUNCH_BUTTON]: true }) },
+      ]),
+    );
+    const sim = simulation({
+      rules: [tipRule],
+      regions: [cellA, cellB],
+      robots: [
+        {
+          config: COMPETITION_ROBOT_CONFIG,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      pieces: [
+        {
+          pieceId: 'p',
+          pieceType: 'P',
+          diameterIn: 4.9,
+          massLb: 0.165,
+          startPositionM: vec2(inchesToMeters(11), 0),
+        },
+      ],
+      tippingStructures: [seesaw],
+      mechanismActionRoutes: [dynamicRoute],
+    });
+
+    for (let i = 0; i < 300; i++) sim.step();
+
+    expect(sim.events).toContainEqual(
+      expect.objectContaining({ kind: 'PieceEnteredRegion', pieceId: 'p', regionId: 'cell-a' }),
+    );
+  });
+
+  it('tips once the up cell holds the threshold, scores the tip, and feeds a reserve piece', () => {
+    const sim = simulation({
+      rules: [tipRule],
+      regions: [cellA, cellB],
+      pieces: [
+        { pieceId: 'a', pieceType: 'P', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(inchesToMeters(40), inchesToMeters(20)) },
+        { pieceId: 'b', pieceType: 'P', diameterIn: 4.9, massLb: 0.165, startPositionM: vec2(inchesToMeters(40), inchesToMeters(19)) },
+        { pieceId: 'r1', pieceType: 'P', diameterIn: 4.9, massLb: 0.165 },
+      ],
+      tippingStructures: [seesaw],
+      reserveFeeds: [
+        {
+          id: 'reserve',
+          pieceIds: ['r1'],
+          spawnZoneId: 'spawn',
+          triggerStructureId: 'seesaw',
+          perTriggerCount: 1,
+        },
+      ],
+      zones: [startZone, reserveSpawn],
+    });
+
+    for (let i = 0; i < 50; i++) sim.step();
+
+    expect(sim.tippers.tipCount('seesaw')).toBe(1);
+    expect(sim.tippers.currentUpRegionId('seesaw')).toBe('cell-b');
+    expect(sim.score.red).toBe(20);
+
+    // The reserve piece was parked at construction (held out of play) and
+    // released once the tip fired — this is the actual test of release,
+    // rather than of the parked position, which is the same before and after.
+    expect(sim.reserves.remaining('reserve')).toEqual([]);
+    const reserved = sim.world.snapshot().pieces.find((piece) => piece.pieceId === 'r1');
+    expect(reserved?.pose.p.x).toBeCloseTo(inchesToMeters(-40), 3);
+  });
+});

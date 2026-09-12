@@ -36,6 +36,7 @@ const emptyContext = (event: SimEvent): PredicateContext => ({
   variables: {},
   robotsFullyInZone: {},
   robotsPartiallyInZone: {},
+  pieceTypeById: {},
 });
 
 const rule = (patch: Partial<ScoringRule> = {}): ScoringRule => ({
@@ -186,6 +187,93 @@ describe('built-in predicates', () => {
         context,
       ),
     ).toBe(false);
+  });
+
+  describe('regionFirstArrivalHasType / regionLastArrivalHasType', () => {
+    const context: PredicateContext = {
+      ...emptyContext(pieceEvent('flower')),
+      regionContents: { flower: ['n1', 'p1', 'n2'] },
+      pieceTypeById: { n1: 'nectar-red', p1: 'pollen', n2: 'nectar-blue' },
+    };
+
+    it('reads the type of the earliest-arrived piece still present', () => {
+      expect(
+        registry.evaluate(
+          { predicateId: 'regionFirstArrivalHasType', params: { regionId: 'flower', pieceType: 'nectar-red' } },
+          context,
+        ),
+      ).toBe(true);
+      expect(
+        registry.evaluate(
+          { predicateId: 'regionFirstArrivalHasType', params: { regionId: 'flower', pieceType: 'nectar-blue' } },
+          context,
+        ),
+      ).toBe(false);
+    });
+
+    it('reads the type of the most-recently-arrived piece still present', () => {
+      expect(
+        registry.evaluate(
+          { predicateId: 'regionLastArrivalHasType', params: { regionId: 'flower', pieceType: 'nectar-blue' } },
+          context,
+        ),
+      ).toBe(true);
+    });
+
+    it('is false for a region with nothing in it', () => {
+      const empty: PredicateContext = { ...context, regionContents: {} };
+      expect(
+        registry.evaluate(
+          { predicateId: 'regionFirstArrivalHasType', params: { regionId: 'flower', pieceType: 'pollen' } },
+          empty,
+        ),
+      ).toBe(false);
+      expect(
+        registry.evaluate(
+          { predicateId: 'regionLastArrivalHasType', params: { regionId: 'flower', pieceType: 'pollen' } },
+          empty,
+        ),
+      ).toBe(false);
+    });
+  });
+
+  describe('pieceIsRegionFirstArrival / pieceIsRegionLastArrival', () => {
+    const context: PredicateContext = {
+      ...emptyContext(pieceEvent('flower', 'p1')),
+      regionContents: { flower: ['n1', 'p1', 'n2'] },
+    };
+
+    it('is true only for the event whose own piece sits at that end of the region', () => {
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionFirstArrival', params: { regionId: 'flower' } }, {
+          ...context,
+          event: pieceEvent('flower', 'n1'),
+        }),
+      ).toBe(true);
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionFirstArrival', params: { regionId: 'flower' } }, context),
+      ).toBe(false);
+
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionLastArrival', params: { regionId: 'flower' } }, {
+          ...context,
+          event: pieceEvent('flower', 'n2'),
+        }),
+      ).toBe(true);
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionLastArrival', params: { regionId: 'flower' } }, context),
+      ).toBe(false);
+    });
+
+    it('is false when the region is empty', () => {
+      const empty: PredicateContext = { ...context, regionContents: {} };
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionFirstArrival', params: { regionId: 'flower' } }, empty),
+      ).toBe(false);
+      expect(
+        registry.evaluate({ predicateId: 'pieceIsRegionLastArrival', params: { regionId: 'flower' } }, empty),
+      ).toBe(false);
+    });
   });
 
   describe('robotNotInZone', () => {

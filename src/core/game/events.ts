@@ -40,6 +40,7 @@ export const SIM_EVENT_KINDS = [
   'MechanismStateChanged',
   'RobotAssessed',
   'PhaseChanged',
+  'StructureTipped',
 ] as const;
 
 export type SimEventKind = (typeof SIM_EVENT_KINDS)[number];
@@ -211,6 +212,23 @@ export interface PhaseChangedEvent extends SimEventBase {
   readonly to: string;
 }
 
+/**
+ * A bistable field structure (`game/tipper.ts`) flipped from one stable state
+ * to the other.
+ *
+ * Generic on purpose, the same way a conveyor never names a GATE: nothing here
+ * says HIVE or CELL. A season declares a structure with two named regions and
+ * a tip threshold; this event is the fact that it flipped, and which alliance
+ * it belongs to. Rules decide what a tip is worth.
+ */
+export interface StructureTippedEvent extends SimEventBase {
+  readonly kind: 'StructureTipped';
+  readonly structureId: string;
+  readonly alliance: Alliance;
+  /** The region now facing up, i.e. the new scoring/accepting destination. */
+  readonly upRegionId: string;
+}
+
 export type SimEvent =
   | PieceEnteredRegionEvent
   | PieceExitedRegionEvent
@@ -223,7 +241,8 @@ export type SimEvent =
   | RobotHeightExceededEvent
   | MechanismStateChangedEvent
   | RobotAssessedEvent
-  | PhaseChangedEvent;
+  | PhaseChangedEvent
+  | StructureTippedEvent;
 
 /**
  * Read a dotted path off an event for rule filtering.
