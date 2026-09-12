@@ -838,6 +838,7 @@ export const DECODE_ROBOT_CONSTRAINTS = {
     'ROBOTS may expand horizontally but must remain within a fixed 18 in. (45.70 cm) by 18 in. (45.70 cm) when fully expanded per G414',
     123,
   ),
+  pieceControlLimit: CONTROL_LIMIT,
 } as const;
 
 /**

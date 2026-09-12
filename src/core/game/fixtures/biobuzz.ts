@@ -35,7 +35,7 @@
  *    that module for why this needs no new "pieces spawn mid-match" concept.
  */
 
-import { assumed, explicit, explicitRule, type Sourced } from '../sourced.js';
+import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sourced.js';
 import type { MatchStructure } from '../matchStructure.js';
 import type { ScoringRule } from '../scoring.js';
 import type {
@@ -48,13 +48,14 @@ import type {
 import type { TippingStructureSpec } from '../tipper.js';
 import type { ReserveFeedSpec } from '../reserveFeed.js';
 import type { ElevatedRegionSpec } from '../elevatedRegion.js';
-import { inchesToMeters } from '../../units/convert.js';
+import { inchesToMeters, poundsToKilograms } from '../../units/convert.js';
 import {
   EXPANSION_DEPTH_IN,
   EXPANSION_HEIGHT_IN,
   EXPANSION_WIDTH_IN,
   FLOWER,
   HIVE_FRAME,
+  HIVE_TIP_LOAD_POLLEN_COUNT,
   NECTAR_COUNT_PER_ALLIANCE,
   NECTAR_DIAMETER_IN,
   NECTAR_MASS_LB,
@@ -126,6 +127,30 @@ export const BIOBUZZ_MATCH: MatchStructure = {
 
 // ------------------------------------------------------------ constraints ---
 
+/**
+ * How many SCORING ELEMENTS a BIOBUZZ ROBOT may hold at once.
+ *
+ * Four, not DECODE's three. §10.3.4 is transcribed elsewhere in this file and
+ * settles the floor outright — "ROBOTS must start the MATCH contacting 4
+ * pre-loaded POLLEN" — so a robot that could only carry 3 could not legally
+ * take the field, and the setup guide stages exactly 4 POLLEN per ROBOT in
+ * each ALLIANCE AREA tray for that purpose (§11.3).
+ *
+ * `inferred`, not `explicit`: G407 does state a CONTROL limit (see
+ * `BIOBUZZ_FOULS_ASSESSED_BY_REFEREE`), but this pass has not read its number,
+ * so the limit here is reasoned up from the preload requirement rather than
+ * transcribed from the rule itself. If G407 turns out to allow more, this is
+ * the floor rather than the ceiling and only the default robot changes.
+ */
+export const BIOBUZZ_CONTROL_LIMIT: Sourced<number> = inferred(
+  4,
+  'Reasoned from §10.3.4\'s "ROBOTS must start the MATCH contacting 4 pre-loaded POLLEN" ' +
+    '(already transcribed as BIOBUZZ_SETUP.maxPreloadPerRobot) and the Event FIELD Setup ' +
+    'Guide §11.3\'s 4 POLLEN per ROBOT in each ALLIANCE AREA tray. Needs G407\'s own ' +
+    'number to become a transcription.',
+  84,
+);
+
 export const BIOBUZZ_ROBOT_CONSTRAINTS: RobotConstraints = {
   startingCubeIn: STARTING_CUBE_IN,
   maxExpandedHeightIn: EXPANSION_HEIGHT_IN,
@@ -133,6 +158,7 @@ export const BIOBUZZ_ROBOT_CONSTRAINTS: RobotConstraints = {
   // 18 x 24 in horizontally. The narrower dimension is used so a check
   // against this constraint is conservative rather than permissive.
   horizontalExpansionIn: EXPANSION_WIDTH_IN,
+  pieceControlLimit: BIOBUZZ_CONTROL_LIMIT,
 };
 
 export const BIOBUZZ_HAS_NO_WEIGHT_LIMIT: Sourced<string> = explicitRule(
@@ -148,25 +174,55 @@ export const BIOBUZZ_EXPANSION_DEPTH_IN = EXPANSION_DEPTH_IN;
 // -------------------------------------------------------- tipping (HIVE) ---
 
 /**
- * No published tip threshold exists (see file banner). Three balls is a
- * reasoned middle estimate: the CELL opening (20 x 14 x 12 in) comfortably
- * holds far more than three 2.8-3.6 in balls by volume, but a bistable
- * mechanism tips on accumulated *torque*, not volume, and the manual's own
- * framing — that the exact moment is not meant to be watched for precisely —
- * argues against tuning this to a tight, CAD-derived number that this pass
- * cannot verify.
+ * What one CELL must be carrying before its HIVE tips.
+ *
+ * The Competition Manual publishes no threshold — §9.6.2 describes a real
+ * bistable mechanism and §10.5.1 says referees are not expected to watch for
+ * the literal instant. The **Event FIELD Setup Guide** publishes it anyway,
+ * from the other end: every HIVE at every event is *calibrated* to tip on
+ * "[8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar" (§12), with §12.3's
+ * table pinning 7 POLLEN as "No Tip Necessary" and the 8th as "Tip Necessary".
+ *
+ * So the threshold is the weight of 8 POLLEN, and it is a weight rather than a
+ * count because the guide's own two loads hold different numbers of balls.
+ * That is what makes the staged kickoff load work out on its own terms: 3
+ * NECTAR is 5 POLLEN-equivalents, so a HIVE starts 3 POLLEN short of tipping,
+ * exactly the margin §12.3 calibrates against.
  */
-export const BIOBUZZ_HIVE_TIP_THRESHOLD: Sourced<number> = assumed(
-  5,
-  'The HIVE tips on real accumulated torque (§9.6.2); no rule states a piece ' +
-    'count. Estimated as a middle value the CELL geometry could plausibly hold ' +
-    'before overbalancing, and deliberately set above the 3 NECTAR staged in ' +
-    'the CELL at kickoff (§10.3.1) — a threshold at or below that count would ' +
-    'tip the HIVE before AUTO starts, which is not the intended achievement. ' +
-    'Needs the CAD/mass to derive a physically exact figure.',
+export const BIOBUZZ_HIVE_TIP_LOAD_LB: Sourced<number> = explicit(
+  HIVE_TIP_LOAD_POLLEN_COUNT.value * POLLEN_MASS_LB.value,
+  26,
+  'Each Hive should be calibrated to tip when [2] combinations of scoring elements are ' +
+    'placed in an upward facing Cell: [8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar.',
+  'Event FIELD Setup Guide S12. The ball *count* is the guide\'s; converting it to a mass ' +
+    'goes through POLLEN_MASS_LB, which is still an estimate — but both of the guide\'s ' +
+    'calibration loads weigh the same under NECTAR_TO_POLLEN_MASS_RATIO, so the threshold ' +
+    'stays exact against either one however that estimate is later corrected.',
 );
 
 export const HIVE_CELL_REST_HEIGHT_IN = HIVE_FRAME.pivotHeightIn.value - 6;
+
+/**
+ * Which CELL each HIVE starts with facing up.
+ *
+ * The manual leaves this to FIELD STAFF, but the setup guide fixes it for
+ * every match: "the Hives should be tipped with the Cell of the Red Hive on
+ * the 'Audience' side of the field tilted up, and the Cell of the Blue Hive on
+ * the 'Scoring' side of the field tilted up" (§11.1). The audience is -Y, so
+ * red starts on its near CELL and blue on its far one — the two alliances are
+ * *not* mirror images here, which is why this is a per-alliance value rather
+ * than one shared default.
+ */
+export const BIOBUZZ_INITIAL_UP_CELL: Readonly<Record<'red' | 'blue', 0 | 1>> = { red: 0, blue: 1 };
+
+export const BIOBUZZ_INITIAL_UP_CELL_SOURCE: Sourced<string> = explicitRule(
+  'red tips up on the audience side, blue on the scoring side',
+  'Setup Guide S11.1',
+  'At the start of each match, the Hives should be tipped with the Cell of the Red Hive ' +
+    'on the "Audience" side of the field tilted up, and the Cell of the Blue Hive on the ' +
+    '"Scoring" side of the field tilted up.',
+  23,
+);
 
 export const BIOBUZZ_TIPPING_STRUCTURES: readonly TippingStructureSpec[] = (['red', 'blue'] as const).map(
   (alliance) => ({
@@ -176,11 +232,11 @@ export const BIOBUZZ_TIPPING_STRUCTURES: readonly TippingStructureSpec[] = (['re
       alliance === 'red'
         ? [BIOBUZZ_REGIONS.redCellNear, BIOBUZZ_REGIONS.redCellFar]
         : [BIOBUZZ_REGIONS.blueCellNear, BIOBUZZ_REGIONS.blueCellFar],
-    // Which CELL starts upward-facing is set up per-match by FIELD STAFF
-    // (§10.3.1) and not fixed by the manual; the near (audience-side) CELL is
-    // an arbitrary but consistent default.
-    initialUpIndex: 0,
-    tipThresholdCount: BIOBUZZ_HIVE_TIP_THRESHOLD,
+    initialUpIndex: BIOBUZZ_INITIAL_UP_CELL[alliance],
+    tipThresholdMassKg: {
+      ...BIOBUZZ_HIVE_TIP_LOAD_LB,
+      value: poundsToKilograms(BIOBUZZ_HIVE_TIP_LOAD_LB.value),
+    },
     cellRestHeightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
     cellHeightRateMps: 2,
     // A modest scatter so simultaneously-dumped balls do not perfectly

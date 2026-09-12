@@ -9,14 +9,16 @@
  * instance of it per alliance; a different season's seesaw or dispenser could
  * be another.
  *
- * ── Why a threshold count, not real hinge physics ──────────────────────────
+ * ── Why a load threshold, not real hinge physics ───────────────────────────
  *
- * A real bistable structure tips at some physical torque balance, but no FTC
- * manual has ever published that number, and BIOBUZZ says outright that
- * referees are not expected to watch for the literal instant it happens. A
- * counted threshold is the same fidelity the rule itself asks for; a
- * `GameDefinition` supplies the count as a `Sourced<number>` marked `assumed`,
- * the same way DECODE estimates a mass the manual never states.
+ * A bistable structure tips on accumulated torque, so what it balances is
+ * *weight*, not a headcount: BIOBUZZ's own field is calibrated to tip on
+ * either of two loads that weigh the same but hold different numbers of balls
+ * (8 POLLEN, or 3 POLLEN + 3 NECTAR). A structure therefore declares the mass
+ * one cell must carry, and this weighs whatever is resting in the up cell
+ * against it. Modelling the hinge itself would need a pivot geometry no manual
+ * publishes; the load is the part that is published, and it is the part the
+ * rule actually turns on.
  *
  * ── What it does not do ────────────────────────────────────────────────────
  *
@@ -38,8 +40,13 @@ export interface TippingStructureSpec {
   readonly cellRegionIds: readonly [string, string];
   /** Index into `cellRegionIds` that is up-facing at the start of a match. */
   readonly initialUpIndex: 0 | 1;
-  /** Resting pieces in the up cell needed to flip the structure. */
-  readonly tipThresholdCount: Sourced<number>;
+  /**
+   * Mass resting in the up cell that flips the structure, kilograms.
+   *
+   * Reached exactly, not exceeded: a cell holding this much tips, which is how
+   * a calibration stated as "tips on the 8th POLLEN" is expressed.
+   */
+  readonly tipThresholdMassKg: Sourced<number>;
   /** Height above the floor a resting piece is held at while its cell is up. */
   readonly cellRestHeightM: number;
   /** Vertical approach rate toward `cellRestHeightM`, m/s. */
@@ -58,12 +65,24 @@ export interface TippingWorld {
     velocityDampingPerSec?: number,
   ): void;
   setPieceVelocity(pieceId: string, velocityM: Vec2): void;
+  /**
+   * End the collision-free flight a routed shot travels under.
+   *
+   * A cell that has caught a piece is the end of that piece's transfer: from
+   * here it rests, tips and falls as an ordinary body. Without this a shot
+   * stays a ghost that never collides again, because nothing else in a game
+   * without conveyors ever clears the flag.
+   */
+  completePieceTransfer(pieceId: string): void;
 }
 
 interface StructureState {
   upIndex: 0 | 1;
   tipCount: number;
 }
+
+/** One milligram: far below any scoring element, far above summation error. */
+const LOAD_EPSILON_KG = 1e-6;
 
 /**
  * Runs every bistable structure a game declares.
@@ -98,9 +117,9 @@ export class TippingStructures {
    * Advance every structure one tick.
    *
    * Order within a structure: hold whatever is currently resting in the up
-   * cell at its declared height, then check whether that count has reached
-   * the threshold. Checking after holding means a piece that arrives and
-   * completes the threshold on the same tick is already accounted for.
+   * cell at its declared height, then weigh it. Weighing after holding means a
+   * piece that arrives and completes the load on the same tick is already
+   * accounted for.
    */
   update(
     regions: ReadonlyMap<string, FieldRegion>,
@@ -119,14 +138,22 @@ export class TippingStructures {
       if (upRegion === undefined) continue;
 
       const restingInUpCell: string[] = [];
+      let loadKg = 0;
       for (const piece of snapshot.pieces) {
         if (piece.heldByRobotId !== null) continue;
         if (!regionContains(upRegion, piece.pose.p, piece.heightM)) continue;
         restingInUpCell.push(piece.pieceId);
+        loadKg += piece.massKg;
+        // Caught: whatever got it here — a shot's protected flight, a drop —
+        // is over, and it is an ordinary body resting in a cell from now on.
+        if (piece.transferring === true) world.completePieceTransfer(piece.pieceId);
         world.guidePiece(piece.pieceId, vec2(0, 0), spec.cellRestHeightM, spec.cellHeightRateMps);
       }
 
-      if (restingInUpCell.length < spec.tipThresholdCount.value) continue;
+      // Floating-point tolerance, not a fudge: a load declared as a whole
+      // number of balls is summed one ball at a time, so the count that is
+      // meant to tip can land a few ULPs short of its own threshold.
+      if (loadKg < spec.tipThresholdMassKg.value - LOAD_EPSILON_KG) continue;
 
       // Tip: the held cell flips down and dumps whatever it was holding, and
       // the other cell becomes the new up-facing (and now empty) destination.
@@ -136,7 +163,8 @@ export class TippingStructures {
       for (const pieceId of restingInUpCell) {
         // A small, fixed outward push scatters dumped pieces instead of
         // stacking them exactly where the cell held them; it is cosmetic, not
-        // a rule, so it does not need a seeded draw.
+        // a rule, so it does not need a seeded draw. Nothing holds their
+        // height after this tick, so they fall out of the cell under gravity.
         world.setPieceVelocity(pieceId, vec2(spec.dumpSpeedMps, 0));
       }
 

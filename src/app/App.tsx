@@ -9,7 +9,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { COMPETITION_ROBOT_CONFIG } from '../core/robot/robotConfig.js';
 import { GAME_REGISTRY, DEFAULT_GAME_ID, getGameEntry } from '../core/game/registry.js';
 import type { TelemetrySample } from '../core/telemetry/sampler.js';
 import type { MatchStatus } from './simRunner.js';
@@ -40,7 +39,9 @@ export function App() {
   const [bindingsReady, setBindingsReady] = useState(false);
   const [driveMode, setDriveMode] = useState<DriveMode>(DEFAULT_DRIVE_MODE);
   const [driveModeReady, setDriveModeReady] = useState(false);
-  const [robotConfig, setRobotConfig] = useState<RobotConfig>(COMPETITION_ROBOT_CONFIG);
+  const [robotConfig, setRobotConfig] = useState<RobotConfig>(
+    () => getGameEntry(DEFAULT_GAME_ID).defaultRobotConfig,
+  );
   const [view, setView] = useState<'menu' | 'play' | 'configure' | 'controls'>('play');
   const [showDebug, setShowDebug] = useState(false);
   const [telemetry, setTelemetry] = useState<TelemetrySample | null>(null);
@@ -75,7 +76,7 @@ export function App() {
   const runner = useMemo(
     () =>
       new SimRunner(
-        COMPETITION_ROBOT_CONFIG,
+        gameEntry.defaultRobotConfig,
         inputHub,
         gameEntry.definition,
         gameEntry.legalStartPoses[driverAlliance],
@@ -156,6 +157,14 @@ export function App() {
     setSelectedGameId(gameId);
     setView('play');
   }, []);
+
+  // Switching games rebuilds the runner around that game's own default robot,
+  // so the builder has to follow it there. Otherwise Configure would still show
+  // the previous game's robot and "Restart match" would hand it back — which
+  // matters because the two games allow different carrying capacities.
+  useEffect(() => {
+    setRobotConfig(gameEntry.defaultRobotConfig);
+  }, [gameEntry]);
 
   useEffect(() => {
     keyboard.setBindings(bindings);

@@ -10,7 +10,7 @@ import { constantController, createInputTrace, ScriptedController } from '../con
 import { createControlInput, NEUTRAL_INPUT } from '../control/controlInput.js';
 import { NeutralController } from '../control/controller.js';
 import { SimWorld } from '../sim/simWorld.js';
-import { inchesToMeters } from '../units/convert.js';
+import { inchesToMeters, poundsToKilograms } from '../units/convert.js';
 import { vec2 } from '../math/vec2.js';
 import { INTAKE_BUTTON, LAUNCH_BUTTON } from '../sim/shooter.js';
 
@@ -471,7 +471,9 @@ describe('tipping structures, dynamic mechanism routes and reserve feeds', () =>
     alliance: 'red' as const,
     cellRegionIds: ['cell-a', 'cell-b'] as const,
     initialUpIndex: 0 as const,
-    tipThresholdCount: explicit(2),
+    // Two of this suite's 0.165 lb pieces, expressed the way a real season
+    // declares it: the load one cell carries, not a headcount.
+    tipThresholdMassKg: explicit(poundsToKilograms(2 * 0.165)),
     cellRestHeightM: inchesToMeters(2.5),
     cellHeightRateMps: 10,
     dumpSpeedMps: 0.3,

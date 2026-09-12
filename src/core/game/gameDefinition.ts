@@ -182,6 +182,15 @@ export interface RobotConstraints {
   readonly startingCubeIn: Sourced<number>;
   readonly maxExpandedHeightIn: Sourced<number>;
   readonly horizontalExpansionIn: Sourced<number>;
+  /**
+   * How many SCORING ELEMENTS one ROBOT may hold at once.
+   *
+   * A season's own number — DECODE allows 3 (G408), BIOBUZZ 4 — and the ceiling
+   * a robot built for that season is worth designing to. Optional because a
+   * definition can decline to model a limit; `defaultRobotFor` falls back to the
+   * template's own capacity when it is absent.
+   */
+  readonly pieceControlLimit?: Sourced<number> | undefined;
 }
 
 /**
@@ -541,7 +550,7 @@ export function validateGameDefinition(
         error(`tippingStructures.${structure.id}`, `Cell region "${regionId}" has no geometry.`);
       }
     }
-    if (structure.tipThresholdCount.value <= 0) {
+    if (structure.tipThresholdMassKg.value <= 0) {
       error(`tippingStructures.${structure.id}`, 'Tip threshold must be positive.');
     }
   }

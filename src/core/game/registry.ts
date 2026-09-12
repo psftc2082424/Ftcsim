@@ -16,6 +16,7 @@ import type { GameDefinition } from './gameDefinition.js';
 import type { FieldTemplate } from '../field/fieldTemplate.js';
 import type { GamePieceSpec } from '../sim/simWorld.js';
 import type { Pose } from '../physics/body.js';
+import { COMPETITION_ROBOT_CONFIG, type RobotConfig } from '../robot/robotConfig.js';
 import { DECODE_GAME } from './fixtures/decodeGame.js';
 import { createDecodeField } from './fixtures/decodeCollision.js';
 import { stageDecodePieces } from './fixtures/decodeStaging.js';
@@ -32,6 +33,36 @@ export interface GameEntry {
   /** Builds this game's starting piece layout. Called once per game selection. */
   readonly stagePieces: () => readonly GamePieceSpec[];
   readonly legalStartPoses: Readonly<Record<'red' | 'blue', Pose>>;
+  /**
+   * The robot the app starts this game with.
+   *
+   * Season-dependent because how many pieces a robot can hold is: BIOBUZZ
+   * requires every ROBOT to start the match holding 4 POLLEN, which a robot
+   * built to DECODE's limit of 3 could not do. The user is free to change it
+   * in Configure — this is the starting point, not a cap.
+   */
+  readonly defaultRobotConfig: RobotConfig;
+}
+
+/**
+ * The stock competition robot, with its intake sized to one game's own limit.
+ *
+ * Only the carrying capacity is season-dependent; the drivetrain, mass and
+ * motors are the same robot either way.
+ */
+function defaultRobotFor(definition: GameDefinition): RobotConfig {
+  const limit = definition.robotConstraints.pieceControlLimit?.value;
+  if (limit === undefined) return COMPETITION_ROBOT_CONFIG;
+
+  return {
+    ...COMPETITION_ROBOT_CONFIG,
+    mechanisms: COMPETITION_ROBOT_CONFIG.mechanisms.map((mechanism) => ({
+      ...mechanism,
+      capabilities: mechanism.capabilities.map((capability) =>
+        capability.kind === 'acquire' ? { ...capability, capacity: limit } : capability,
+      ),
+    })),
+  };
 }
 
 /**
@@ -48,12 +79,14 @@ export const GAME_REGISTRY: readonly GameEntry[] = [
     createField: createDecodeField,
     stagePieces: stageDecodePieces,
     legalStartPoses: DECODE_LEGAL_START_POSES,
+    defaultRobotConfig: defaultRobotFor(DECODE_GAME),
   },
   {
     definition: BIOBUZZ_GAME,
     createField: createBiobuzzField,
     stagePieces: stageBiobuzzPieces,
     legalStartPoses: BIOBUZZ_LEGAL_START_POSES,
+    defaultRobotConfig: defaultRobotFor(BIOBUZZ_GAME),
   },
 ];
 

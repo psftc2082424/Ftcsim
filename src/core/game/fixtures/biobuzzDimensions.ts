@@ -8,7 +8,7 @@
  * Citations are to the PDF's own page numbers (footer "N of 173").
  */
 
-import { assumed, explicitRule } from '../sourced.js';
+import { assumed, explicitRule, inferred, type Sourced } from '../sourced.js';
 
 /** The FTC field interior is 144 in on a side (§9.2, p.64) — same as every season. */
 export const FIELD_SIZE_IN = 144;
@@ -108,20 +108,62 @@ export const NECTAR_COUNT_PER_ALLIANCE = explicitRule(
 );
 
 /**
- * Neither ball is published with a mass. AndyMark's am-5851/am-5852 product
- * pages are the DECODE-style route to a real number, but this pass has no
- * fetched figure to cite, so both are an engineering estimate rather than a
- * transcription — the same honesty DECODE's `ARTIFACT_MASS_LB` uses.
+ * POLLEN's mass is not published. AndyMark's am-5851 product page is the
+ * DECODE-style route to a real number, but this pass has no fetched figure to
+ * cite, so it stays an engineering estimate rather than a transcription — the
+ * same honesty DECODE's `ARTIFACT_MASS_LB` uses.
  */
 export const POLLEN_MASS_LB = assumed(
   0.09,
   'No published mass. Estimated from a hollow polyethylene ball at this diameter, ' +
     'the same weight class as DECODE\'s ARTIFACT. Needs the AndyMark am-5851 spec sheet to confirm.',
 );
+
+/**
+ * NECTAR's mass, relative to POLLEN's, is *derived* rather than estimated.
+ *
+ * The Event FIELD Setup Guide calibrates every HIVE to tip on two specific
+ * loads (§12): "[8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar". A
+ * bistable cell tips at one torque, and both loads sit at the same lever arm,
+ * so the two combinations must weigh the same:
+ *
+ *     8 * POLLEN = 3 * POLLEN + 3 * NECTAR   ->   NECTAR = 5/3 * POLLEN
+ *
+ * That ratio is a fact about the real balls, published in the only place FIRST
+ * publishes it. Only the absolute scale is still assumed, and it comes from
+ * POLLEN above, so `BIOBUZZ_HIVE_TIP_LOAD_LB` stays exact against either
+ * calibration load however POLLEN's estimate is later corrected.
+ */
+export const NECTAR_TO_POLLEN_MASS_RATIO: Sourced<number> = inferred(
+  5 / 3,
+  'Solved from the Event FIELD Setup Guide\'s two calibration loads (S12: "[8] Pollen + ' +
+    '[0] Nectar, and [3] Pollen + [3] Nectar"), which must balance the same cell at the ' +
+    'same tipping torque. Confirmed against S12.3\'s requirement table: 3 NECTAR + 2 ' +
+    'POLLEN must not tip (7 POLLEN-equivalents) and the 3rd POLLEN must (8).',
+  26,
+);
+
 export const NECTAR_MASS_LB = assumed(
-  0.16,
-  'No published mass. Estimated from a hollow polyethylene ball at this diameter, ' +
-    'scaled up from POLLEN by volume. Needs the AndyMark am-5852 spec sheet to confirm.',
+  POLLEN_MASS_LB.value * NECTAR_TO_POLLEN_MASS_RATIO.value,
+  'Derived from POLLEN\'s estimated mass and the setup guide\'s calibrated 5:3 NECTAR-to-' +
+    'POLLEN ratio (NECTAR_TO_POLLEN_MASS_RATIO), so it inherits POLLEN\'s "assumed" ' +
+    'confidence. Needs the AndyMark am-5852 spec sheet to become a transcription.',
+);
+
+/**
+ * The load one CELL must carry before its HIVE tips.
+ *
+ * Stated by the setup guide as a pair of ball counts rather than a mass, so
+ * the mass is the guide's own 8-POLLEN load converted through POLLEN's mass.
+ * §12.3's requirement table pins both sides of it: 7 POLLEN "No Tip
+ * Necessary", the 8th "Tip Necessary".
+ */
+export const HIVE_TIP_LOAD_POLLEN_COUNT: Sourced<number> = explicitRule(
+  8,
+  'Setup Guide S12',
+  'Each Hive should be calibrated to tip when [2] combinations of scoring elements are ' +
+    'placed in an upward facing Cell: [8] Pollen + [0] Nectar, and [3] Pollen + [3] Nectar.',
+  26,
 );
 
 /** ROBOT construction limits (§12.1, pp.121-122). */

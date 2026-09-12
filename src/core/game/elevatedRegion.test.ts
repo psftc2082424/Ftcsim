@@ -34,6 +34,7 @@ function snapshot(pieces: ReadonlyMap<string, { p: Vec2; heightM: number }>): Wo
       previousPose: { p, theta: 0 },
       vel: { v: vec2(0, 0), omega: 0 },
       radiusM: 0.05,
+      massKg: 0.04,
       heightM,
       previousHeightM: heightM,
       verticalVelocityMps: 0,

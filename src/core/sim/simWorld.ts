@@ -448,6 +448,7 @@ export class SimWorld {
         top: piece.heightM + piece.radiusM,
       };
       this.brakeTransferAtTarget(piece);
+      this.endTransferOnLanding(piece);
     }
 
     // 6d. Held pieces ride with their robot, which has now moved.
@@ -514,6 +515,7 @@ export class SimWorld {
       previousPose: piece.previousPose,
       vel: piece.body.vel,
       radiusM: piece.radiusM,
+      massKg: piece.body.mass,
       heightM: piece.heightM,
       previousHeightM: piece.previousHeightM,
       verticalVelocityMps: piece.verticalVelocityMps,
@@ -798,6 +800,27 @@ export class SimWorld {
    * point; this keeps the integrated crossing position and only removes the
    * horizontal launch velocity so gravity can complete normal GOAL capture.
    */
+  /**
+   * A shot that has landed on the floor is no longer in transfer.
+   *
+   * `transferring` buys a routed shot a collision-free path to its declared
+   * destination, and a field mechanism that catches it ends that with
+   * `completePieceTransfer`. Nothing catches a shot that *misses* — the
+   * destination moved, as a tipping cell's does, or the game has no catching
+   * mechanism at all — and without this it would keep its exemption forever,
+   * lying on the floor as a body nothing can ever touch again.
+   *
+   * A piece still held up by a field mechanism is excluded: it has not landed,
+   * it is being carried through the very hand-off the flag exists to protect.
+   */
+  private endTransferOnLanding(piece: SimPiece): void {
+    if (!piece.transferring || piece.supportedByField) return;
+    if (piece.heightM > piece.radiusM || piece.verticalVelocityMps > 0) return;
+    piece.transferring = false;
+    piece.transferTargetM = null;
+    piece.transferTargetHeightM = null;
+  }
+
   private brakeTransferAtTarget(piece: SimPiece): void {
     const target = piece.transferTargetM;
     if (!piece.transferring || target === null) return;
