@@ -129,8 +129,24 @@ describe('BIOBUZZ end-to-end scenarios', () => {
     expect(sim.score.red).toBe(0);
   });
 
-  it('tips the red HIVE on the 3rd POLLEN, scores the tip, and feeds a reserve piece', () => {
+  /**
+   * With POLLEN and NECTAR weighed individually (25 g / 40 g) rather than
+   * inferred from the guide's ball-count examples, 3 NECTAR + 3 POLLEN comes
+   * to 195 g — 5 g short of the team-calibrated 200 g threshold. Recorded
+   * honestly rather than forced to match: see `biobuzzDimensions.ts`'s file
+   * banner. It takes a 4th POLLEN (220 g) to actually tip.
+   */
+  it('still does not tip on 3 NECTAR plus 3 POLLEN — 195 g falls 5 g short of the 200 g threshold', () => {
     const sim = build(pollenInCell(redUpCell(), 3));
+
+    for (let i = 0; i < 40; i++) sim.step();
+
+    expect(sim.tippers.tipCount('red-hive')).toBe(0);
+    expect(sim.score.red).toBe(0);
+  });
+
+  it('tips the red HIVE on the 4th POLLEN (220 g), scores the tip, and feeds a reserve piece', () => {
+    const sim = build(pollenInCell(redUpCell(), 4));
     expect(sim.tippers.tipCount('red-hive')).toBe(0);
 
     for (let i = 0; i < 40 && sim.tippers.tipCount('red-hive') === 0; i++) sim.step();
@@ -146,8 +162,9 @@ describe('BIOBUZZ end-to-end scenarios', () => {
     // Only the up-facing CELL is weighed, and red's starts with the staged 3
     // NECTAR in it — so reaching the "[8] Pollen + [0] Nectar" case means
     // tipping once to bring the empty far CELL up, with 8 POLLEN waiting in it.
+    // 8 * 25 g = 200 g, exactly the calibrated threshold.
     const sim = build([
-      ...pollenInCell(redUpCell(), 3),
+      ...pollenInCell(redUpCell(), 4),
       ...pollenInCell(BIOBUZZ_REGIONS.redCellFar, 8).map((piece, index) => ({
         ...piece,
         pieceId: `far-pollen-${index}`,
@@ -156,7 +173,7 @@ describe('BIOBUZZ end-to-end scenarios', () => {
 
     for (let i = 0; i < 40 && sim.tippers.tipCount('red-hive') < 2; i++) sim.step();
 
-    // Two tips: 3 NECTAR + 3 POLLEN, then 8 POLLEN alone.
+    // Two tips: 3 NECTAR + 4 POLLEN, then 8 POLLEN alone.
     expect(sim.tippers.tipCount('red-hive')).toBe(2);
     expect(sim.tippers.currentUpRegionId('red-hive')).toBe(redUpCell());
   });
@@ -262,14 +279,15 @@ describe('BIOBUZZ end-to-end scenarios', () => {
   });
 });
 
-it('keeps the HIVE tip load equal for both of the setup guide\'s calibration combinations', () => {
-  // The whole point of weighing the load rather than counting it: the guide
-  // calibrates every HIVE to tip on "[8] Pollen + [0] Nectar, AND [3] Pollen +
-  // [3] Nectar", which are different counts of the same weight. If these ever
-  // diverge, one of the two documented calibrations would stop working.
-  const eightPollen = 8 * POLLEN_MASS_LB.value;
-  const threeAndThree = 3 * POLLEN_MASS_LB.value + 3 * NECTAR_MASS_LB.value;
+it('weighs POLLEN at 25 g, NECTAR at 40 g, and the HIVE tip load at 200 g', () => {
+  // Team-measured values (`biobuzzDimensions.ts`), not derived from the setup
+  // guide's ball-count examples — so the guide's own "[8] Pollen + [0] Nectar"
+  // and "[3] Pollen + [3] Nectar" calibrations are no longer required to land
+  // on exactly the same weight (200 g vs 195 g respectively). See
+  // `biobuzzGame.test.ts`'s 195 g / 220 g tests for that in gameplay.
+  const gramsToLb = (g: number) => g / 1000 / 0.45359237;
 
-  expect(threeAndThree).toBeCloseTo(eightPollen, 10);
-  expect(BIOBUZZ_HIVE_TIP_LOAD_LB.value).toBeCloseTo(eightPollen, 10);
+  expect(POLLEN_MASS_LB.value).toBeCloseTo(gramsToLb(25), 10);
+  expect(NECTAR_MASS_LB.value).toBeCloseTo(gramsToLb(40), 10);
+  expect(BIOBUZZ_HIVE_TIP_LOAD_LB.value).toBeCloseTo(gramsToLb(200), 10);
 });

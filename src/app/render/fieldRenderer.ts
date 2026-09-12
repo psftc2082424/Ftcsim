@@ -37,6 +37,12 @@ const COLORS = {
   piecePurpleOutline: '#d9baf5',
   pieceGreen: '#3fae55',
   pieceGreenOutline: '#bdeecb',
+  pieceYellow: '#e8c227',
+  pieceYellowOutline: '#fff2b8',
+  pieceRed: '#c62c3f',
+  pieceRedOutline: '#f7b4bc',
+  pieceBlue: '#1f5fae',
+  pieceBlueOutline: '#b7d3f7',
   pieceShadow: 'rgba(0, 0, 0, 0.35)',
   regionFill: 'rgba(120, 170, 220, 0.10)',
   regionEdge: 'rgba(255, 255, 255, 0.74)',
@@ -410,6 +416,11 @@ function drawDepot(
  * still a real piece and should not look like an error. */
 function pieceColors(pieceType: string): { fill: string; outline: string } {
   if (pieceType === 'G') return { fill: COLORS.pieceGreen, outline: COLORS.pieceGreenOutline };
+  // BIOBUZZ: POLLEN (the small ball) is yellow; NECTAR (the big ball) is its
+  // own alliance's colour.
+  if (pieceType === 'pollen') return { fill: COLORS.pieceYellow, outline: COLORS.pieceYellowOutline };
+  if (pieceType === 'nectar-red') return { fill: COLORS.pieceRed, outline: COLORS.pieceRedOutline };
+  if (pieceType === 'nectar-blue') return { fill: COLORS.pieceBlue, outline: COLORS.pieceBlueOutline };
   return { fill: COLORS.piecePurple, outline: COLORS.piecePurpleOutline };
 }
 
@@ -563,6 +574,18 @@ function assemblyStyle(part: FieldAssemblyPart, gateOpen: boolean): {
     return part.id.startsWith('red-')
       ? { fill: '#4f1414', stroke: COLORS.redEdge, lineWidth: 1.35, alpha: 0.96 }
       : { fill: '#14235a', stroke: COLORS.blueEdge, lineWidth: 1.35, alpha: 0.96 };
+  }
+  // BIOBUZZ: each HIVE's own basket reads as its alliance's colour, so the
+  // pair the CELLs form is legible as "this one's red's, this one's blue's"
+  // at a glance, the same way DECODE's basins are.
+  if (part.id.includes('hive-basket')) {
+    return part.id.startsWith('red-')
+      ? { fill: 'rgba(198, 44, 63, 0.55)', stroke: COLORS.redEdge, lineWidth: 1.5, alpha: 1 }
+      : { fill: 'rgba(31, 95, 174, 0.55)', stroke: COLORS.blueEdge, lineWidth: 1.5, alpha: 1 };
+  }
+  // A FLOWER's own marker: warm, plant-like, distinct from any structural part.
+  if (part.id.includes('flower')) {
+    return { fill: 'rgba(232, 194, 39, 0.5)', stroke: '#f2d878', lineWidth: 1.5, alpha: 1 };
   }
   switch (part.material) {
     case 'metal': return { fill: '#b9c3cb', stroke: '#eef2f4', lineWidth: 1.35, alpha: 1 };

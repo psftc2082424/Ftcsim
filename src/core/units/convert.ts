@@ -57,6 +57,9 @@ export const metersToFeet = (m: Meters): number => m / METERS_PER_FOOT;
 export const poundsToKilograms = (lb: number): Kilograms => kilograms(lb * KILOGRAMS_PER_POUND);
 export const kilogramsToPounds = (kg: Kilograms): number => kg / KILOGRAMS_PER_POUND;
 
+/** Game-piece masses are commonly published in grams; `massLb` fields still want pounds. */
+export const gramsToPounds = (grams: number): number => grams / 1000 / KILOGRAMS_PER_POUND;
+
 // --- Linear velocity -------------------------------------------------------
 export const feetPerSecToMetersPerSec = (fps: number): MetersPerSec =>
   metersPerSec(fps * METERS_PER_FOOT);
