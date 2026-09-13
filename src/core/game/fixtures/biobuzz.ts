@@ -39,6 +39,7 @@ import { assumed, explicit, explicitRule, inferred, type Sourced } from '../sour
 import type { MatchStructure } from '../matchStructure.js';
 import type { ScoringRule } from '../scoring.js';
 import type {
+  IntakeThrottleRegion,
   MatchSetupSpec,
   MechanismActionRoute,
   PenaltyValues,
@@ -151,6 +152,21 @@ export const BIOBUZZ_CONTROL_LIMIT: Sourced<number> = inferred(
   84,
 );
 
+/**
+ * A ROBOT's intake cannot pick up the opposing alliance's own NECTAR.
+ *
+ * Not a transcription of a numbered rule — this pass has not found one — but
+ * a deliberate simulator behaviour: each alliance's NECTAR is its own scoring
+ * element for its own HIVE, and letting a robot freely vacuum up the
+ * opponent's colour would let a solo-practice driver rehearse a form of
+ * interference the real two-alliance game does not actually offer. POLLEN,
+ * having no colour of its own, is unaffected.
+ */
+export const BIOBUZZ_INTAKE_BLOCKED_TYPES_BY_ALLIANCE: Readonly<Record<'red' | 'blue', readonly string[]>> = {
+  red: ['nectar-blue'],
+  blue: ['nectar-red'],
+};
+
 export const BIOBUZZ_ROBOT_CONSTRAINTS: RobotConstraints = {
   startingCubeIn: STARTING_CUBE_IN,
   maxExpandedHeightIn: EXPANSION_HEIGHT_IN,
@@ -159,6 +175,7 @@ export const BIOBUZZ_ROBOT_CONSTRAINTS: RobotConstraints = {
   // against this constraint is conservative rather than permissive.
   horizontalExpansionIn: EXPANSION_WIDTH_IN,
   pieceControlLimit: BIOBUZZ_CONTROL_LIMIT,
+  intakeBlockedTypesByAlliance: BIOBUZZ_INTAKE_BLOCKED_TYPES_BY_ALLIANCE,
 };
 
 export const BIOBUZZ_HAS_NO_WEIGHT_LIMIT: Sourced<string> = explicitRule(
@@ -225,9 +242,11 @@ export const BIOBUZZ_TIPPING_STRUCTURES: readonly TippingStructureSpec[] = (['re
     },
     cellRestHeightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
     cellHeightRateMps: 2,
-    // A modest scatter so simultaneously-dumped balls do not perfectly
-    // overlap; not a rule, just enough to avoid a degenerate stack.
-    dumpSpeedMps: inchesToMeters(18),
+    // A visible launch out of the cell, not a gentle roll-off; not a rule,
+    // just enough that a dump reads as balls being thrown clear rather than
+    // dribbling out. `tipper.ts`'s own per-piece jitter/spread scatters them
+    // around this nominal speed.
+    dumpSpeedMps: inchesToMeters(30),
   }),
 );
 
@@ -298,6 +317,36 @@ export const BIOBUZZ_ELEVATED_REGIONS: readonly ElevatedRegionSpec[] = [
   regionId,
   restHeightM: inchesToMeters(FLOWER_REST_HEIGHT_IN),
   heightRateMps: 2,
+}));
+
+/**
+ * A FLOWER's own narrow opening bottlenecks how fast POLLEN can be drawn out
+ * of it, independent of how fast any ROBOT's own intake is built — a
+ * simulator design choice (not a numbered rule) so a driver cannot clear a
+ * FLOWER instantly regardless of intake design.
+ */
+const FLOWER_INTAKE_RATE_PER_SEC = 2;
+
+/**
+ * How far from a FLOWER's own centre the 2/sec cap reaches.
+ *
+ * The FLOWER's *scoring* region is only its 4 in top opening
+ * (`FLOWER.topOpeningDiameterIn`), but a ROBOT draws POLLEN staged around the
+ * outside of it too (§11.2's "zig-zag" pile, this fixture's own staged row)
+ * — matches the presentation marker's own radius (`biobuzzAssemblies.ts`),
+ * since both describe the same "at this FLOWER" area.
+ */
+const FLOWER_INTAKE_THROTTLE_RADIUS_IN = 6;
+
+export const BIOBUZZ_INTAKE_THROTTLE_REGIONS: readonly IntakeThrottleRegion[] = [
+  BIOBUZZ_REGIONS.flowerNorth,
+  BIOBUZZ_REGIONS.flowerSouth,
+  BIOBUZZ_REGIONS.flowerEast,
+  BIOBUZZ_REGIONS.flowerWest,
+].map((regionId) => ({
+  regionId,
+  ratePerSec: FLOWER_INTAKE_RATE_PER_SEC,
+  radiusInOverride: FLOWER_INTAKE_THROTTLE_RADIUS_IN,
 }));
 
 // ------------------------------------------------------------------ rules ---

@@ -71,8 +71,8 @@ export interface TippingStructureSpec {
  * the cells' real geometry (`dumpDirection` below), so this only adds the
  * per-piece variety.
  */
-const DUMP_SPEED_JITTER = 0.35;
-const DUMP_ANGLE_SPREAD_RAD = (35 * Math.PI) / 180;
+const DUMP_SPEED_JITTER = 0.7;
+const DUMP_ANGLE_SPREAD_RAD = (75 * Math.PI) / 180;
 
 /**
  * The direction dumped pieces travel: continuing outward, past the cell that

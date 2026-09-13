@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { SimWorld, type GamePieceSpec, type RobotSpec } from './simWorld.js';
+import { SimWorld, type GamePieceSpec, type IntakeThrottleZone, type RobotSpec } from './simWorld.js';
 import {
   INTAKE_BUTTON,
   LAUNCH_BUTTON,
@@ -39,13 +39,45 @@ function world(
   pieces: readonly GamePieceSpec[],
   controller = constantController(NEUTRAL_INPUT),
   config: RobotConfig = COMPETITION_ROBOT_CONFIG,
+  options?: { alliance?: 'red' | 'blue'; intakeThrottleZones?: readonly IntakeThrottleZone[] },
 ): SimWorld {
   const robot: RobotSpec = {
     config,
     controller,
     startPose: { p: vec2(0, 0), theta: 0 },
+    ...(options?.alliance === undefined ? {} : { alliance: options.alliance }),
   };
-  return new SimWorld({ robots: [robot], pieces, field: OPEN_FIELD, seed: 11 });
+  return new SimWorld({
+    robots: [robot],
+    pieces,
+    field: OPEN_FIELD,
+    seed: 11,
+    intakeThrottleZones: options?.intakeThrottleZones,
+  });
+}
+
+/** A piece typed like BIOBUZZ's own alliance-coloured NECTAR, for the block tests. */
+const coloredBall = (pieceId: string, color: 'red' | 'blue', xIn: number, yIn: number): GamePieceSpec => ({
+  pieceId,
+  pieceType: `nectar-${color}`,
+  diameterIn: 3.6,
+  massLb: 0.09,
+  startPositionM: vec2(inchesToMeters(xIn), inchesToMeters(yIn)),
+});
+
+/** A robot whose intake refuses the opposing alliance's own coloured piece. */
+function robotBlockingOpponentColor(): RobotConfig {
+  return {
+    ...COMPETITION_ROBOT_CONFIG,
+    mechanisms: COMPETITION_ROBOT_CONFIG.mechanisms.map((mechanism) => ({
+      ...mechanism,
+      capabilities: mechanism.capabilities.map((capability): Capability =>
+        capability.kind === 'acquire'
+          ? { ...capability, blockedPieceTypesByAlliance: { red: ['nectar-blue'], blue: ['nectar-red'] } }
+          : capability,
+      ),
+    })),
+  };
 }
 
 /**
@@ -114,6 +146,87 @@ describe('functional intake and storage', () => {
     sim.stepMany(2);
     expect(sim.heldPieces(0)).toEqual([]);
     expect(sim.snapshot().pieces[0]?.heldByRobotId).toBeNull();
+  });
+});
+
+describe('alliance-blocked piece types', () => {
+  it('refuses the opposing alliance\'s own coloured piece', () => {
+    const config = robotBlockingOpponentColor();
+    const sim = world(
+      [coloredBall('opponent', 'blue', 11, 0)],
+      constantController(input(INTAKE_BUTTON)),
+      config,
+      { alliance: 'red' },
+    );
+    sim.stepMany(50);
+    expect(sim.heldPieces(0)).toEqual([]);
+    expect(sim.snapshot().pieces[0]?.heldByRobotId).toBeNull();
+  });
+
+  it('still accepts its own alliance\'s coloured piece', () => {
+    const config = robotBlockingOpponentColor();
+    const sim = world(
+      [coloredBall('own', 'red', 11, 0)],
+      constantController(input(INTAKE_BUTTON)),
+      config,
+      { alliance: 'red' },
+    );
+    sim.stepMany(50);
+    expect(sim.heldPieces(0)).toEqual(['own']);
+  });
+
+  it('blocks by the intaking robot\'s own alliance, not a fixed colour', () => {
+    const config = robotBlockingOpponentColor();
+    const sim = world(
+      [coloredBall('red-ball', 'red', 11, 0)],
+      constantController(input(INTAKE_BUTTON)),
+      config,
+      { alliance: 'blue' },
+    );
+    sim.stepMany(50);
+    expect(sim.heldPieces(0)).toEqual([]);
+  });
+});
+
+describe('intake throttle zones', () => {
+  const FLOWER_ZONE: IntakeThrottleZone = { centerM: vec2(inchesToMeters(11), 0), radiusM: inchesToMeters(6), ratePerSec: 2 };
+
+  it('caps captures from inside a throttle zone even with a much faster intake', () => {
+    // A near-instant intake (1000/s) isolates the zone's own cap: without it,
+    // both balls would be captured on the very first tick they are in reach.
+    const config = robotWithRates(1000, 2);
+    const sim = world(
+      [artifact('a', 11, 0), artifact('b', 11, 3)],
+      constantController(input(INTAKE_BUTTON)),
+      config,
+      { intakeThrottleZones: [FLOWER_ZONE] },
+    );
+
+    sim.step();
+    expect(sim.heldPieces(0)).toEqual(['a']);
+
+    // Well under 0.5 s (2/s): the zone's own cap, not the intake's, still
+    // holds the second ball back.
+    sim.stepMany(50);
+    expect(sim.heldPieces(0)).toEqual(['a']);
+
+    // Past 0.5 s the zone allows a second capture.
+    sim.stepMany(100);
+    expect(sim.heldPieces(0)).toEqual(['a', 'b']);
+  });
+
+  it('does not slow captures of a piece outside any throttle zone', () => {
+    const config = robotWithRates(1000, 2);
+    const farBall = artifact('far', 11, 0);
+    const sim = world(
+      [farBall],
+      constantController(input(INTAKE_BUTTON)),
+      config,
+      // The zone sits nowhere near the ball, so it must not gate this capture.
+      { intakeThrottleZones: [{ centerM: vec2(inchesToMeters(60), inchesToMeters(60)), radiusM: inchesToMeters(6), ratePerSec: 2 }] },
+    );
+    sim.step();
+    expect(sim.heldPieces(0)).toEqual(['far']);
   });
 });
 

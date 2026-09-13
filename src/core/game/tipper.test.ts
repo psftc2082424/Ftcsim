@@ -222,8 +222,9 @@ describe('TippingStructures', () => {
       // CELL_A (the one dumping) is in the +Y direction from CELL_B, so the
       // dump continues outward along +Y.
       expect(v!.y).toBeGreaterThan(0);
-      expect(Math.hypot(v!.x, v!.y)).toBeGreaterThan(0.3);
-      expect(Math.hypot(v!.x, v!.y)).toBeLessThan(0.7);
+      // Nominal 0.5 m/s +/- the jitter fraction tipper.ts declares.
+      expect(Math.hypot(v!.x, v!.y)).toBeGreaterThan(0.1);
+      expect(Math.hypot(v!.x, v!.y)).toBeLessThan(0.9);
     }
   });
 

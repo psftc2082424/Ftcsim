@@ -52,14 +52,21 @@ export interface GameEntry {
  */
 function defaultRobotFor(definition: GameDefinition): RobotConfig {
   const limit = definition.robotConstraints.pieceControlLimit?.value;
-  if (limit === undefined) return COMPETITION_ROBOT_CONFIG;
+  const blocked = definition.robotConstraints.intakeBlockedTypesByAlliance;
+  if (limit === undefined && blocked === undefined) return COMPETITION_ROBOT_CONFIG;
 
   return {
     ...COMPETITION_ROBOT_CONFIG,
     mechanisms: COMPETITION_ROBOT_CONFIG.mechanisms.map((mechanism) => ({
       ...mechanism,
       capabilities: mechanism.capabilities.map((capability) =>
-        capability.kind === 'acquire' ? { ...capability, capacity: limit } : capability,
+        capability.kind === 'acquire'
+          ? {
+              ...capability,
+              ...(limit === undefined ? {} : { capacity: limit }),
+              ...(blocked === undefined ? {} : { blockedPieceTypesByAlliance: blocked }),
+            }
+          : capability,
       ),
     })),
   };

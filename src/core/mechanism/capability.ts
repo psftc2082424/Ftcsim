@@ -45,6 +45,14 @@ export interface AcquireCapability {
    * intake over a cluster of pieces clears it faster.
    */
   readonly acquisitionRatePerSec: number;
+  /**
+   * Piece types this intake refuses to pick up when mounted on the given
+   * alliance — the generic shape for "you cannot cycle the opposing
+   * alliance's own scoring element." Keyed by the intaking robot's own
+   * alliance, so the same capability works unmodified for either side. Most
+   * games have no such rule and leave this undefined.
+   */
+  readonly blockedPieceTypesByAlliance?: Readonly<Record<'red' | 'blue', readonly string[]>> | undefined;
 }
 
 /** Deposit possessed pieces — an outtake, a dropper, a depositor. */
