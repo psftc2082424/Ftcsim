@@ -28,7 +28,14 @@
  * same score and the same event log every run.
  */
 
-import { DT_SECONDS, SimWorld, type GamePieceSpec, type RobotSpec } from '../sim/simWorld.js';
+import { inchesToMeters } from '../units/convert.js';
+import {
+  DT_SECONDS,
+  SimWorld,
+  type GamePieceSpec,
+  type IntakeThrottleZone,
+  type RobotSpec,
+} from '../sim/simWorld.js';
 import type { WorldSnapshot } from '../sim/snapshot.js';
 import { matchStateAt, periodOf, type MatchState, type MatchStructure } from './matchStructure.js';
 import { MatchRunner } from './matchRunner.js';
@@ -50,7 +57,7 @@ import type { Effect, ScoreState } from './effects.js';
 import type { FieldTemplate } from '../field/fieldTemplate.js';
 import type { SimEvent } from './events.js';
 import type { GameDefinition } from './gameDefinition.js';
-import type { MechanismActionRoute } from './gameDefinition.js';
+import type { MechanismActionRoute, IntakeThrottleRegion } from './gameDefinition.js';
 
 /**
  * How a game assigns ordered slots within a region.
@@ -77,6 +84,8 @@ export interface MatchSimulationOptions {
   readonly reserveFeeds?: readonly ReserveFeedSpec[] | undefined;
   /** Regions that hold a resting piece at a declared height (`elevatedRegion.ts`). */
   readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
+  /** Geometric intake chokepoints, resolved to world geometry at setup. */
+  readonly intakeThrottleRegions?: readonly IntakeThrottleRegion[] | undefined;
 
   readonly robots: readonly RobotSpec[];
   readonly pieces?: readonly GamePieceSpec[] | undefined;
@@ -136,6 +145,10 @@ export class MatchSimulation {
       pieces: options.pieces,
       field: options.field,
       seed: options.seed,
+      intakeThrottleZones: resolveIntakeThrottleZones(
+        options.intakeThrottleRegions ?? [],
+        options.regions,
+      ),
     });
 
     this.possession = new PossessionTracker(options.possession);
@@ -434,6 +447,41 @@ export interface MatchSetup {
 }
 
 /**
+ * Resolve declared intake-throttle regions to world-frame circles.
+ *
+ * Only circular regions are supported — the one real use (BIOBUZZ's FLOWER)
+ * is a round opening, and a chokepoint the physical mechanism itself narrows
+ * to a single-file gap is naturally round or near enough. A polygon region
+ * throws rather than silently approximating a shape this was never asked to
+ * handle.
+ */
+function resolveIntakeThrottleZones(
+  throttles: readonly IntakeThrottleRegion[],
+  regions: readonly FieldRegion[],
+): readonly IntakeThrottleZone[] {
+  return throttles.map((throttle) => {
+    const region = regions.find((candidate) => candidate.id === throttle.regionId);
+    if (region === undefined) {
+      throw new Error(`Intake throttle region "${throttle.regionId}" has no geometry.`);
+    }
+    if (throttle.radiusInOverride !== undefined) {
+      return {
+        centerM: region.centerM,
+        radiusM: inchesToMeters(throttle.radiusInOverride),
+        ratePerSec: throttle.ratePerSec,
+      };
+    }
+    if (region.shape.kind !== 'circle') {
+      throw new Error(
+        `Intake throttle region "${throttle.regionId}" must be circular, or declare its own ` +
+          `radiusInOverride; got "${region.shape.kind}".`,
+      );
+    }
+    return { centerM: region.centerM, radiusM: region.shape.radius, ratePerSec: throttle.ratePerSec };
+  });
+}
+
+/**
  * Build a match from a season definition plus the setup for one match.
  *
  * This is the shape the architecture's central claim takes in code: a season is
@@ -460,6 +508,7 @@ export function simulationFromDefinition(
     tippingStructures: definition.tippingStructures,
     reserveFeeds: definition.reserveFeeds,
     elevatedRegions: definition.elevatedRegions,
+    intakeThrottleRegions: definition.intakeThrottleRegions,
 
     robots: setup.robots,
     pieces: setup.pieces,

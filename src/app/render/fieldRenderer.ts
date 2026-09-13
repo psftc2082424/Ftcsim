@@ -15,7 +15,7 @@ import { inchesToMeters } from '../../core/units/convert.js';
 import { createObb, worldVertices } from '../../core/physics/shapes.js';
 import type { WorldSnapshot } from '../../core/sim/snapshot.js';
 import type { FieldAssemblyPart, FieldTemplate } from '../../core/field/fieldTemplate.js';
-import type { FieldRegion, FieldZone } from '../../core/game/regions.js';
+import { regionContains, type FieldRegion, type FieldZone } from '../../core/game/regions.js';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY, type Camera } from './camera.js';
 
 /** FTC fields are laid out on 24 in foam tiles, 6 x 6 of them. */
@@ -44,6 +44,8 @@ const COLORS = {
   pieceBlue: '#1f5fae',
   pieceBlueOutline: '#b7d3f7',
   pieceShadow: 'rgba(0, 0, 0, 0.35)',
+  /** Halo for a piece that has actually settled into a holding cell (a HIVE). */
+  holdingCellHighlight: '#ffffff',
   regionFill: 'rgba(120, 170, 220, 0.10)',
   regionEdge: 'rgba(255, 255, 255, 0.74)',
   redEdge: '#e23448',
@@ -120,10 +122,22 @@ export function renderFrame(
     drawOverlay(ctx, camera, overlay, options.showGeometryLabels === true, field.id === 'ftc-decode-2025-26');
   }
 
+  // A piece resting in a holding cell (BIOBUZZ's HIVE) reads differently from
+  // one merely passing underneath at floor height, on its way through the
+  // same footprint — same (x, y), different height. Purely geometric (no
+  // event history the renderer would need to track): a piece counts as "in"
+  // whichever declared holding-cell regions actually contain its current
+  // position and height this frame. `-cell-` is a naming convention, not a
+  // season name the renderer otherwise knows.
+  const holdingCells = (overlay?.regions ?? []).filter((region) => region.id.includes('-cell-'));
+
   // Every piece draws from its own real position and height — a shot is an
   // ordinary simulated piece the instant it leaves the shooter
   // (`sim/simWorld.ts`'s `launchPieceTowards`), not a separate cosmetic path.
-  for (const piece of snapshot.pieces) drawPiece(ctx, camera, piece, alpha);
+  for (const piece of snapshot.pieces) {
+    const inHoldingCell = holdingCells.some((region) => regionContains(region, piece.pose.p, piece.heightM));
+    drawPiece(ctx, camera, piece, alpha, inHoldingCell);
+  }
   for (const robot of snapshot.robots) {
     drawRobot(ctx, camera, robot, alpha, options.showVelocity);
   }
@@ -442,6 +456,7 @@ function drawPiece(
   camera: Camera,
   piece: WorldSnapshot['pieces'][number],
   alpha: number,
+  inHoldingCell: boolean,
 ): void {
   const x = piece.previousPose.p.x + (piece.pose.p.x - piece.previousPose.p.x) * alpha;
   const y = piece.previousPose.p.y + (piece.pose.p.y - piece.previousPose.p.y) * alpha;
@@ -460,6 +475,18 @@ function drawPiece(
     ctx.arc(screenX, screenY, groundRadius, 0, Math.PI * 2);
     ctx.fillStyle = COLORS.pieceShadow;
     ctx.fill();
+  }
+
+  // A ring around a piece that has actually settled into a holding cell,
+  // drawn under the piece itself so it reads as a halo rather than covering
+  // the ball's own colour. A piece merely passing underneath the same
+  // footprint at floor height gets none.
+  if (inHoldingCell) {
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, groundRadius + 3, 0, Math.PI * 2);
+    ctx.strokeStyle = COLORS.holdingCellHighlight;
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
   }
 
   const { fill, outline } = pieceColors(piece.pieceType);

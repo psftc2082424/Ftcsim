@@ -191,6 +191,35 @@ export interface RobotConstraints {
    * template's own capacity when it is absent.
    */
   readonly pieceControlLimit?: Sourced<number> | undefined;
+  /**
+   * Piece types a ROBOT's intake may not acquire from its own alliance's own
+   * intake — the generic shape for "you cannot cycle the opposing alliance's
+   * own scoring element" (BIOBUZZ: a red ROBOT cannot intake blue NECTAR, and
+   * vice versa). Keyed by the intaking robot's own alliance. Most seasons
+   * have no such rule and leave this undefined.
+   */
+  readonly intakeBlockedTypesByAlliance?: Readonly<Record<'red' | 'blue', readonly string[]>> | undefined;
+}
+
+/**
+ * A geometric chokepoint where capture obeys its own declared rate,
+ * regardless of how fast any robot's own intake is built — BIOBUZZ's FLOWER,
+ * a single narrow opening every ROBOT draws POLLEN through one at a time.
+ * `regionId` must name a declared region; `simulationFromDefinition` resolves
+ * it to world geometry once at match setup.
+ */
+export interface IntakeThrottleRegion {
+  readonly regionId: string;
+  readonly ratePerSec: number;
+  /**
+   * Overrides the named region's own radius for this purpose. A scoring
+   * region's radius is only ever as big as the rule needs (BIOBUZZ's FLOWER
+   * region is the 4 in top opening itself), but a real ROBOT reaches for
+   * POLLEN staged around the *outside* of that opening too — the chokepoint
+   * this throttles is "drawing from this general area", not "centred exactly
+   * on the scoring point". Defaults to the region's own radius when absent.
+   */
+  readonly radiusInOverride?: number | undefined;
 }
 
 /**
@@ -271,6 +300,8 @@ export interface GameDefinition {
    * solver cannot support on its own.
    */
   readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
+  /** Geometric intake chokepoints (`IntakeThrottleRegion`), when a game has them. */
+  readonly intakeThrottleRegions?: readonly IntakeThrottleRegion[] | undefined;
 
   readonly rules: readonly ScoringRule[];
   readonly objectives: readonly Objective[];
@@ -559,6 +590,16 @@ export function validateGameDefinition(
   for (const spec of definition.elevatedRegions ?? []) {
     if (!placedRegions.has(spec.regionId)) {
       error(`elevatedRegions.${spec.id}`, `Region "${spec.regionId}" has no geometry.`);
+    }
+  }
+
+  // --- intake throttle regions --------------------------------------------
+  for (const throttle of definition.intakeThrottleRegions ?? []) {
+    if (!placedRegions.has(throttle.regionId)) {
+      error(`intakeThrottleRegions`, `Region "${throttle.regionId}" has no geometry.`);
+    }
+    if (!(throttle.ratePerSec > 0)) {
+      error(`intakeThrottleRegions`, `Rate for "${throttle.regionId}" must be positive.`);
     }
   }
 

@@ -41,7 +41,7 @@ import { StateHasher } from '../math/hash.js';
 import { solveDrivetrain, type DrivetrainSolution } from '../drive/drivetrain.js';
 import { IdealTraction, type TractionModel } from '../drive/traction.js';
 import type { ChassisVelocity } from '../drive/mecanumKinematics.js';
-import { rotate, vec2, type Vec2 } from '../math/vec2.js';
+import { distance, rotate, vec2, type Vec2 } from '../math/vec2.js';
 import { deriveRobot, type DerivedRobot } from '../robot/derive.js';
 import type { RobotConfig } from '../robot/robotConfig.js';
 import {
@@ -63,6 +63,7 @@ import { apexShot, isAirborne, stepVertical, type VerticalState } from '../physi
 import { launcherAccepts } from './shooter.js';
 import {
   captureAllows,
+  fireIntervalTicks,
   deriveMechanismSpecs,
   feedAllows,
   initialMechanismState,
@@ -179,6 +180,22 @@ export interface SimWorldOptions {
   readonly battery?: BatteryConfig | undefined;
   readonly traction?: TractionModel | undefined;
   readonly seed?: number | undefined;
+  /**
+   * Circular zones where capture obeys their own declared rate instead of
+   * (or in addition to) an intake's own `acquisitionRatePerSec` — a
+   * single-file opening a game wants to bottleneck regardless of how fast a
+   * robot's own mechanism is built. Season-blind: the zone is plain geometry,
+   * with no name or meaning attached. Optional; a game with no such choke
+   * point leaves this undefined.
+   */
+  readonly intakeThrottleZones?: readonly IntakeThrottleZone[] | undefined;
+}
+
+/** See `SimWorldOptions.intakeThrottleZones`. */
+export interface IntakeThrottleZone {
+  readonly centerM: Vec2;
+  readonly radiusM: number;
+  readonly ratePerSec: number;
 }
 
 /** A mechanism action awaiting the game-definition route that resolves it. */
@@ -263,6 +280,9 @@ export class SimWorld {
   private readonly traction: TractionModel;
   private readonly subStreams = new Map<SubStreamId, Pcg32>();
   private cachedSnapshot: WorldSnapshot | null = null;
+  private readonly intakeThrottleZones: readonly IntakeThrottleZone[];
+  /** Tick a capture last happened from each throttle zone, by its index. */
+  private readonly lastZoneCaptureTick = new Map<number, number>();
 
   constructor(options: SimWorldOptions) {
     if (options.robots.length === 0) {
@@ -273,6 +293,7 @@ export class SimWorld {
     this.traction = options.traction ?? IdealTraction;
     this.seed = options.seed ?? 0;
     this.battery = new Battery(options.battery);
+    this.intakeThrottleZones = options.intakeThrottleZones ?? [];
 
     for (const wall of this.field.bodies) this.bodies.set(wall.id, wall);
 
@@ -959,7 +980,7 @@ export class SimWorld {
     const pose = robot.body.pose;
     for (const piece of this.pieces) {
       if (piece.carriedBy !== null || piece.parked) continue;
-      if (!intakeAccepts(spec, piece.spec.pieceType)) continue;
+      if (!intakeAccepts(spec, piece.spec.pieceType, robot.alliance)) continue;
       // The mouth is a floor-level opening; a piece in flight — a shot in
       // progress, or one arcing toward a goal — passes over it rather than
       // being scooped out of the air.
@@ -972,16 +993,46 @@ export class SimWorld {
       );
       if (!mouthContains(spec, bodyP)) continue;
 
+      const zoneIndex = this.throttleZoneContaining(piece.body.pose.p);
       if (
         command === 'intake' &&
         state.held.length < spec.capacity &&
-        captureAllows(state, spec, this.tickCount, TICK_RATE_HZ)
+        captureAllows(state, spec, this.tickCount, TICK_RATE_HZ) &&
+        this.zoneCaptureAllows(zoneIndex)
       ) {
         state.held.push(piece.spec.pieceId);
         piece.carriedBy = robot.body.id;
         state.lastCaptureTick = this.tickCount;
+        if (zoneIndex !== undefined) this.lastZoneCaptureTick.set(zoneIndex, this.tickCount);
       }
     }
+  }
+
+  /** Index of the throttle zone a point falls within, if any. */
+  private throttleZoneContaining(pointM: Vec2): number | undefined {
+    for (let index = 0; index < this.intakeThrottleZones.length; index++) {
+      const zone = this.intakeThrottleZones[index];
+      if (zone === undefined) continue;
+      if (distance(pointM, zone.centerM) <= zone.radiusM) return index;
+    }
+    return undefined;
+  }
+
+  /**
+   * May a capture happen from this throttle zone right now?
+   *
+   * `undefined` (not in any zone) always allows — the zone list only ever
+   * adds a ceiling, never a requirement. This is a chokepoint the zone itself
+   * imposes, not a per-robot mechanism rate, so it is tracked once per zone
+   * rather than per robot: two robots sharing one physical opening would
+   * still only draw from it as fast as the opening allows.
+   */
+  private zoneCaptureAllows(zoneIndex: number | undefined): boolean {
+    if (zoneIndex === undefined) return true;
+    const zone = this.intakeThrottleZones[zoneIndex];
+    if (zone === undefined) return true;
+    const last = this.lastZoneCaptureTick.get(zoneIndex) ?? Number.NEGATIVE_INFINITY;
+    return this.tickCount - last >= fireIntervalTicks(zone.ratePerSec, TICK_RATE_HZ);
   }
 
   /** Return the oldest held piece to the field just outside the intake mouth. */

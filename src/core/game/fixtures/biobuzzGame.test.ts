@@ -18,9 +18,10 @@ import { evaluateRules, createAwardState } from '../rulesEngine.js';
 import { validateRegions } from '../regions.js';
 import type { SimEvent } from '../events.js';
 import { DEFAULT_ROBOT_CONFIG } from '../../robot/robotConfig.js';
-import { NeutralController } from '../../control/controller.js';
+import { NeutralController, LatchedController } from '../../control/controller.js';
 import { inchesToMeters } from '../../units/convert.js';
 import { vec2 } from '../../math/vec2.js';
+import { getGameEntry } from '../registry.js';
 import { BIOBUZZ_GAME } from './biobuzzGame.js';
 import { createBiobuzzField } from './biobuzzCollision.js';
 import { stageBiobuzzPieces } from './biobuzzStaging.js';
@@ -32,6 +33,7 @@ import {
   BIOBUZZ_RULE_SET,
   BIOBUZZ_SETUP,
   BIOBUZZ_PIECES,
+  reserveNectarIds,
 } from './biobuzz.js';
 import { NECTAR_MASS_LB, POLLEN_DIAMETER_IN, POLLEN_MASS_LB } from './biobuzzDimensions.js';
 
@@ -276,6 +278,151 @@ describe('BIOBUZZ end-to-end scenarios', () => {
     const leaveAwards = sim.events.filter((e) => e.kind === 'PhaseChanged' || e.kind === 'RobotAssessed');
     expect(leaveAwards.length).toBeGreaterThan(0);
     expect(sim.score.red).toBeGreaterThanOrEqual(3);
+  });
+
+  it('does not let a ROBOT intake the opposing alliance\'s own NECTAR', () => {
+    const entry = getGameEntry(BIOBUZZ_GAME.id);
+    const controller = new LatchedController();
+    const blueCell = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === BIOBUZZ_REGIONS.blueCellNear)!;
+    const sim = simulationFromDefinition(BIOBUZZ_GAME, {
+      robots: [
+        {
+          config: entry.defaultRobotConfig,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(blueCell.centerM.x - inchesToMeters(6), blueCell.centerM.y), theta: 0 },
+        },
+      ],
+      pieces: [
+        ...stageBiobuzzPieces(),
+        {
+          pieceId: 'opponent-nectar',
+          pieceType: 'nectar-blue',
+          diameterIn: 3.6,
+          massLb: 0.09,
+          startPositionM: blueCell.centerM,
+        },
+      ],
+      field: createBiobuzzField(),
+    });
+
+    controller.set({ drive: { x: 0, y: 0, turn: 0 }, buttons: { intake: true }, axes: {} });
+    for (let tick = 0; tick < 300; tick++) sim.step();
+
+    expect(sim.world.snapshot().robots[0]!.mechanisms.held).toEqual([]);
+  });
+
+  it('still lets a ROBOT intake its own alliance\'s NECTAR', () => {
+    const entry = getGameEntry(BIOBUZZ_GAME.id);
+    const controller = new LatchedController();
+    const redCell = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === BIOBUZZ_REGIONS.redCellNear)!;
+    const sim = simulationFromDefinition(BIOBUZZ_GAME, {
+      robots: [
+        {
+          config: entry.defaultRobotConfig,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(redCell.centerM.x - inchesToMeters(6), redCell.centerM.y), theta: 0 },
+        },
+      ],
+      pieces: [
+        ...stageBiobuzzPieces(),
+        {
+          pieceId: 'own-nectar',
+          pieceType: 'nectar-red',
+          diameterIn: 3.6,
+          massLb: 0.09,
+          startPositionM: redCell.centerM,
+        },
+      ],
+      field: createBiobuzzField(),
+    });
+
+    controller.set({ drive: { x: 0, y: 0, turn: 0 }, buttons: { intake: true }, axes: {} });
+    for (let tick = 0; tick < 300; tick++) sim.step();
+
+    expect(sim.world.snapshot().robots[0]!.mechanisms.held).toEqual(['own-nectar']);
+  });
+
+  it('caps FLOWER intake at 2/sec regardless of the robot\'s own configured rate', () => {
+    const entry = getGameEntry(BIOBUZZ_GAME.id);
+    // A near-instant intake isolates the FLOWER's own zone cap.
+    const fastRobot: typeof entry.defaultRobotConfig = {
+      ...entry.defaultRobotConfig,
+      mechanisms: entry.defaultRobotConfig.mechanisms.map((mechanism) => ({
+        ...mechanism,
+        capabilities: mechanism.capabilities.map((capability) =>
+          capability.kind === 'acquire' ? { ...capability, acquisitionRatePerSec: 1000 } : capability,
+        ),
+      })),
+    };
+    const controller = new LatchedController();
+    const flower = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === BIOBUZZ_REGIONS.flowerNorth)!;
+    const flowerXIn = flower.centerM.x / inchesToMeters(1);
+    const flowerYIn = flower.centerM.y / inchesToMeters(1);
+
+    // A minimal, uncontaminated piece list: just the two test balls at the
+    // FLOWER, plus every id a reserve feed parks at construction (required
+    // for any real BIOBUZZ match to build at all) parked well away from it.
+    const reserveIds = [
+      ...reserveNectarIds('red'),
+      ...reserveNectarIds('blue'),
+    ];
+    const sim = simulationFromDefinition(BIOBUZZ_GAME, {
+      robots: [
+        {
+          config: fastRobot,
+          controller,
+          alliance: 'red',
+          startPose: { p: vec2(inchesToMeters(flowerXIn), inchesToMeters(flowerYIn - 10)), theta: Math.PI / 2 },
+        },
+      ],
+      pieces: [
+        ...reserveIds.map((pieceId, index) => ({
+          pieceId,
+          pieceType: `nectar-${pieceId.includes('red') ? 'red' : 'blue'}`,
+          diameterIn: 3.6,
+          massLb: 0.09,
+          startPositionM: vec2(inchesToMeters(60), inchesToMeters(60 - index)),
+        })),
+        {
+          pieceId: 'flower-a',
+          pieceType: 'pollen',
+          diameterIn: 2.8,
+          massLb: 0.02,
+          startPositionM: vec2(inchesToMeters(flowerXIn - 2), inchesToMeters(flowerYIn)),
+        },
+        {
+          pieceId: 'flower-b',
+          pieceType: 'pollen',
+          diameterIn: 2.8,
+          massLb: 0.02,
+          startPositionM: vec2(inchesToMeters(flowerXIn + 2), inchesToMeters(flowerYIn)),
+        },
+      ],
+      field: createBiobuzzField(),
+    });
+
+    controller.set({ drive: { x: 0, y: 0.15, turn: 0 }, buttons: { intake: true }, axes: {} });
+
+    // Find the tick of the first capture. The near-instant intake would
+    // otherwise take both balls on that very same tick.
+    let firstCaptureTick = -1;
+    for (let tick = 0; tick < 500 && firstCaptureTick === -1; tick++) {
+      sim.step();
+      if (sim.world.snapshot().robots[0]!.mechanisms.held.length > 0) firstCaptureTick = tick;
+    }
+    expect(firstCaptureTick).toBeGreaterThanOrEqual(0);
+    expect(sim.world.snapshot().robots[0]!.mechanisms.held.length).toBe(1);
+
+    // Just short of the zone's 0.5 s (2/sec) cooldown from that capture, the
+    // second ball is still withheld even though the intake itself is instant.
+    for (let tick = 0; tick < 90; tick++) sim.step();
+    expect(sim.world.snapshot().robots[0]!.mechanisms.held.length).toBe(1);
+
+    // Past the cooldown, the second ball is finally allowed.
+    for (let tick = 0; tick < 20; tick++) sim.step();
+    expect(sim.world.snapshot().robots[0]!.mechanisms.held.length).toBe(2);
   });
 });
 

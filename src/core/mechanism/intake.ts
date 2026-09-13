@@ -26,6 +26,8 @@ export interface IntakeSpec {
   readonly pieceTypes: readonly string[];
   /** Pieces this intake can capture per second, once one is in the mouth. */
   readonly acquisitionRatePerSec: number;
+  /** See `AcquireCapability.blockedPieceTypesByAlliance`. */
+  readonly blockedPieceTypesByAlliance?: Readonly<Record<'red' | 'blue', readonly string[]>> | undefined;
 }
 
 /** What the driver is asking the intake to do. */
@@ -76,9 +78,22 @@ export function ejectionPointM(spec: IntakeSpec, pieceRadiusM: number): Vec2 {
   return vec2(spec.mountM.x + out.x * distance, spec.mountM.y + out.y * distance);
 }
 
-/** Can this intake take this piece type? Empty means "whatever the game defines". */
-export function intakeAccepts(spec: IntakeSpec, pieceType: string): boolean {
-  return spec.pieceTypes.length === 0 || spec.pieceTypes.includes(pieceType);
+/**
+ * Can this intake take this piece type, for a robot on this alliance?
+ *
+ * `pieceTypes` empty means "whatever the game defines"; `robotAlliance`
+ * additionally shuts out whatever `blockedPieceTypesByAlliance` names for that
+ * alliance, regardless of `pieceTypes` — a robot built to accept "everything"
+ * still cannot cycle the piece its own alliance is barred from.
+ */
+export function intakeAccepts(
+  spec: IntakeSpec,
+  pieceType: string,
+  robotAlliance: 'red' | 'blue',
+): boolean {
+  if (spec.pieceTypes.length > 0 && !spec.pieceTypes.includes(pieceType)) return false;
+  const blocked = spec.blockedPieceTypesByAlliance?.[robotAlliance];
+  return blocked === undefined || !blocked.includes(pieceType);
 }
 
 /**
@@ -100,6 +115,7 @@ export function deriveIntake(
     capacity: Math.max(0, Math.floor(capability.capacity)),
     pieceTypes: capability.pieceTypes,
     acquisitionRatePerSec: capability.acquisitionRatePerSec,
+    blockedPieceTypesByAlliance: capability.blockedPieceTypesByAlliance,
   };
 }
 

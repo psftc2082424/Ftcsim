@@ -8,6 +8,9 @@ import {
   DECODE_FIELD_ZONES,
   DECODE_LAUNCH_ZONE_OUTLINES,
 } from '../../core/game/fixtures/decodeField.js';
+import { createBiobuzzField } from '../../core/game/fixtures/biobuzzCollision.js';
+import { BIOBUZZ_FIELD_REGIONS, BIOBUZZ_REGIONS } from '../../core/game/fixtures/biobuzzField.js';
+import { HIVE_CELL_REST_HEIGHT_IN } from '../../core/game/fixtures/biobuzz.js';
 import { inchesToMeters } from '../../core/units/convert.js';
 import { createStandardField } from '../../core/field/fieldTemplate.js';
 import { runHeadless } from '../../core/sim/headless.js';
@@ -595,5 +598,77 @@ describe('DECODE presentation: balls, the GATE, and a piece in flight', () => {
     const bodyRadius = (calls: readonly DrawCall[]) =>
       pieceArcs(calls)[pieceArcs(calls).length - 1]?.args[2] ?? 0;
     expect(bodyRadius(airborneDraw.calls)).toBeCloseTo(bodyRadius(groundedDraw.calls), 12);
+  });
+});
+
+/**
+ * A piece actually resting in a BIOBUZZ HIVE cell versus one merely on the
+ * floor at the same (x, y) — the same footprint, since the CELL floats well
+ * above the floor and has no collider of its own. Purely geometric: the
+ * renderer checks position and height against the CELL's own region, the
+ * same fact scoring would use, never a piece-carried flag.
+ */
+describe('BIOBUZZ presentation: a piece actually in the HIVE versus merely underneath it', () => {
+  const biobuzzField = createBiobuzzField();
+  const cellRegion = BIOBUZZ_FIELD_REGIONS.find((r) => r.id === BIOBUZZ_REGIONS.redCellNear);
+  if (cellRegion === undefined) throw new Error('redCellNear region missing');
+  const overlay = { regions: BIOBUZZ_FIELD_REGIONS, zones: [] };
+
+  const snapshotWith = (heightM: number) =>
+    runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(-1.5, 1.2), theta: 0 },
+        },
+      ],
+      pieces: [
+        {
+          pieceId: 'pollen',
+          pieceType: 'pollen',
+          diameterIn: 2.8,
+          massLb: 0.02,
+          startPositionM: cellRegion.centerM,
+          heightM,
+        },
+      ],
+      field: biobuzzField,
+      ticks: 1,
+    }).finalSnapshot;
+
+  const restHeightM = HIVE_CELL_REST_HEIGHT_IN * inchesToMeters(1);
+
+  const highlightStrokeAt = (calls: readonly DrawCall[], screenX: number, screenY: number): boolean =>
+    calls.some(
+      (c) =>
+        c.op === 'stroke' &&
+        c.strokeStyle.toLowerCase() === '#ffffff' &&
+        // The highlight ring's own arc immediately precedes this stroke.
+        calls[calls.indexOf(c) - 1]?.op === 'arc' &&
+        Math.abs((calls[calls.indexOf(c) - 1]?.args[0] ?? 0) - screenX) < 1e-6 &&
+        Math.abs((calls[calls.indexOf(c) - 1]?.args[1] ?? 0) - screenY) < 1e-6,
+    );
+
+  it('highlights a piece actually resting in the CELL, at the CELL\'s own height', () => {
+    const snapshot = snapshotWith(restHeightM);
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, biobuzzField, 0, DEFAULT_RENDER_OPTIONS, overlay);
+
+    const camera = fitCamera(800, 800, biobuzzField.widthM, biobuzzField.lengthM);
+    const screenX = worldToScreenX(camera, cellRegion.centerM.x);
+    const screenY = worldToScreenY(camera, cellRegion.centerM.y);
+    expect(highlightStrokeAt(calls, screenX, screenY)).toBe(true);
+  });
+
+  it('does not highlight the same (x, y) at floor height, underneath the CELL', () => {
+    const snapshot = snapshotWith(inchesToMeters(1.4));
+    const { ctx, calls } = createRecordingContext(800, 800);
+    renderFrame(ctx, snapshot, biobuzzField, 0, DEFAULT_RENDER_OPTIONS, overlay);
+
+    const camera = fitCamera(800, 800, biobuzzField.widthM, biobuzzField.lengthM);
+    const screenX = worldToScreenX(camera, cellRegion.centerM.x);
+    const screenY = worldToScreenY(camera, cellRegion.centerM.y);
+    expect(highlightStrokeAt(calls, screenX, screenY)).toBe(false);
   });
 });
