@@ -12,7 +12,7 @@
 import type { GameDefinition } from '../gameDefinition.js';
 import {
   BIOBUZZ_HAS_NO_WEIGHT_LIMIT,
-  BIOBUZZ_ELEVATED_REGIONS,
+  BIOBUZZ_STACKED_COLUMNS,
   BIOBUZZ_FOULS_ASSESSED_BY_REFEREE,
   BIOBUZZ_INTAKE_THROTTLE_REGIONS,
   BIOBUZZ_MATCH,
@@ -44,7 +44,7 @@ export const BIOBUZZ_GAME: GameDefinition = {
   mechanismActionRoutes: BIOBUZZ_MECHANISM_ACTION_ROUTES,
   tippingStructures: BIOBUZZ_TIPPING_STRUCTURES,
   reserveFeeds: BIOBUZZ_RESERVE_FEEDS,
-  elevatedRegions: BIOBUZZ_ELEVATED_REGIONS,
+  stackedColumns: BIOBUZZ_STACKED_COLUMNS,
   intakeThrottleRegions: BIOBUZZ_INTAKE_THROTTLE_REGIONS,
 
   setup: BIOBUZZ_SETUP,

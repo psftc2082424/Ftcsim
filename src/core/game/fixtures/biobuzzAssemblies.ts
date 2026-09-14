@@ -58,10 +58,30 @@ function regionCenterIn(id: string): { xIn: number; yIn: number } {
   return { xIn: region.centerM.x / inchesToMeters(1), yIn: region.centerM.y / inchesToMeters(1) };
 }
 
-function basketPart(id: string, cellRegionId: string): FieldAssemblyPart {
+/**
+ * One CELL's basket.
+ *
+ * Its collider is `transferOnly` (`fieldTemplate.ts`): the basket is a hollow
+ * box a piece rests *inside*, and a 2D convex shape has no inside, so an
+ * ordinary collider here would eject whatever the CELL is holding. What the
+ * structure genuinely does is stand in the way of a shot crossing the middle
+ * of the FIELD — a ROBOT lining up behind the HIVE and firing through it at
+ * its own far CELL hits the near one. Nothing else in the world sees it: a
+ * ROBOT is capped at 29 in and the basket starts at 29.95 in, so there was
+ * never anything for a chassis to collide with here anyway.
+ */
+function basketPart(id: string, cellRegionId: string, colliderId: number): FieldAssemblyPart {
   const { xIn, yIn } = regionCenterIn(cellRegionId);
   return {
     id,
+    collider: {
+      id: colliderId,
+      span: {
+        bottom: inchesToMeters(HIVE_FRAME.pivotHeightIn.value - HIVE_CELL.openingHeightIn.value),
+        top: inchesToMeters(HIVE_FRAME.pivotHeightIn.value),
+      },
+      transferOnly: true,
+    },
     geometry: {
       kind: 'obb',
       widthM: inchesToMeters(HIVE_CELL.openingWidthIn.value),
@@ -119,7 +139,11 @@ function legPart(id: string, xIn: number, yIn: number, colliderId: number): Fiel
  * One alliance's HIVE: two baskets, the spine joining them, and the two
  * frame legs on that alliance's own side of the Frame's footprint.
  */
-function hiveAssembly(alliance: 'red' | 'blue', legColliderIds: readonly [number, number]): FieldAssembly {
+function hiveAssembly(
+  alliance: 'red' | 'blue',
+  legColliderIds: readonly [number, number],
+  basketColliderIds: readonly [number, number],
+): FieldAssembly {
   const nearId = alliance === 'red' ? BIOBUZZ_REGIONS.redCellNear : BIOBUZZ_REGIONS.blueCellNear;
   const farId = alliance === 'red' ? BIOBUZZ_REGIONS.redCellFar : BIOBUZZ_REGIONS.blueCellFar;
 
@@ -134,8 +158,8 @@ function hiveAssembly(alliance: 'red' | 'blue', legColliderIds: readonly [number
   return {
     id: `${alliance}-hive`,
     parts: [
-      basketPart(`${alliance}-hive-basket-near`, nearId),
-      basketPart(`${alliance}-hive-basket-far`, farId),
+      basketPart(`${alliance}-hive-basket-near`, nearId, basketColliderIds[0]),
+      basketPart(`${alliance}-hive-basket-far`, farId, basketColliderIds[1]),
       spinePart(`${alliance}-hive-spine`, nearId, farId),
       legPart(`${alliance}-hive-leg-near`, legXIn, -halfDepthIn, legColliderIds[0]),
       legPart(`${alliance}-hive-leg-far`, legXIn, halfDepthIn, legColliderIds[1]),
@@ -203,13 +227,14 @@ function flowerAssembly(regionId: string): FieldAssembly {
 }
 
 /**
- * All of BIOBUZZ's canonical assemblies. `legColliderIdBase` reserves 4
- * consecutive entity ids for the HIVE's own 4 corner legs (2 per alliance).
+ * All of BIOBUZZ's canonical assemblies. `colliderIdBase` reserves 8
+ * consecutive entity ids: the HIVE's 4 corner legs (2 per alliance), then its
+ * 4 baskets (2 per alliance, shot blockers only).
  */
-export function createBiobuzzAssemblies(legColliderIdBase: number): readonly FieldAssembly[] {
+export function createBiobuzzAssemblies(colliderIdBase: number): readonly FieldAssembly[] {
   return [
-    hiveAssembly('red', [legColliderIdBase, legColliderIdBase + 1]),
-    hiveAssembly('blue', [legColliderIdBase + 2, legColliderIdBase + 3]),
+    hiveAssembly('red', [colliderIdBase, colliderIdBase + 1], [colliderIdBase + 4, colliderIdBase + 5]),
+    hiveAssembly('blue', [colliderIdBase + 2, colliderIdBase + 3], [colliderIdBase + 6, colliderIdBase + 7]),
     crossbeamAssembly(),
     flowerAssembly(BIOBUZZ_REGIONS.flowerNorth),
     flowerAssembly(BIOBUZZ_REGIONS.flowerSouth),

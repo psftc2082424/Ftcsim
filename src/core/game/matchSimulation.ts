@@ -49,7 +49,7 @@ import {
 } from './conveyor.js';
 import { TippingStructures, resolveTippingRegions, type TippingStructureSpec } from './tipper.js';
 import { ReserveFeeds, resolveReserveFeedPlaces, type ReserveFeedSpec } from './reserveFeed.js';
-import { ElevatedRegions, resolveElevatedRegions, type ElevatedRegionSpec } from './elevatedRegion.js';
+import { StackedColumns, resolveColumnRegions, type StackedColumnSpec } from './stackedColumn.js';
 import { createDefaultRegistry, type PredicateRegistry } from './predicates.js';
 import type { FieldRegion, FieldZone } from './regions.js';
 import type { ScoringRule, FilterValue } from './scoring.js';
@@ -82,8 +82,8 @@ export interface MatchSimulationOptions {
   readonly tippingStructures?: readonly TippingStructureSpec[] | undefined;
   /** Held reserves released on a counted trigger or match phase (`reserveFeed.ts`). */
   readonly reserveFeeds?: readonly ReserveFeedSpec[] | undefined;
-  /** Regions that hold a resting piece at a declared height (`elevatedRegion.ts`). */
-  readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
+  /** Vertical columns that stack and sort pieces (`stackedColumn.ts`). */
+  readonly stackedColumns?: readonly StackedColumnSpec[] | undefined;
   /** Geometric intake chokepoints, resolved to world geometry at setup. */
   readonly intakeThrottleRegions?: readonly IntakeThrottleRegion[] | undefined;
 
@@ -127,14 +127,14 @@ export class MatchSimulation {
   readonly conveyors: PieceConveyors;
   readonly tippers: TippingStructures;
   readonly reserves: ReserveFeeds;
-  readonly elevated: ElevatedRegions;
+  readonly columns: StackedColumns;
 
   private readonly options: MatchSimulationOptions;
   private readonly attribution: PieceAttribution;
   private readonly structure: MatchStructure;
   private readonly eventLog: SimEvent[] = [];
   private readonly tippingRegions: ReadonlyMap<string, FieldRegion>;
-  private readonly elevatedRegionMap: ReadonlyMap<string, FieldRegion>;
+  private readonly columnRegionMap: ReadonlyMap<string, FieldRegion>;
 
   constructor(options: MatchSimulationOptions) {
     this.options = options;
@@ -165,9 +165,9 @@ export class MatchSimulation {
     this.tippers = new TippingStructures(tippingSpecs);
     this.tippingRegions = resolveTippingRegions(tippingSpecs, options.regions);
 
-    const elevatedSpecs = options.elevatedRegions ?? [];
-    this.elevated = new ElevatedRegions(elevatedSpecs);
-    this.elevatedRegionMap = resolveElevatedRegions(elevatedSpecs, options.regions);
+    const columnSpecs = options.stackedColumns ?? [];
+    this.columns = new StackedColumns(columnSpecs);
+    this.columnRegionMap = resolveColumnRegions(columnSpecs, options.regions);
 
     const reserveSpecs = options.reserveFeeds ?? [];
     const reservePlaces = resolveReserveFeedPlaces(reserveSpecs, options.zones);
@@ -286,10 +286,21 @@ export class MatchSimulation {
       matchStateAt(this.structure, this.world.tick * DT_SECONDS),
       this.world,
     );
-    this.elevated.update(this.elevatedRegionMap, routedSnapshot, this.world);
+    this.columns.update(this.columnRegionMap, routedSnapshot, this.world);
 
     if (this.endsAPeriod(this.world.tick)) {
       this.ingestAll(this.detector.restateRestingPieces(this.world.tick, this.options.slotAssignment));
+      // Column contents are restated from the mechanism's own stack model, not
+      // from the detector: a column's pieces are held by the field at one
+      // (x, y), so which of them is where is a fact only the column knows.
+      this.ingestAll(
+        this.columns.assess(
+          this.columnRegionMap,
+          this.world.snapshot(),
+          this.world.tick,
+          this.world.tick * DT_SECONDS,
+        ),
+      );
       this.ingestAll(this.detector.restateOccupancy(this.world.tick));
       // Robots last: an assessment rule asks where a robot is *not*, so the
       // zone bookkeeping above must already be current when it runs.
@@ -507,7 +518,7 @@ export function simulationFromDefinition(
     mechanismActionRoutes: definition.mechanismActionRoutes,
     tippingStructures: definition.tippingStructures,
     reserveFeeds: definition.reserveFeeds,
-    elevatedRegions: definition.elevatedRegions,
+    stackedColumns: definition.stackedColumns,
     intakeThrottleRegions: definition.intakeThrottleRegions,
 
     robots: setup.robots,

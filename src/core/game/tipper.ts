@@ -20,6 +20,16 @@
  * publishes; the load is the part that is published, and it is the part the
  * rule actually turns on.
  *
+ * ── Why the swing takes time ───────────────────────────────────────────────
+ *
+ * Reaching the threshold starts a *swing*; the cells swap when it finishes.
+ * A real structure this size takes seconds to come over, and an instant flip
+ * both looked wrong and removed the only window in which a driver can see a
+ * tip coming. The swing is still not hinge physics: it is one declared
+ * duration scaled by how far past its own threshold the load is (see
+ * `tipDurationAtThresholdSec`), which is the cheapest relationship that gets
+ * the one behaviour a heavier load should have — it comes over sooner.
+ *
  * ── What it does not do ────────────────────────────────────────────────────
  *
  * It does not score. It emits `StructureTipped`, the same one-way channel
@@ -48,6 +58,20 @@ export interface TippingStructureSpec {
    * a calibration stated as "tips on the 8th POLLEN" is expressed.
    */
   readonly tipThresholdMassKg: Sourced<number>;
+  /**
+   * How long the swing takes when the cell holds exactly its threshold load,
+   * seconds.
+   *
+   * A heavier load comes over faster, in inverse proportion to how far past
+   * the threshold it is: `duration = base * threshold / load`. Inverse rather
+   * than linear-in-excess because it needs no second constant and cannot
+   * reach zero however heavy the load gets — a structure that snapped over
+   * instantly above some load would be back to the instant flip this replaced.
+   * The duration is fixed at the moment the swing starts and is not
+   * re-evaluated as pieces settle during it, so a tip that has begun always
+   * completes at a knowable time.
+   */
+  readonly tipDurationAtThresholdSec: Sourced<number>;
   /** Height above the floor a resting piece is held at while its cell is up. */
   readonly cellRestHeightM: number;
   /** Vertical approach rate toward `cellRestHeightM`, m/s. */
@@ -115,6 +139,26 @@ export interface TippingWorld {
 interface StructureState {
   upIndex: 0 | 1;
   tipCount: number;
+  /** Match time the current swing completes at, or `null` when at rest. */
+  swingEndsAtSec: number | null;
+  /** Match time the current swing began at; meaningless while at rest. */
+  swingStartedAtSec: number;
+  /** 0 at rest, rising to 1 across a swing. Read by presentation only. */
+  swingProgress: number;
+}
+
+/**
+ * How long a swing takes for a given load.
+ *
+ * Exported so a caller can state the expectation directly rather than
+ * recomputing the relationship, and so the one place that knows it is the one
+ * place a test reads.
+ */
+export function tipDurationSec(spec: TippingStructureSpec, loadKg: number): number {
+  const threshold = spec.tipThresholdMassKg.value;
+  const base = spec.tipDurationAtThresholdSec.value;
+  if (loadKg <= threshold) return base;
+  return (base * threshold) / loadKg;
 }
 
 /** One milligram: far below any scoring element, far above summation error. */
@@ -132,8 +176,29 @@ export class TippingStructures {
 
   constructor(private readonly specs: readonly TippingStructureSpec[]) {
     for (const spec of specs) {
-      this.states.set(spec.id, { upIndex: spec.initialUpIndex, tipCount: 0 });
+      this.states.set(spec.id, {
+        upIndex: spec.initialUpIndex,
+        tipCount: 0,
+        swingEndsAtSec: null,
+        swingStartedAtSec: 0,
+        swingProgress: 0,
+      });
     }
+  }
+
+  /** Every structure this game declares, in declaration order. */
+  get structureIds(): readonly string[] {
+    return this.specs.map((spec) => spec.id);
+  }
+
+  /** The two cells this structure alternates between, in index order. */
+  cellRegionIds(structureId: string): readonly [string, string] | undefined {
+    return this.specs.find((spec) => spec.id === structureId)?.cellRegionIds;
+  }
+
+  /** Which of `cellRegionIds` is currently up. */
+  upIndex(structureId: string): 0 | 1 | undefined {
+    return this.states.get(structureId)?.upIndex;
   }
 
   /** The region id currently accepting pieces for this structure, or `undefined` if unknown. */
@@ -147,6 +212,22 @@ export class TippingStructures {
   /** How many times this structure has tipped so far in the match. */
   tipCount(structureId: string): number {
     return this.states.get(structureId)?.tipCount ?? 0;
+  }
+
+  /** Is this structure part-way through a swing right now? */
+  isTipping(structureId: string): boolean {
+    return this.states.get(structureId)?.swingEndsAtSec !== null;
+  }
+
+  /**
+   * How far through its swing this structure is, 0 to 1; 0 while at rest.
+   *
+   * Presentation state, not a gameplay fact: a renderer showing which cell is
+   * coming up needs the swing to read as in-progress, and nothing in the rules
+   * pipeline consumes this.
+   */
+  tipProgress(structureId: string): number {
+    return this.states.get(structureId)?.swingProgress ?? 0;
   }
 
   /**
@@ -186,13 +267,33 @@ export class TippingStructures {
         world.guidePiece(piece.pieceId, vec2(0, 0), spec.cellRestHeightM, spec.cellHeightRateMps);
       }
 
-      // Floating-point tolerance, not a fudge: a load declared as a whole
-      // number of balls is summed one ball at a time, so the count that is
-      // meant to tip can land a few ULPs short of its own threshold.
-      if (loadKg < spec.tipThresholdMassKg.value - LOAD_EPSILON_KG) continue;
+      if (state.swingEndsAtSec === null) {
+        // Floating-point tolerance, not a fudge: a load declared as a whole
+        // number of balls is summed one ball at a time, so the count that is
+        // meant to tip can land a few ULPs short of its own threshold.
+        if (loadKg < spec.tipThresholdMassKg.value - LOAD_EPSILON_KG) continue;
 
-      // Tip: the held cell flips down and dumps whatever it was holding, and
-      // the other cell becomes the new up-facing (and now empty) destination.
+        // Loaded past its threshold: the structure starts coming over. Nothing
+        // else changes this tick — the cells have not swapped, and whatever is
+        // in the up cell stays held there by the guidance above until the
+        // swing finishes.
+        state.swingStartedAtSec = timeSec;
+        state.swingEndsAtSec = timeSec + tipDurationSec(spec, loadKg);
+        state.swingProgress = 0;
+        continue;
+      }
+
+      const swingSec = state.swingEndsAtSec - state.swingStartedAtSec;
+      if (timeSec < state.swingEndsAtSec) {
+        state.swingProgress = swingSec > 0 ? (timeSec - state.swingStartedAtSec) / swingSec : 1;
+        continue;
+      }
+
+      // The swing has completed: the held cell is now past vertical, so it
+      // dumps whatever it is still holding and the other cell becomes the new
+      // up-facing (and now empty) destination.
+      state.swingEndsAtSec = null;
+      state.swingProgress = 0;
       const nowDownCenterM = upRegion.centerM;
       state.upIndex = state.upIndex === 0 ? 1 : 0;
       state.tipCount += 1;

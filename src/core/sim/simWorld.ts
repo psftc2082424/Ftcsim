@@ -578,6 +578,34 @@ export class SimWorld {
     this.cachedSnapshot = null;
   }
 
+  /**
+   * Park a piece at a point *and* a height, held by a field mechanism.
+   *
+   * `holdPiece` settles to the floor, which is right for a queue laid out
+   * along the tiles and wrong for a column that stacks several pieces at one
+   * (x, y): the whole point of that mechanism is that each piece is at a
+   * different height, and a parked stack drawn flat on the floor would report
+   * a height its own scoring band never sees.
+   */
+  holdPieceAt(pieceId: string, positionM: Vec2, heightM: number): void {
+    const piece = this.pieceNamed(pieceId);
+    piece.parked = true;
+    piece.carriedBy = null;
+    piece.transferring = false;
+    this.settlePiece(piece, positionM);
+    // Held by the field, not resting on it: the mechanism is what puts it at
+    // this height, so it must not also be subject to the floor-level rolling
+    // loss a supported piece gets.
+    piece.supportedByField = true;
+    piece.heightM = heightM;
+    piece.previousHeightM = heightM;
+    piece.body.span = {
+      bottom: Math.max(0, heightM - piece.radiusM),
+      top: heightM + piece.radiusM,
+    };
+    this.cachedSnapshot = null;
+  }
+
   /** Put a parked piece back into play at rest. */
   releasePiece(pieceId: string, positionM: Vec2): void {
     const piece = this.pieceNamed(pieceId);
@@ -1202,6 +1230,8 @@ export class SimWorld {
       if (!resolvedAny) break;
     }
 
+    this.blockTransfersInFlight();
+
     // A robot is far heavier than an ARTIFACT. Preserve normal contact momentum
     // so a released ball coasts naturally; limit only a solver-created
     // overspeed that would make a compressed pile skate away faster than its
@@ -1210,6 +1240,46 @@ export class SimWorld {
       const robotSpeed = robotPushSpeedByPiece.get(piece.body.id);
       if (robotSpeed === undefined) continue;
       limitRobotPushedArtifactSpeed(piece.body, robotSpeed);
+    }
+  }
+
+  /**
+   * Stop a shot that is flying through a structure declared to block one.
+   *
+   * A routed shot is exempt from ordinary contacts so that a robot, a rail or
+   * an unrelated piece cannot deflect it off its declared destination. That
+   * exemption is also what would let it pass straight through a raised
+   * structure standing between the shooter and the goal, which is the one
+   * thing a driver should have to shoot *around*. A field declares the parts
+   * that stop a shot (`FieldTemplate.transferBlockers`); this resolves them.
+   *
+   * A blocker covering the shot's own declared destination is skipped: a
+   * structure cannot block a shot aimed into itself, and the destination is
+   * routinely inside the very part that would otherwise catch it on the way
+   * down. Everything else in the way stops it, and it falls where it hit.
+   */
+  private blockTransfersInFlight(): void {
+    const blockers = this.field.transferBlockers ?? [];
+    if (blockers.length === 0) return;
+
+    for (const piece of this.pieces) {
+      if (!piece.transferring || piece.parked || piece.carriedBy !== null) continue;
+      const target = piece.transferTargetM;
+
+      for (const blocker of blockers) {
+        if (!spansOverlap(piece.body.span, blocker.span)) continue;
+        if (target !== null && coversPoint(blocker, target, piece.radiusM)) continue;
+        const contact = collide(piece.body.shape, piece.body.pose, blocker.shape, blocker.pose);
+        if (contact === null) continue;
+
+        resolveContact(piece.body, blocker, contact, 0);
+        // The shot is over: it hit something. From here it is an ordinary
+        // body falling under gravity, which is what a blocked shot does.
+        piece.transferring = false;
+        piece.transferTargetM = null;
+        piece.transferTargetHeightM = null;
+        break;
+      }
     }
   }
 
@@ -1230,6 +1300,19 @@ export class SimWorld {
       omega: piece.body.vel.omega,
     };
   }
+}
+
+/**
+ * Would a piece of this radius, centred on this point, be inside this body?
+ *
+ * Asked of a transfer blocker against a shot's declared destination, so that
+ * the structure a shot is aimed into never blocks it. Posed as a circle rather
+ * than a bare point because the destination is a nominal centre and the piece
+ * that arrives there has real size; a bare point could sit a hair outside a
+ * part the arriving piece is plainly inside.
+ */
+function coversPoint(body: RigidBody, pointM: Vec2, radiusM: number): boolean {
+  return collide(createCircle(radiusM), { p: pointM, theta: 0 }, body.shape, body.pose) !== null;
 }
 
 /** Keep an ARTIFACT from outrunning the robot that is actively driving it. */

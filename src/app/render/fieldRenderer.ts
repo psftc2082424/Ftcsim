@@ -46,6 +46,12 @@ const COLORS = {
   pieceShadow: 'rgba(0, 0, 0, 0.35)',
   /** Halo for a piece that has actually settled into a holding cell (a HIVE). */
   holdingCellHighlight: '#ffffff',
+  /** The raised end of a bistable structure, and its up marker. */
+  raisedCellEdge: '#ffe08a',
+  /** The lowered end's marker: present but plainly not the live one. */
+  loweredCellEdge: '#7b8791',
+  pivotBar: '#d3dde4',
+  pivotHub: '#3b4852',
   regionFill: 'rgba(120, 170, 220, 0.10)',
   regionEdge: 'rgba(255, 255, 255, 0.74)',
   redEdge: '#e23448',
@@ -72,6 +78,25 @@ export interface FieldOverlay {
    * means beyond "does this one draw as open".
    */
   readonly openConveyorIds?: ReadonlySet<string> | undefined;
+  /**
+   * Bistable field structures (`game/tipper.ts`) as presentation state.
+   *
+   * Optional and season-blind, exactly like `openConveyorIds`: a game with no
+   * such element populates nothing, and the renderer knows only "these two
+   * places alternate, this one is up, and it is this far through a swing".
+   */
+  readonly tippingStructures?: readonly TippingStructureView[] | undefined;
+}
+
+/** One bistable structure's current state, for drawing. */
+export interface TippingStructureView {
+  readonly id: string;
+  /** The two alternating cell region ids, in the structure's own index order. */
+  readonly cellRegionIds: readonly [string, string];
+  /** Which of `cellRegionIds` is up right now. */
+  readonly upIndex: 0 | 1;
+  /** 0 at rest, rising to 1 while the structure is part-way through a swing. */
+  readonly swingProgress: number;
 }
 
 export interface RenderOptions {
@@ -107,7 +132,7 @@ export function renderFrame(
   ctx.fillStyle = COLORS.backdrop;
   ctx.fillRect(0, 0, width, height);
 
-  drawField(ctx, camera, field, options.showGrid, overlay?.openConveyorIds);
+  drawField(ctx, camera, field, options.showGrid, overlay);
 
   // Match markings are physical tape/material presentation, not authoring
   // geometry. DECODE keeps them visible in Play while diagnostic bounds remain
@@ -505,8 +530,10 @@ function drawField(
   camera: Camera,
   field: FieldTemplate,
   showGrid: boolean,
-  openConveyorIds: ReadonlySet<string> | undefined,
+  overlay: FieldOverlay | undefined,
 ): void {
+  const openConveyorIds = overlay?.openConveyorIds;
+  const cellStates = tippingCellStates(overlay);
   const halfW = field.widthM / 2;
   const halfL = field.lengthM / 2;
 
@@ -548,7 +575,8 @@ function drawField(
   // Season fixtures publish a canonical assembly that owns both its rendered
   // parts and (where appropriate) static colliders.  Only the generic
   // perimeter is left to the legacy body fallback.
-  drawAssemblies(ctx, camera, field, openConveyorIds ?? EMPTY_OPEN_SET);
+  drawAssemblies(ctx, camera, field, openConveyorIds ?? EMPTY_OPEN_SET, cellStates);
+  drawTippingPivots(ctx, camera, overlay);
 
   const assemblyColliderIds = new Set(
     (field.assemblies ?? []).flatMap((assembly) =>
@@ -571,6 +599,7 @@ function drawAssemblies(
   camera: Camera,
   field: FieldTemplate,
   openConveyorIds: ReadonlySet<string>,
+  cellStates: ReadonlyMap<string, TippingCellState>,
 ): void {
   for (const assembly of field.assemblies ?? []) {
     for (const part of assembly.parts) {
@@ -578,11 +607,181 @@ function drawAssemblies(
       const gateTag = part.collider?.tag;
       const isOpen = gateTag !== undefined && openConveyorIds.has(gateTag.replace('-gate', ''));
       const style = assemblyStyle(part, isOpen);
+
+      // A part that a bistable structure owns is drawn as one end of a rocker
+      // rather than as a flat panel: which end is up is the single most useful
+      // thing a driver can read off this structure.
+      const cell = tippingStateOf(part, cellStates);
+      if (cell !== undefined && part.geometry.kind === 'obb') {
+        drawTippingCell(ctx, camera, part.geometry, style, cell);
+        continue;
+      }
+
       const vertices = part.geometry.kind === 'obb'
         ? worldVertices(createObb(part.geometry.widthM, part.geometry.lengthM), part.geometry.pose.p, part.geometry.pose.theta)
         : part.geometry.vertices;
       drawVertices(ctx, camera, vertices, style.fill, style.stroke, style.lineWidth, style.alpha);
     }
+  }
+}
+
+/** How a bistable structure's cell is standing right now. */
+interface TippingCellState {
+  /** 1 while this cell is fully up, 0 while it is fully down. */
+  readonly raised: number;
+}
+
+/**
+ * Index every bistable structure's two cells by region id.
+ *
+ * A cell part is matched by its `semanticIds`, which is the assembly's own
+ * declared link back to the region it presents — not by a name the renderer
+ * recognises.
+ */
+function tippingCellStates(overlay: FieldOverlay | undefined): ReadonlyMap<string, TippingCellState> {
+  const states = new Map<string, TippingCellState>();
+  for (const structure of overlay?.tippingStructures ?? []) {
+    const progress = Math.max(0, Math.min(1, structure.swingProgress));
+    structure.cellRegionIds.forEach((regionId, index) => {
+      // Mid-swing the two ends cross over, so the one that is up is on its way
+      // down and vice versa. Reading the swing straight off the structure's own
+      // progress is what keeps this a pure read rather than an animation the
+      // renderer owns and the simulation knows nothing about.
+      const isUp = index === structure.upIndex;
+      states.set(regionId, { raised: isUp ? 1 - progress : progress });
+    });
+  }
+  return states;
+}
+
+function tippingStateOf(
+  part: FieldAssemblyPart,
+  cellStates: ReadonlyMap<string, TippingCellState>,
+): TippingCellState | undefined {
+  for (const semanticId of part.semanticIds ?? []) {
+    const state = cellStates.get(semanticId);
+    if (state !== undefined) return state;
+  }
+  return undefined;
+}
+
+/**
+ * How much smaller a fully lowered cell is drawn than a fully raised one.
+ *
+ * The structure really is a rocker: one end rises well above the other, and in
+ * a top-down view the near (raised) end is simply bigger. Scaling the footprint
+ * is the only cue this projection has, so it has to be large enough to read at
+ * a glance without the down cell losing its shape.
+ */
+const LOWERED_CELL_SCALE = 0.62;
+
+/**
+ * One end of a rocker: the raised cell drawn full size and solid with an
+ * upward chevron, the lowered one shrunk, dimmed and marked with a hollow
+ * chevron pointing the other way.
+ */
+function drawTippingCell(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  geometry: { readonly widthM: number; readonly lengthM: number; readonly pose: { readonly p: { readonly x: number; readonly y: number }; readonly theta: number } },
+  style: { readonly fill: string; readonly stroke: string; readonly lineWidth: number; readonly alpha: number },
+  cell: TippingCellState,
+): void {
+  const scale = LOWERED_CELL_SCALE + (1 - LOWERED_CELL_SCALE) * cell.raised;
+  const vertices = worldVertices(
+    createObb(geometry.widthM * scale, geometry.lengthM * scale),
+    geometry.pose.p,
+    geometry.pose.theta,
+  );
+  drawVertices(
+    ctx,
+    camera,
+    vertices,
+    style.fill,
+    cell.raised > 0.5 ? COLORS.raisedCellEdge : style.stroke,
+    cell.raised > 0.5 ? style.lineWidth * 2.4 : style.lineWidth,
+    0.35 + 0.65 * cell.raised,
+  );
+
+  const x = worldToScreenX(camera, geometry.pose.p.x);
+  const y = worldToScreenY(camera, geometry.pose.p.y);
+  const size = Math.max(4, metersToPixels(camera, Math.min(geometry.widthM, geometry.lengthM)) * 0.22);
+  drawCellChevron(ctx, x, y, size, cell.raised > 0.5);
+}
+
+/**
+ * The up/down marker itself: a chevron pointing up the screen when this cell
+ * is the one accepting pieces, and down when it is not. Filled when up, hollow
+ * when down, so the two read apart even where the colours are close.
+ */
+function drawCellChevron(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  isUp: boolean,
+): void {
+  const tip = isUp ? -size : size;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x, y + tip);
+  ctx.lineTo(x - size, y - tip * 0.6);
+  ctx.lineTo(x + size, y - tip * 0.6);
+  ctx.closePath();
+  if (isUp) {
+    ctx.fillStyle = COLORS.raisedCellEdge;
+    ctx.fill();
+  } else {
+    ctx.strokeStyle = COLORS.loweredCellEdge;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/**
+ * The pivot each bistable structure rocks about: a bar between its two cells
+ * with a hub at the middle.
+ *
+ * Drawn from the two cells' own positions, so a structure whose cells sit
+ * side by side draws its bar side to side and one arranged front to back draws
+ * it front to back. Nothing here assumes which.
+ */
+function drawTippingPivots(
+  ctx: CanvasRenderingContext2D,
+  camera: Camera,
+  overlay: FieldOverlay | undefined,
+): void {
+  for (const structure of overlay?.tippingStructures ?? []) {
+    const centres = structure.cellRegionIds.map(
+      (regionId) => overlay?.regions.find((region) => region.id === regionId)?.centerM,
+    );
+    const [a, b] = centres;
+    if (a === undefined || b === undefined) continue;
+
+    ctx.save();
+    ctx.strokeStyle = COLORS.pivotBar;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(worldToScreenX(camera, a.x), worldToScreenY(camera, a.y));
+    ctx.lineTo(worldToScreenX(camera, b.x), worldToScreenY(camera, b.y));
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(
+      worldToScreenX(camera, (a.x + b.x) / 2),
+      worldToScreenY(camera, (a.y + b.y) / 2),
+      Math.max(3, metersToPixels(camera, inchesToMeters(2))),
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = COLORS.pivotHub;
+    ctx.fill();
+    ctx.strokeStyle = COLORS.pivotBar;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
   }
 }
 

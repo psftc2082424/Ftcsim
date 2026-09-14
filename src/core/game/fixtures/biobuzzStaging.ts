@@ -13,12 +13,14 @@
  *
  * ── Where "pre-loaded in a FLOWER" pieces actually go ──────────────────────
  *
- * §10.3.1 stages 4 POLLEN "in" each FLOWER, but the FLOWER's *scoring* volume
- * is between its top and middle rings (§10.5.2) while its lower ring is a
- * separate feeder POLLEN sit in near the floor (§9.7). Placed at floor height,
- * these fall below the scoring region's vertical span by construction — the
- * geometry already keeps a staged, not-yet-scored POLLEN from reading as
- * pre-scored, with no separate feeder region needed for this pass.
+ * §10.3.1 stages 4 POLLEN "in" each FLOWER, which is a real column in a real
+ * tube: they go at the FLOWER's own centre and `BIOBUZZ_STACKED_COLUMNS`
+ * claims them on the first tick, stacking them from the tiles up. Four POLLEN
+ * reach 11.2 in, well below the 21.5 in top ring, so a staged FLOWER is
+ * nowhere near full. Three of the four do stand inside the scoring volume,
+ * and they are still worth nothing: a FLOWER with no NECTAR in its volume has
+ * no owner, and POLLEN alone scores for nobody (§10.5.2). That is the rule
+ * keeping a staged FLOWER off the scoreboard, not a staging trick.
  */
 
 import type { GamePieceSpec } from '../../sim/simWorld.js';
@@ -33,7 +35,12 @@ import {
 } from './biobuzzDimensions.js';
 import { BIOBUZZ_FIELD_REGIONS, BIOBUZZ_LEGAL_START_POSES, BIOBUZZ_REGIONS, BIOBUZZ_ZONES, BIOBUZZ_FIELD_ZONES } from './biobuzzField.js';
 import { tileBounds } from './biobuzzTiles.js';
-import { BIOBUZZ_TIPPING_STRUCTURES, HIVE_CELL_REST_HEIGHT_IN, reserveNectarIds } from './biobuzz.js';
+import {
+  BIOBUZZ_TIPPING_STRUCTURES,
+  HIVE_CELL_REST_HEIGHT_IN,
+  flowerPollenIds,
+  reserveNectarIds,
+} from './biobuzz.js';
 
 const POLLEN_D = POLLEN_DIAMETER_IN.value;
 const NECTAR_D = NECTAR_DIAMETER_IN.value;
@@ -79,15 +86,14 @@ export function stageBiobuzzPieces(): readonly GamePieceSpec[] {
 
   // "[4] Pollen placed in it, with the bottom most Pollen sitting on the tiles
   // inside the Flower Bottom Ring and each subsequent Pollen resting on the one
-  // below" (Setup Guide §11.2) — a column inside a vertical tube.
+  // below" (Setup Guide §11.2) — a real column inside a vertical tube, staged
+  // at the FLOWER's own centre.
   //
-  // This engine cannot hold that column: loose pieces have a height but no
-  // resting-on-each-other contact (see `BIOBUZZ_ELEVATED_REGIONS`), so four
-  // POLLEN stacked on one spot simply overlap, shove each other apart and
-  // scatter. They are staged spread along the wall at the FLOWER's mouth
-  // instead: the same four POLLEN, at the same FLOWER, reachable by the same
-  // ROBOT, just lying in a row rather than a stack. Restore the column when
-  // piece-on-piece stacking exists.
+  // All four share one (x, y), which no planar contact solver can hold on its
+  // own; `BIOBUZZ_STACKED_COLUMNS` names these same ids as its starting
+  // contents, and `stackedColumn.ts` takes them over on the first tick and
+  // holds each at its real height. Nothing here has to know those heights: the
+  // column computes them from the FLOWER's own geometry.
   const flowerIds = [
     BIOBUZZ_REGIONS.flowerNorth,
     BIOBUZZ_REGIONS.flowerSouth,
@@ -96,18 +102,8 @@ export function stageBiobuzzPieces(): readonly GamePieceSpec[] {
   ];
   for (const flowerId of flowerIds) {
     const { xIn, yIn } = centerOf(flowerId);
-    // Spread along whichever wall the FLOWER is mounted on, so the row runs
-    // beside the perimeter rather than out into the driving lane.
-    const alongWall = Math.abs(xIn) > Math.abs(yIn) ? { x: 0, y: 1 } : { x: 1, y: 0 };
-    for (let index = 0; index < 4; index++) {
-      const offsetIn = (index - 1.5) * POLLEN_D;
-      staged.push(
-        pollen(
-          `pollen-${flowerId}-${index}`,
-          xIn + alongWall.x * offsetIn,
-          yIn + alongWall.y * offsetIn,
-        ),
-      );
+    for (const pieceId of flowerPollenIds(flowerId)) {
+      staged.push(pollen(pieceId, xIn, yIn));
     }
   }
 

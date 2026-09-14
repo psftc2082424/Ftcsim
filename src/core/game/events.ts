@@ -41,6 +41,8 @@ export const SIM_EVENT_KINDS = [
   'RobotAssessed',
   'PhaseChanged',
   'StructureTipped',
+  'PieceStackedInColumn',
+  'ColumnAssessed',
 ] as const;
 
 export type SimEventKind = (typeof SIM_EVENT_KINDS)[number];
@@ -229,6 +231,47 @@ export interface StructureTippedEvent extends SimEventBase {
   readonly upRegionId: string;
 }
 
+/**
+ * A piece is standing inside a stacked column's declared scoring band
+ * (`game/stackedColumn.ts`), restated at a moment of assessment.
+ *
+ * Generic on purpose: nothing here says FLOWER or NECTAR. `alliance` is the
+ * one the column's **highest** owning piece confers — a column is owned from
+ * the top down, and every piece in the band scores for whoever owns it,
+ * whatever type it is and whoever put it there. Absent when nothing in the
+ * band confers ownership at all, which is a column that scores nobody.
+ */
+export interface PieceStackedInColumnEvent extends SimEventBase {
+  readonly kind: 'PieceStackedInColumn';
+  readonly columnId: string;
+  readonly regionId: string;
+  readonly pieceId: string;
+  readonly pieceType: string;
+  /** Position from the bottom of the column, counting pieces below the band. */
+  readonly stackIndex: number;
+  /** Centre height above the floor, metres. */
+  readonly heightM: number;
+  readonly alliance?: Alliance | undefined;
+}
+
+/**
+ * A stacked column was assessed as a whole.
+ *
+ * `alliance` is the one the column's **lowest** owning piece confers, which is
+ * the separate fact a bottom-of-stack bonus scores — distinct from the
+ * top-down ownership every `PieceStackedInColumn` carries, and emitted as its
+ * own event kind for exactly that reason: a rule resolves one alliance per
+ * event, so two owners need two events.
+ */
+export interface ColumnAssessedEvent extends SimEventBase {
+  readonly kind: 'ColumnAssessed';
+  readonly columnId: string;
+  readonly regionId: string;
+  /** Pieces at least partly inside the scoring band. */
+  readonly scoringCount: number;
+  readonly alliance?: Alliance | undefined;
+}
+
 export type SimEvent =
   | PieceEnteredRegionEvent
   | PieceExitedRegionEvent
@@ -242,7 +285,9 @@ export type SimEvent =
   | MechanismStateChangedEvent
   | RobotAssessedEvent
   | PhaseChangedEvent
-  | StructureTippedEvent;
+  | StructureTippedEvent
+  | PieceStackedInColumnEvent
+  | ColumnAssessedEvent;
 
 /**
  * Read a dotted path off an event for rule filtering.

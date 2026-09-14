@@ -2043,10 +2043,102 @@ lane direction and stopped before the collider activates. This is a narrow
 field-mechanism separation correction, preserving the elevated support and
 ordinary ball state; it is not a drivetrain or generic robot-collision change.
 
-## 11. Revision log
+## 11. BIOBUZZ: the FLOWER column and the HIVE swing
+
+### 11.1 The FLOWER as a stacked, size-sorting column
+
+| | |
+|---|---|
+| **Source** | Competition Manual §9.7 (FLOWER geometry), §9.8 (element diameters), §10.5.2 (scoring volume), Event FIELD Setup Guide §11.2 (staged column) |
+| **Location** | `core/game/stackedColumn.ts`, `core/game/fixtures/biobuzz.ts`, `core/game/fixtures/biobuzzStaging.ts` |
+| **Decision** | A FLOWER is a generic stacked column: pieces enter only from above, stack bottom to top in arrival order, and a declared per-type seat floor models the middle ring that POLLEN passes and NECTAR does not. |
+
+This replaces `elevatedRegion.ts`, which held at most one piece at a single
+fixed height and explicitly did not stack, gate entry or report scoring.
+
+Two numbers the manual does not state:
+
+- **The middle ring's elevation, 3.95 in** (`FLOWER_MID_RING_HEIGHT_IN`,
+  `inferred`). Derived as §9.7's 0.4 in Bottom Ring plus the 3.55 in retrieval
+  opening above it: the next restriction up the tube begins where that opening
+  ends. What makes it a *sorter* is that its hole falls between the sourced
+  2.8 in POLLEN and 3.6 in NECTAR (§9.8) — the manual says neither the
+  elevation nor the hole size. Everything the mechanism does follows from it:
+  a NECTAR can never sink below the bottom of the scoring volume, so an
+  entered NECTAR always scores, and drawing a POLLEN out from under one does
+  not lower it.
+- **The entry margin, 3 in** (`assumed`). The manual describes no criterion for
+  "entering" a FLOWER at all. Roughly twice §9.7's 1.25 in backstop — the
+  height a lobbed piece actually has to clear — widened so a fast arc cannot
+  step past the ring between two fixed timesteps.
+
+Capacity is computed from the geometry rather than declared: 8 POLLEN or
+5 NECTAR in an empty FLOWER, the second reduced by the clearance the ring
+costs the first NECTAR.
+
+Two modelling consequences are recorded honestly. Stacked pieces are held by
+the field mechanism, not by contacts — the contact solver is planar and a
+column is several pieces at one (x, y). And retrieval (G418's "only the bottom
+most element") is not a new driver action: the bottom piece is put back into
+play at the FLOWER's base when its type can pass the 3.55 in opening, where an
+ordinary intake reaches it through the existing 2/sec FLOWER chokepoint. A
+NECTAR at the bottom is never presented, which is what locks a FLOWER.
+
+### 11.2 The HIVE tip is a timed swing, not a state flip
+
+| | |
+|---|---|
+| **Source** | Competition Manual §9.6.2 (a real bistable mechanism), §10.5.1 (referees are not expected to watch for the instant a TIP completes) |
+| **Location** | `core/game/tipper.ts`, `core/game/fixtures/biobuzz.ts` |
+| **Decision** | Reaching the 200 g threshold starts a swing that completes 3.5 s later at exactly that load, sooner under a heavier one: `duration = base * threshold / load`. |
+
+The trigger is unchanged — the same flat, team-calibrated 200 g sum of what is
+resting in the up CELL. What changed is that the cells no longer swap on the
+tick the load arrives. `BIOBUZZ_HIVE_TIP_DURATION_SEC` is `assumed`: the manual
+publishes no swing time, and 3.5 s is a design choice, long enough to read as a
+structure coming over and short enough not to stall a cycle.
+
+The load-to-duration relationship is inverse rather than linear in the excess
+because it needs no second constant and cannot reach zero however heavy the
+load: a structure that snapped over instantly above some load would be the
+instant flip this replaced. The duration is fixed when the swing starts and is
+not re-evaluated as pieces settle during it, so a tip that has begun always
+completes at a knowable time. During the swing the up CELL still holds its
+contents at its declared height; the dump and the swap both happen at the end.
+
+A consequence worth knowing: a CELL that is *down* holds nothing. Pieces staged
+in a down CELL fall to the tiles over the seconds a swing now takes, where
+under an instant flip they survived the single tick in between.
+
+### 11.3 The HIVE blocks a shot fired through it
+
+| | |
+|---|---|
+| **Source** | No rule. BIOBUZZ publishes no no-shoot zone; this is the structure being physically present. |
+| **Location** | `core/field/fieldTemplate.ts`, `core/sim/simWorld.ts`, `core/game/fixtures/biobuzzAssemblies.ts` |
+| **Decision** | An assembly part may declare its collider `transferOnly`: it stops a piece in flight and interacts with nothing else. The HIVE's four baskets declare it. |
+
+A routed shot is exempt from ordinary contacts so that a robot, a rail or a
+loose piece cannot deflect it off its declared destination. That exemption also
+let it pass through the raised HIVE, which is the one thing a driver should
+have to shoot around. An ordinary collider is not the answer: a basket is a
+hollow box holding resting pieces and a 2D convex shape has no inside, so a
+solid one would eject whatever the CELL is holding — the same defect DECODE's
+filled GOAL triangle had.
+
+`transferOnly` bodies are kept out of `FieldTemplate.bodies` entirely, so the
+ordinary broadphase never sees them: robots, rolling pieces and resting pieces
+all behave exactly as before. A blocker covering the shot's own declared
+destination is skipped, because a structure cannot block a shot aimed into
+itself and the destination sits inside the very basket that catches it. The
+result is that a shot at a CELL from the open side arrives, and the same shot
+lined up behind the other CELL hits it and falls.
+
+## 12. Revision log
 
 | Date | Change |
 |---|---|
+| 2026-09-14 | Added §12 (BIOBUZZ): the FLOWER became a real stacked, size-sorting column with top-only entry, geometric capacity and bottom-only retrieval, replacing `elevatedRegion.ts`; the HIVE tip became a load-scaled timed swing; and the HIVE's baskets became transfer-only colliders so a shot cannot be fired through the structure. |
 | 2026-08-28 | Replaced the fixed classifier-intruder reject coordinate with a nearest-edge generic lane boundary, marked in-flight deterministic transfers in snapshots so they retain legitimate GOAL access, set the DECODE GATE quiet window to 0.4 s with leading-ball re-open protection. |
 | 2026-08-28 | Increased the requested DECODE GATE quiet window to 1 s and added an elevated normal-lane separation correction before the live GATE collider closes, so no ARTIFACT can remain trapped in the arm. |
 | 2026-08-28 | Kept accepted deterministic shots collision-free through the shared GOAL funnel, then restore ordinary physical contacts exactly when each ARTIFACT boards the classifier lane. This prevents top-basin bunching without weakening classifier packing. |

@@ -29,7 +29,7 @@ import { totalMatchDurationSec, type MatchStructure } from './matchStructure.js'
 import type { PieceConveyorSpec } from './conveyor.js';
 import type { TippingStructureSpec } from './tipper.js';
 import type { ReserveFeedSpec } from './reserveFeed.js';
-import type { ElevatedRegionSpec } from './elevatedRegion.js';
+import type { StackedColumnSpec } from './stackedColumn.js';
 import type { PredicateRegistry } from './predicates.js';
 import type { Objective, ScoringRule, FilterValue } from './scoring.js';
 import type { ScoreState } from './effects.js';
@@ -295,11 +295,11 @@ export interface GameDefinition {
    */
   readonly reserveFeeds?: readonly ReserveFeedSpec[] | undefined;
   /**
-   * Regions that hold a resting piece at a declared height
-   * (`game/elevatedRegion.ts`), for a scoring pocket this engine's 2D contact
+   * Vertical columns that stack pieces in arrival order and sort them by size
+   * (`game/stackedColumn.ts`), for a scoring tube this engine's planar contact
    * solver cannot support on its own.
    */
-  readonly elevatedRegions?: readonly ElevatedRegionSpec[] | undefined;
+  readonly stackedColumns?: readonly StackedColumnSpec[] | undefined;
   /** Geometric intake chokepoints (`IntakeThrottleRegion`), when a game has them. */
   readonly intakeThrottleRegions?: readonly IntakeThrottleRegion[] | undefined;
 
@@ -586,10 +586,16 @@ export function validateGameDefinition(
     }
   }
 
-  // --- elevated regions -------------------------------------------------------
-  for (const spec of definition.elevatedRegions ?? []) {
+  // --- stacked columns ----------------------------------------------------
+  for (const spec of definition.stackedColumns ?? []) {
     if (!placedRegions.has(spec.regionId)) {
-      error(`elevatedRegions.${spec.id}`, `Region "${spec.regionId}" has no geometry.`);
+      error(`stackedColumns.${spec.id}`, `Region "${spec.regionId}" has no geometry.`);
+    }
+    if (spec.scoringBandM.topM < spec.scoringBandM.bottomM) {
+      error(`stackedColumns.${spec.id}`, 'Scoring band top is below its bottom.');
+    }
+    if (spec.entryRadiusM <= 0) {
+      error(`stackedColumns.${spec.id}`, 'Entry radius must be positive.');
     }
   }
 

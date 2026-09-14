@@ -53,33 +53,49 @@ import { createBiobuzzAssemblies } from './biobuzzAssemblies.js';
  */
 const STRUCTURE_ID_OFFSET = 100;
 
-/** Convert canonical OBB assembly parts into the static body model. */
-function assemblyBodies(assemblies: readonly FieldAssembly[]): readonly RigidBody[] {
-  return assemblies.flatMap((assembly) =>
-    assembly.parts.flatMap((part) => {
-      if (part.collider === undefined || part.geometry.kind !== 'obb') return [];
-      return [
-        createStaticBody({
-          id: part.collider.id,
-          shape: createObb(part.geometry.widthM, part.geometry.lengthM),
-          span: part.collider.span,
-          pose: part.geometry.pose,
-        }),
-      ];
-    }),
-  );
+/**
+ * Convert canonical OBB assembly parts into the static body model.
+ *
+ * `transferOnly` splits the result in two rather than tagging one list: a
+ * shot blocker must never reach the ordinary broadphase, because the raised
+ * CELLs it describes are hollow and hold resting pieces
+ * (`biobuzzAssemblies.ts`'s `basketPart`).
+ */
+function assemblyBodies(assemblies: readonly FieldAssembly[]): {
+  readonly solid: readonly RigidBody[];
+  readonly transferBlockers: readonly RigidBody[];
+} {
+  const solid: RigidBody[] = [];
+  const transferBlockers: RigidBody[] = [];
+
+  for (const assembly of assemblies) {
+    for (const part of assembly.parts) {
+      if (part.collider === undefined || part.geometry.kind !== 'obb') continue;
+      const body = createStaticBody({
+        id: part.collider.id,
+        shape: createObb(part.geometry.widthM, part.geometry.lengthM),
+        span: part.collider.span,
+        pose: part.geometry.pose,
+      });
+      if (part.collider.transferOnly === true) transferBlockers.push(body);
+      else solid.push(body);
+    }
+  }
+
+  return { solid, transferBlockers };
 }
 
 export function createBiobuzzField(firstEntityId: EntityId = 1000): FieldTemplate {
   const base = createStandardField(firstEntityId);
   const assemblies = createBiobuzzAssemblies(firstEntityId + STRUCTURE_ID_OFFSET);
-  const bodies = assemblyBodies(assemblies);
+  const { solid, transferBlockers } = assemblyBodies(assemblies);
 
   return {
     ...base,
     id: 'biobuzz-2026',
     name: 'BIOBUZZ Field',
-    bodies: [...base.bodies, ...bodies],
+    bodies: [...base.bodies, ...solid],
+    transferBlockers,
     assemblies,
   };
 }

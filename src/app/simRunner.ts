@@ -38,6 +38,7 @@ import {
   syncCanvasSize,
   type FieldOverlay,
   type RenderOptions,
+  type TippingStructureView,
 } from './render/fieldRenderer.js';
 import type { WorldSnapshot } from '../core/sim/snapshot.js';
 import type { InputHub } from './input/sources.js';
@@ -263,6 +264,7 @@ export class SimRunner {
     renderFrame(ctx, snapshot, this.field, alpha, this.renderOptions, {
       ...this.overlay,
       openConveyorIds: this.openConveyorIds(snapshot),
+      tippingStructures: this.tippingStructures(),
     });
     this.frameCount++;
   }
@@ -271,6 +273,20 @@ export class SimRunner {
     if (this.driveMode === 'robot') return input;
     const robot = this.simulation.world.snapshot().robots[0];
     return robot === undefined ? input : fieldCentricInput(input, robot.pose.theta);
+  }
+
+  /**
+   * Which end of each bistable structure is up, and how far through a swing it
+   * is, for the structure's own visual. A game with none returns nothing.
+   */
+  private tippingStructures(): readonly TippingStructureView[] {
+    const tippers = this.simulation.tippers;
+    return tippers.structureIds.flatMap((id) => {
+      const cellRegionIds = tippers.cellRegionIds(id);
+      const upIndex = tippers.upIndex(id);
+      if (cellRegionIds === undefined || upIndex === undefined) return [];
+      return [{ id, cellRegionIds, upIndex, swingProgress: tippers.tipProgress(id) }];
+    });
   }
 
   /** Which of the game's conveyors are open right now, for the gate's visual. */

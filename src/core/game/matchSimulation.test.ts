@@ -474,6 +474,10 @@ describe('tipping structures, dynamic mechanism routes and reserve feeds', () =>
     // Two of this suite's 0.165 lb pieces, expressed the way a real season
     // declares it: the load one cell carries, not a headcount.
     tipThresholdMassKg: explicit(poundsToKilograms(2 * 0.165)),
+    // A tenth of a second, not a season's real swing: this suite asserts the
+    // wiring from tip to score to reserve feed, and a 3.5 s swing would only
+    // make every case here wait for it.
+    tipDurationAtThresholdSec: explicit(0.1),
     cellRestHeightM: inchesToMeters(2.5),
     cellHeightRateMps: 10,
     dumpSpeedMps: 0.3,

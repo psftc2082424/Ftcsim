@@ -4,8 +4,15 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { TippingStructures, resolveTippingRegions, type TippingStructureSpec, type TippingWorld } from './tipper.js';
-import { createRectRegion } from './regions.js';
+import {
+  TippingStructures,
+  resolveTippingRegions,
+  tipDurationSec,
+  type TippingStructureSpec,
+  type TippingWorld,
+} from './tipper.js';
+import { createRectRegion, type FieldRegion } from './regions.js';
+import type { StructureTippedEvent } from './events.js';
 import { vec2, type Vec2 } from '../math/vec2.js';
 import { Pcg32, type SubStreamId } from '../math/rng.js';
 import type { WorldSnapshot } from '../sim/snapshot.js';
@@ -20,12 +27,16 @@ const CELL_B = createRectRegion({ id: 'cell-b', centerXIn: 0, centerYIn: -20, wi
 const LIGHT_KG = 0.04;
 const HEAVY_KG = LIGHT_KG * 2;
 
+/** A whole second of swing, so a tick-counted test reads in round numbers. */
+const SWING_SEC = 1;
+
 const SPEC: TippingStructureSpec = {
   id: 'seesaw',
   alliance: 'red',
   cellRegionIds: ['cell-a', 'cell-b'],
   initialUpIndex: 0,
   tipThresholdMassKg: explicit(LIGHT_KG * 2, undefined, 'test fixture'),
+  tipDurationAtThresholdSec: explicit(SWING_SEC, undefined, 'test fixture'),
   cellRestHeightM: 1,
   cellHeightRateMps: 5,
   dumpSpeedMps: 0.5,
@@ -91,6 +102,28 @@ function snapshot(piecesAt: ReadonlyMap<string, Vec2 | FakePiece>): WorldSnapsho
 const IN_CELL_A = vec2(0, 20 * 0.0254);
 const IN_CELL_B = vec2(0, -20 * 0.0254);
 
+/**
+ * Feed one unchanging snapshot in for `ticks` ticks, reporting the tick a tip
+ * actually completed on. A tip is a timed swing now, so almost every
+ * expectation below is about *when* it lands, not merely that it did.
+ */
+function run(
+  structures: TippingStructures,
+  regions: ReadonlyMap<string, FieldRegion>,
+  snap: WorldSnapshot,
+  world: FakeWorld,
+  ticks: number,
+): { events: StructureTippedEvent[]; tipTick: number | null } {
+  const events: StructureTippedEvent[] = [];
+  let tipTick: number | null = null;
+  for (let tick = 1; tick <= ticks; tick++) {
+    const produced = structures.update(regions, snap, tick, tick * DT, world);
+    if (produced.length > 0 && tipTick === null) tipTick = tick;
+    events.push(...produced);
+  }
+  return { events, tipTick };
+}
+
 describe('TippingStructures', () => {
   it('starts up on the declared cell', () => {
     const structures = new TippingStructures([SPEC]);
@@ -123,36 +156,88 @@ describe('TippingStructures', () => {
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
 
-    const events = structures.update(
+    const { events, tipTick } = run(
+      structures,
       regions,
       snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])),
-      5,
-      5 * DT,
       world,
+      400,
     );
 
+    expect(tipTick).not.toBeNull();
     expect(events).toEqual([
-      { kind: 'StructureTipped', tick: 5, timeSec: 5 * DT, structureId: 'seesaw', alliance: 'red', upRegionId: 'cell-b' },
+      {
+        kind: 'StructureTipped',
+        tick: tipTick,
+        timeSec: (tipTick as number) * DT,
+        structureId: 'seesaw',
+        alliance: 'red',
+        upRegionId: 'cell-b',
+      },
     ]);
     expect(structures.currentUpRegionId('seesaw')).toBe('cell-b');
     expect(structures.tipCount('seesaw')).toBe(1);
   });
 
-  it('weighs the load rather than counting it, so one heavy piece tips what two light ones do', () => {
+  it('takes the declared swing time to come over rather than flipping on the loading tick', () => {
     const structures = new TippingStructures([SPEC]);
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
+    const loaded = snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]]));
 
-    const events = structures.update(
+    // The load is already there on tick 1, so the swing starts then and must
+    // still be running a whole tick before its declared duration is up.
+    const { tipTick } = run(structures, regions, loaded, world, 400);
+
+    expect(structures.currentUpRegionId('seesaw')).toBe('cell-b');
+    // Started on tick 1 at t = DT, so it completes one swing later.
+    expect((tipTick as number) * DT).toBeCloseTo(DT + SWING_SEC, 2);
+  });
+
+  it('reports a swing in progress, and stops reporting one once it has landed', () => {
+    const structures = new TippingStructures([SPEC]);
+    const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
+    const world = new FakeWorld();
+    const loaded = snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]]));
+
+    run(structures, regions, loaded, world, 100);
+    expect(structures.isTipping('seesaw')).toBe(true);
+    expect(structures.tipProgress('seesaw')).toBeGreaterThan(0);
+    expect(structures.tipProgress('seesaw')).toBeLessThan(1);
+    // Mid-swing the cells have not swapped yet: the loaded cell is still up.
+    expect(structures.currentUpRegionId('seesaw')).toBe('cell-a');
+
+    run(structures, regions, loaded, world, 400);
+    expect(structures.isTipping('seesaw')).toBe(false);
+    expect(structures.tipProgress('seesaw')).toBe(0);
+  });
+
+  it('comes over faster the further past its threshold the load is', () => {
+    const atThreshold = new TippingStructures([SPEC]);
+    const overloaded = new TippingStructures([SPEC]);
+    const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
+
+    const light = run(
+      atThreshold,
       regions,
-      snapshot(new Map([['heavy', { at: IN_CELL_A, massKg: HEAVY_KG }]])),
-      5,
-      5 * DT,
-      world,
+      snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])),
+      new FakeWorld(),
+      600,
+    );
+    // Three light balls instead of two: 1.5x the threshold load.
+    const heavy = run(
+      overloaded,
+      regions,
+      snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A], ['c', IN_CELL_A]])),
+      new FakeWorld(),
+      600,
     );
 
-    expect(events).toHaveLength(1);
-    expect(structures.tipCount('seesaw')).toBe(1);
+    expect(light.tipTick).not.toBeNull();
+    expect(heavy.tipTick).not.toBeNull();
+    expect(heavy.tipTick as number).toBeLessThan(light.tipTick as number);
+    // Inverse in the load, so 1.5x the load is 2/3 of the swing.
+    expect(tipDurationSec(SPEC, LIGHT_KG * 3)).toBeCloseTo((SWING_SEC * 2) / 3, 6);
   });
 
   it('does not tip on a count alone when the pieces are too light to reach the threshold', () => {
@@ -160,7 +245,8 @@ describe('TippingStructures', () => {
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
 
-    const events = structures.update(
+    const { events } = run(
+      structures,
       regions,
       snapshot(
         new Map([
@@ -169,13 +255,30 @@ describe('TippingStructures', () => {
           ['c', { at: IN_CELL_A, massKg: LIGHT_KG / 2 }],
         ]),
       ),
-      5,
-      5 * DT,
       world,
+      600,
     );
 
     expect(events).toEqual([]);
     expect(structures.tipCount('seesaw')).toBe(0);
+    expect(structures.isTipping('seesaw')).toBe(false);
+  });
+
+  it('weighs the load rather than counting it, so one heavy piece tips what two light ones do', () => {
+    const structures = new TippingStructures([SPEC]);
+    const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
+    const world = new FakeWorld();
+
+    const { events } = run(
+      structures,
+      regions,
+      snapshot(new Map([['heavy', { at: IN_CELL_A, massKg: HEAVY_KG }]])),
+      world,
+      400,
+    );
+
+    expect(events).toHaveLength(1);
+    expect(structures.tipCount('seesaw')).toBe(1);
   });
 
   it('ends the protected flight of a shot the cell has caught', () => {
@@ -214,7 +317,7 @@ describe('TippingStructures', () => {
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
 
-    structures.update(regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), 5, 5 * DT, world);
+    run(structures, regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), world, 400);
 
     for (const pieceId of ['a', 'b']) {
       const v = world.velocities.get(pieceId);
@@ -233,7 +336,7 @@ describe('TippingStructures', () => {
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
 
-    structures.update(regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), 5, 5 * DT, world);
+    run(structures, regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), world, 400);
 
     expect(world.velocities.get('a')).not.toEqual(world.velocities.get('b'));
   });
@@ -242,19 +345,15 @@ describe('TippingStructures', () => {
     const structures = new TippingStructures([SPEC]);
     const regions = resolveTippingRegions([SPEC], [CELL_A, CELL_B]);
     const world = new FakeWorld();
+    const loaded = snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]]));
 
-    structures.update(regions, snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])), 5, 5 * DT, world);
-    // Cell A is now the down cell; a piece still physically there this tick
-    // (before it has actually moved away) must not count toward cell B tipping
-    // again, and cell B is empty, so nothing should tip.
-    const events = structures.update(
-      regions,
-      snapshot(new Map([['a', IN_CELL_A], ['b', IN_CELL_A]])),
-      6,
-      6 * DT,
-      world,
-    );
-    expect(events).toEqual([]);
+    const { tipTick } = run(structures, regions, loaded, world, 400);
+    // Cell A is now the down cell; pieces still physically there this tick
+    // (before they have actually moved away) must not count toward cell B
+    // tipping again, and cell B is empty, so nothing should tip.
+    const after = structures.update(regions, loaded, 401, 401 * DT, world);
+    expect(tipTick).not.toBeNull();
+    expect(after).toEqual([]);
     expect(structures.currentUpRegionId('seesaw')).toBe('cell-b');
   });
 });

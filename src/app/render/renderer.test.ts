@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fitCamera, metersToPixels, worldToScreenX, worldToScreenY } from './camera.js';
-import { DEFAULT_RENDER_OPTIONS, renderFrame } from './fieldRenderer.js';
+import { DEFAULT_RENDER_OPTIONS, renderFrame, type FieldOverlay } from './fieldRenderer.js';
 import { createDecodeField } from '../../core/game/fixtures/decodeCollision.js';
 import { DECODE_ZONES } from '../../core/game/fixtures/decode.js';
 import {
@@ -11,6 +11,7 @@ import {
 import { createBiobuzzField } from '../../core/game/fixtures/biobuzzCollision.js';
 import { BIOBUZZ_FIELD_REGIONS, BIOBUZZ_REGIONS } from '../../core/game/fixtures/biobuzzField.js';
 import { HIVE_CELL_REST_HEIGHT_IN } from '../../core/game/fixtures/biobuzz.js';
+import { BIOBUZZ_GAME } from '../../core/game/fixtures/biobuzzGame.js';
 import { inchesToMeters } from '../../core/units/convert.js';
 import { createStandardField } from '../../core/field/fieldTemplate.js';
 import { runHeadless } from '../../core/sim/headless.js';
@@ -670,5 +671,93 @@ describe('BIOBUZZ presentation: a piece actually in the HIVE versus merely under
     const screenX = worldToScreenX(camera, cellRegion.centerM.x);
     const screenY = worldToScreenY(camera, cellRegion.centerM.y);
     expect(highlightStrokeAt(calls, screenX, screenY)).toBe(false);
+  });
+});
+
+/**
+ * The up/down marker on a bistable structure (BIOBUZZ's HIVE).
+ *
+ * Everything asserted here is a read of `FieldOverlay.tippingStructures`,
+ * which the runner fills from `TippingStructures`' own state — the same fact
+ * that decides which CELL a shot is routed into. The renderer cannot disagree
+ * with the simulation about which end is up, because it is not told anything
+ * else.
+ */
+describe('bistable structure presentation', () => {
+  const biobuzzField = createBiobuzzField();
+
+  const overlayWithUpIndex = (upIndex: 0 | 1, swingProgress = 0): FieldOverlay => ({
+    regions: BIOBUZZ_GAME.regions,
+    zones: BIOBUZZ_GAME.zones,
+    tippingStructures: [
+      {
+        id: 'red-hive',
+        cellRegionIds: [BIOBUZZ_REGIONS.redCellNear, BIOBUZZ_REGIONS.redCellFar],
+        upIndex,
+        swingProgress,
+      },
+    ],
+  });
+
+  const oneRobot = () =>
+    runHeadless({
+      robots: [
+        {
+          config: DEFAULT_ROBOT_CONFIG,
+          controller: constantController(createControlInput(0, 0, 0)),
+          startPose: { p: vec2(0, 0), theta: 0 },
+        },
+      ],
+      field: biobuzzField,
+      ticks: 1,
+    }).finalSnapshot;
+
+  const frameFor = (overlay: FieldOverlay) => {
+    const recorded = createRecordingContext(800, 800);
+    renderFrame(recorded.ctx, oneRobot(), biobuzzField, 0, DEFAULT_RENDER_OPTIONS, overlay);
+    return recorded;
+  };
+
+  it('draws a different picture depending on which cell is up', () => {
+    expect(frameFor(overlayWithUpIndex(0)).calls).not.toEqual(frameFor(overlayWithUpIndex(1)).calls);
+  });
+
+  it('marks the raised cell and leaves the lowered one plain', () => {
+    /**
+     * Where the filled marker was drawn: the `moveTo` that opened the path
+     * `fill()` closed. `fill()` itself carries no coordinates, so the apex is
+     * the only thing that says *which* cell got marked.
+     */
+    const raisedMarkerApex = (upIndex: 0 | 1): readonly (readonly number[])[] => {
+      const calls = frameFor(overlayWithUpIndex(upIndex)).calls;
+      return calls.flatMap((call, index) => {
+        if (call.op !== 'fill' || call.fillStyle !== '#ffe08a') return [];
+        const opened = calls.slice(0, index).reverse().find((earlier) => earlier.op === 'moveTo');
+        return opened === undefined ? [] : [opened.args];
+      });
+    };
+
+    // Exactly one chevron is filled in the raised colour: the up cell's.
+    expect(raisedMarkerApex(0)).toHaveLength(1);
+    expect(raisedMarkerApex(1)).toHaveLength(1);
+    // And it is over the other cell once the structure flips.
+    expect(raisedMarkerApex(0)[0]).not.toEqual(raisedMarkerApex(1)[0]);
+  });
+
+  it('draws a structure part-way through a swing differently from one at rest', () => {
+    expect(frameFor(overlayWithUpIndex(0, 0.5)).calls).not.toEqual(
+      frameFor(overlayWithUpIndex(0)).calls,
+    );
+  });
+
+  it('draws nothing structure-specific for a game that declares none', () => {
+    const withoutStructures: FieldOverlay = {
+      regions: BIOBUZZ_GAME.regions,
+      zones: BIOBUZZ_GAME.zones,
+    };
+    const chevronFills = frameFor(withoutStructures).calls.filter(
+      (call) => call.op === 'fill' && call.fillStyle === '#ffe08a',
+    );
+    expect(chevronFills).toEqual([]);
   });
 });

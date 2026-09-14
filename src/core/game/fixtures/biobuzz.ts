@@ -48,7 +48,7 @@ import type {
 } from '../gameDefinition.js';
 import type { TippingStructureSpec } from '../tipper.js';
 import type { ReserveFeedSpec } from '../reserveFeed.js';
-import type { ElevatedRegionSpec } from '../elevatedRegion.js';
+import type { StackedColumnSpec } from '../stackedColumn.js';
 import { gramsToPounds, inchesToMeters, poundsToKilograms } from '../../units/convert.js';
 import {
   BIOBUZZ_HIVE_TIP_LOAD_GRAMS,
@@ -206,6 +206,26 @@ export const BIOBUZZ_HIVE_TIP_LOAD_LB: Sourced<number> = {
 export const HIVE_CELL_REST_HEIGHT_IN = HIVE_FRAME.pivotHeightIn.value - 6;
 
 /**
+ * How long a HIVE takes to come over once its up CELL reaches 200 g.
+ *
+ * The manual publishes nothing about the swing — §10.5.1 goes out of its way
+ * to say referees are not expected to watch for the instant a TIP happens —
+ * so this is a design choice, not a transcription: 3.5 s is roughly how long
+ * a structure pivoting 43.95 in up takes to fall through its own arc, and it
+ * is long enough that a driver watching the FIELD sees the tip coming and can
+ * start the next cycle. `tipper.ts` scales it down in inverse proportion to
+ * how far past 200 g the load actually is, so a 250 g CELL comes over in
+ * 2.8 s and a 400 g one in 1.75 s.
+ */
+export const BIOBUZZ_HIVE_TIP_DURATION_SEC: Sourced<number> = assumed(
+  3.5,
+  'Design choice: the Competition Manual publishes no swing time for the HIVE (§9.6.2 ' +
+    'describes the mechanism, §10.5.1 declines to fix the instant a TIP completes). Long ' +
+    'enough to read as a real structure coming over rather than a state flip, short enough ' +
+    'not to stall a cycle.',
+);
+
+/**
  * Which CELL each HIVE starts with facing up.
  *
  * The manual leaves this to FIELD STAFF, but the setup guide fixes it for
@@ -240,6 +260,7 @@ export const BIOBUZZ_TIPPING_STRUCTURES: readonly TippingStructureSpec[] = (['re
       ...BIOBUZZ_HIVE_TIP_LOAD_LB,
       value: poundsToKilograms(BIOBUZZ_HIVE_TIP_LOAD_LB.value),
     },
+    tipDurationAtThresholdSec: BIOBUZZ_HIVE_TIP_DURATION_SEC,
     cellRestHeightM: inchesToMeters(HIVE_CELL_REST_HEIGHT_IN),
     cellHeightRateMps: 2,
     // A visible launch out of the cell, not a gentle roll-off; not a rule,
@@ -291,33 +312,102 @@ export const BIOBUZZ_RESERVE_FEEDS: readonly ReserveFeedSpec[] = (['red', 'blue'
   releaseAllAtState: 'ENDGAME',
 }));
 
-// -------------------------------------------------------- elevated FLOWERs ---
+// ------------------------------------------------------------- FLOWERs ---
 
 /**
- * Holds a piece inside a FLOWER's scoring band once it arrives there.
+ * Where the lowest thing in a FLOWER rests: on the tiles.
  *
- * This 2D-plus-height engine has no true 3D stacking, so a FLOWER cannot
- * genuinely hold several pieces resting on top of one another the way the
- * real narrow tube does (§9.7); at most one piece is reliably held per
- * FLOWER at a time in this pass. The ownership/bottom-bonus rules in
- * `BIOBUZZ_RULE_SET` are still written generally (against arrival order, not
- * a fixed count), so they score correctly for however many pieces the
- * physics actually lets coexist, and will score correctly for more if a
- * future pass adds real stacking.
+ * The Bottom Ring is 0.4 in tall with a 2.79 in hole "for POLLEN to sit in"
+ * (§9.7) and the setup guide stages a FLOWER with "the bottom most Pollen
+ * sitting on the tiles inside the Flower Bottom Ring" (§11.2) — a POLLEN sits
+ * *in* the hole, not on top of the ring, so the column's own floor is the
+ * tile surface.
  */
-const FLOWER_REST_HEIGHT_IN = FLOWER.topOpeningHeightIn.value - 4;
+const FLOWER_FLOOR_HEIGHT_IN = 0;
 
-export const BIOBUZZ_ELEVATED_REGIONS: readonly ElevatedRegionSpec[] = [
+/**
+ * The middle ring: the sorter, and the bottom of the scoring volume.
+ *
+ * Derived rather than transcribed. §9.7 gives the retrieval opening as
+ * 3.55 in tall sitting above the 0.4 in Bottom Ring, so the next restriction
+ * up starts 3.95 in off the tiles. What makes it a *sorter* is the two ball
+ * sizes either side of that opening: a 2.8 in POLLEN passes it and falls
+ * through to whatever is below, a 3.6 in NECTAR cannot and seats on it.
+ *
+ * That one fact carries the whole mechanism, which is why it is worth
+ * deriving carefully: a NECTAR can therefore never sink below the bottom of
+ * the scoring volume, so a NECTAR entered into a FLOWER always scores, and
+ * pulling a POLLEN out from under one does not lower it. `inferred`, not
+ * `explicit`: the manual prints the two heights this adds together and the
+ * two ball diameters, but never states the ring's own elevation or that its
+ * hole falls between the two sizes.
+ */
+export const FLOWER_MID_RING_HEIGHT_IN: Sourced<number> = inferred(
+  FLOWER.lowerRingHeightIn.value + FLOWER.retrievalOpeningHeightIn.value,
+  'Sum of §9.7\'s 0.4 in Bottom Ring and the 3.55 in retrieval opening above it: the next ' +
+    'restriction up the tube starts where that opening ends. Its hole falls between the ' +
+    'sourced 2.8 in POLLEN and 3.6 in NECTAR diameters (§9.8), which is what makes it sort ' +
+    'them — the manual states neither the elevation nor the hole size.',
+  72,
+);
+
+/**
+ * How far above the top ring a descending piece still counts as entering.
+ *
+ * A lobbed piece crosses the ring's exact height somewhere between two fixed
+ * steps, so entry has to be a band. Sized from the FLOWER's own 1.25 in
+ * backstop (§9.7) plus room for a fast arc's per-tick travel; `assumed`
+ * because the manual describes no entry criterion at all.
+ */
+const FLOWER_ENTRY_MARGIN_IN: Sourced<number> = assumed(
+  3,
+  'No manual criterion exists for "entering" a FLOWER. Roughly twice §9.7\'s 1.25 in ' +
+    'backstop, which is the height a piece actually has to clear, widened so a fast arc ' +
+    'cannot step across the ring between two fixed timesteps.',
+);
+
+/** The four POLLEN each FLOWER is pre-loaded with (§10.3.1), bottom first. */
+export function flowerPollenIds(flowerRegionId: string): readonly string[] {
+  return [0, 1, 2, 3].map((index) => `pollen-${flowerRegionId}-${index}`);
+}
+
+const FLOWER_REGION_IDS: readonly string[] = [
   BIOBUZZ_REGIONS.flowerNorth,
   BIOBUZZ_REGIONS.flowerSouth,
   BIOBUZZ_REGIONS.flowerEast,
   BIOBUZZ_REGIONS.flowerWest,
-].map((regionId) => ({
-  id: `${regionId}-hold`,
-  regionId,
-  restHeightM: inchesToMeters(FLOWER_REST_HEIGHT_IN),
-  heightRateMps: 2,
-}));
+];
+
+/**
+ * Each FLOWER as a stacked column (`stackedColumn.ts`).
+ *
+ * Everything season-specific is here as data: the sorter ring that POLLEN
+ * passes and NECTAR does not, which NECTAR colour owns a FLOWER for whom, and
+ * that only POLLEN is narrow enough to come back out of the retrieval opening
+ * — so a NECTAR at the bottom locks the FLOWER, exactly as the real 3.55 in
+ * opening does to a 3.6 in ball.
+ */
+export const BIOBUZZ_STACKED_COLUMNS: readonly StackedColumnSpec[] = FLOWER_REGION_IDS.map(
+  (regionId) => ({
+    id: `${regionId}-column`,
+    regionId,
+    entryRadiusM: inchesToMeters(FLOWER.topOpeningDiameterIn.value / 2),
+    entryHeightM: inchesToMeters(FLOWER.topOpeningHeightIn.value),
+    entryMarginM: inchesToMeters(FLOWER_ENTRY_MARGIN_IN.value),
+    floorHeightM: inchesToMeters(FLOWER_FLOOR_HEIGHT_IN),
+    scoringBandM: {
+      bottomM: inchesToMeters(FLOWER_MID_RING_HEIGHT_IN.value),
+      topM: inchesToMeters(FLOWER.topOpeningHeightIn.value),
+    },
+    seatFloorMByPieceType: {
+      'nectar-red': inchesToMeters(FLOWER_MID_RING_HEIGHT_IN.value),
+      'nectar-blue': inchesToMeters(FLOWER_MID_RING_HEIGHT_IN.value),
+    },
+    ownershipByPieceType: { 'nectar-red': 'red', 'nectar-blue': 'blue' },
+    retrievablePieceTypes: ['pollen'],
+    initialPieceIds: flowerPollenIds(regionId),
+  }),
+);
 
 /**
  * A FLOWER's own narrow opening bottlenecks how fast POLLEN can be drawn out
@@ -338,12 +428,7 @@ const FLOWER_INTAKE_RATE_PER_SEC = 2;
  */
 const FLOWER_INTAKE_THROTTLE_RADIUS_IN = 6;
 
-export const BIOBUZZ_INTAKE_THROTTLE_REGIONS: readonly IntakeThrottleRegion[] = [
-  BIOBUZZ_REGIONS.flowerNorth,
-  BIOBUZZ_REGIONS.flowerSouth,
-  BIOBUZZ_REGIONS.flowerEast,
-  BIOBUZZ_REGIONS.flowerWest,
-].map((regionId) => ({
+export const BIOBUZZ_INTAKE_THROTTLE_REGIONS: readonly IntakeThrottleRegion[] = FLOWER_REGION_IDS.map((regionId) => ({
   regionId,
   ratePerSec: FLOWER_INTAKE_RATE_PER_SEC,
   radiusInOverride: FLOWER_INTAKE_THROTTLE_RADIUS_IN,
@@ -368,13 +453,6 @@ const CELL_REGION_IDS: readonly string[] = [
 
 const cellAlliance = (regionId: string): 'red' | 'blue' => (regionId.startsWith('red') ? 'red' : 'blue');
 
-const FLOWER_REGION_IDS: readonly string[] = [
-  BIOBUZZ_REGIONS.flowerNorth,
-  BIOBUZZ_REGIONS.flowerSouth,
-  BIOBUZZ_REGIONS.flowerEast,
-  BIOBUZZ_REGIONS.flowerWest,
-];
-
 export const BIOBUZZ_RULE_SET: readonly ScoringRule[] = [
   // HIVE TIP (§10.5.1, Table 10-2) — one rule covers both alliances' HIVEs:
   // `owner` resolves from the event's own `alliance` field.
@@ -396,39 +474,34 @@ export const BIOBUZZ_RULE_SET: readonly ScoringRule[] = [
     award: { points: REMAINING_IN_CELL_POINTS, alliance: cellAlliance(regionId) },
   })),
 
-  // FLOWER ownership: every piece resting in a FLOWER at match end scores for
-  // whichever alliance's NECTAR sits topmost there (§10.5.2), regardless of
-  // which alliance placed it.
-  ...FLOWER_REGION_IDS.flatMap((regionId) =>
-    (['red', 'blue'] as const).map((owner) => ({
-      id: `flower-owned-${regionId}-${owner}`,
-      label: `${regionId} owned by ${owner}`,
-      phase: 'ENDGAME' as const,
-      trigger: { event: 'PieceCameToRest' as const, filters: [{ field: 'regionIds.0', equals: regionId }] },
-      condition: { predicateId: 'regionLastArrivalHasType', params: { regionId, pieceType: `nectar-${owner}` } },
-      award: { points: FLOWER_OWNED_POINTS, alliance: owner },
-    })),
-  ),
+  // FLOWER ownership (§10.5.2): every element at least partly inside a
+  // FLOWER's scoring volume scores for whichever alliance's NECTAR sits
+  // topmost in that volume, regardless of who placed it or what it is — a
+  // POLLEN under an owning NECTAR scores for that NECTAR's alliance too.
+  // `stackedColumn.ts` decides ownership from the column's real heights and
+  // puts it on each piece's own event, so this is one rule rather than one
+  // per FLOWER per alliance: a column nobody owns carries no alliance at all
+  // and awards nobody.
+  {
+    id: 'flower-owned',
+    label: 'POLLEN/NECTAR in an owned FLOWER',
+    phase: 'ENDGAME',
+    trigger: { event: 'PieceStackedInColumn', filters: [] },
+    award: { points: FLOWER_OWNED_POINTS, alliance: 'owner' },
+  },
 
-  // Bottom NECTAR Bonus: a flat, once-per-FLOWER credit to whichever alliance's
-  // NECTAR is lowest (§10.5.2) — gated on piece identity so a FLOWER holding
-  // several same-colour NECTAR cannot award this more than once.
-  ...FLOWER_REGION_IDS.flatMap((regionId) =>
-    (['red', 'blue'] as const).map((owner) => ({
-      id: `bottom-nectar-bonus-${regionId}-${owner}`,
-      label: `Bottom NECTAR bonus, ${regionId}, ${owner}`,
-      phase: 'ENDGAME' as const,
-      trigger: {
-        event: 'PieceCameToRest' as const,
-        filters: [
-          { field: 'regionIds.0', equals: regionId },
-          { field: 'pieceType', equals: `nectar-${owner}` },
-        ],
-      },
-      condition: { predicateId: 'pieceIsRegionFirstArrival', params: { regionId } },
-      award: { points: BOTTOM_NECTAR_BONUS_POINTS, alliance: owner },
-    })),
-  ),
+  // Bottom NECTAR Bonus (§10.5.2): a flat, once-per-FLOWER credit to whichever
+  // alliance's NECTAR is *lowest* in the scoring volume. A separate event kind
+  // from the one above precisely because it is a different owner — bottom-up,
+  // not top-down — and one column emits exactly one of these, so a FLOWER
+  // holding several NECTAR of one colour still pays the bonus once.
+  {
+    id: 'bottom-nectar-bonus',
+    label: 'Bottom NECTAR bonus',
+    phase: 'ENDGAME',
+    trigger: { event: 'ColumnAssessed', filters: [] },
+    award: { points: BOTTOM_NECTAR_BONUS_POINTS, alliance: 'owner' },
+  },
 
   // GARDEN (§10.5.3): any piece resting there scores for that GARDEN's own
   // alliance regardless of who placed it.

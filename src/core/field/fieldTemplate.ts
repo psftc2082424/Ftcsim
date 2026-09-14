@@ -71,6 +71,16 @@ export interface FieldTemplate {
    * thicknesses or rule-region rectangles.
    */
   readonly assemblies?: readonly FieldAssembly[] | undefined;
+  /**
+   * Static bodies that only a piece in flight interacts with
+   * (`FieldAssemblyCollider.transferOnly`).
+   *
+   * Kept out of `bodies` rather than flagged inside it so the ordinary
+   * broadphase never sees them: a robot, a rolling piece and a piece resting
+   * inside one of these structures all behave exactly as they did before the
+   * structure existed.
+   */
+  readonly transferBlockers?: readonly RigidBody[] | undefined;
 }
 
 /** Neutral physical materials used by the 2D field renderer. */
@@ -92,6 +102,19 @@ export interface FieldAssemblyCollider {
   readonly id: EntityId;
   readonly span: VerticalSpan;
   readonly tag?: string | undefined;
+  /**
+   * This part stops pieces *in flight* and nothing else.
+   *
+   * A raised open structure — a basket, a hopper mouth — is hollow, and a 2D
+   * convex shape has no inside: an ordinary collider drawn over one ejects the
+   * pieces resting in it, which is why such structures have gone without a
+   * collider at all. What they genuinely do block is a shot passing through
+   * them on its way somewhere else, and that is a distinct interaction (a
+   * routed shot is already exempt from ordinary contacts while it flies, see
+   * `SimWorld`'s transfer state). Declaring the part transfer-only says that
+   * outright instead of approximating the structure with something solid.
+   */
+  readonly transferOnly?: boolean | undefined;
 }
 
 export interface FieldAssemblyPart {
